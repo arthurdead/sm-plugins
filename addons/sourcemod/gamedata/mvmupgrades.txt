@@ -1,0 +1,98 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CUpgrades::ReportUpgrade"
+			{
+				"library" "server"
+				"linux" "@_ZN9CUpgrades13ReportUpgradeEP9CTFPlayeriiiibbb"
+			}
+			"CTFGameRules::GameModeUsesUpgrades"
+			{
+				"library" "server"
+				"linux" "@_ZN12CTFGameRules20GameModeUsesUpgradesEv"
+			}
+			"CTFGameRules::CanPlayerUseRespec"
+			{
+				"library" "server"
+				"linux" "@_ZN12CTFGameRules18CanPlayerUseRespecEP9CTFPlayer"
+			}
+			"CUpgrades::GrantOrRemoveAllUpgrades"
+			{
+				"library" "server"
+				"linux" "@_ZN9CUpgrades24GrantOrRemoveAllUpgradesEP9CTFPlayerbb"
+			}
+		}
+		"Functions"
+		{
+			"CUpgrades::ReportUpgrade"
+			{
+				"signature" "CUpgrades::ReportUpgrade"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"arg1"
+					{
+						"type" "cbaseentity"
+					}
+					"arg2"
+					{
+						"type" "int"
+					}
+					"arg3"
+					{
+						"type" "int"
+					}
+					"arg4"
+					{
+						"type" "int"
+					}
+					"arg5"
+					{
+						"type" "int"
+					}
+					"arg6"
+					{
+						"type" "bool"
+					}
+					"arg7"
+					{
+						"type" "bool"
+					}
+					"arg8"
+					{
+						"type" "bool"
+					}
+				}
+			}
+			"CTFGameRules::GameModeUsesUpgrades"
+			{
+				"signature" "CTFGameRules::GameModeUsesUpgrades"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CTFGameRules::CanPlayerUseRespec"
+			{
+				"signature" "CTFGameRules::CanPlayerUseRespec"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"arg1"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+		}
+	}
+}

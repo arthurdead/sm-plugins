@@ -1,0 +1,114 @@
+#if defined _playermodel_included_
+	#endinput
+#endif
+#define _playermodel_included_
+
+#if defined GAME_TF2
+	#include <tf2>
+	#include <tf2_stocks>
+#endif
+
+#if defined GAME_TF2
+	#define BODYGROUP_SCOUT_HAT (1 << 0)
+	#define BODYGROUP_SCOUT_HEADPHONES (1 << 1)
+	#define BODYGROUP_SCOUT_SHOESSOCKS (1 << 2)
+	#define BODYGROUP_SCOUT_DOGTAGS (1 << 3)
+	#define BODYGROUP_SOLDIER_ROCKET (1 << 0)
+	#define BODYGROUP_SOLDIER_HELMET (1 << 1)
+	#define BODYGROUP_SOLDIER_MEDAL (1 << 2)
+	#define BODYGROUP_SOLDIER_GRENADES (1 << 3)
+	#define BODYGROUP_PYRO_HEAD (1 << 0)
+	#define BODYGROUP_PYRO_GRENADES (1 << 1)
+	#define BODYGROUP_DEMO_SMILE (1 << 0)
+	#define BODYGROUP_DEMO_SHOES (1 << 1)
+	#define BODYGROUP_HEAVY_HANDS (1 << 0)
+	#define BODYGROUP_ENGINEER_HELMET (1 << 0)
+	#define BODYGROUP_ENGINEER_ARM (1 << 1)
+	#define BODYGROUP_MEDIC_BACKPACK (1 << 0)
+	#define BODYGROUP_SNIPER_ARROWS (1 << 0)
+	#define BODYGROUP_SNIPER_HAT (1 << 1)
+	#define BODYGROUP_SNIPER_BULLETS (1 << 2)
+	#define BODYGROUP_SPY_MASK (1 << 0)
+	#define BODYGROUP_MERASMUS_STAFF (1 << 1)
+#endif
+
+enum PlayerModelType
+{
+	PlayerModelDefault,
+	PlayerModelCustomModel,
+	PlayerModelProp,
+	PlayerModelBonemerge,
+};
+
+enum PlayerModelFlags
+{
+	PLAYERMODEL_NONE,
+	PLAYERMODEL_RESPAWN,
+};
+
+native void Playermodel_Clear(int client, bool def=false);
+native void Playermodel_GetModel(int client, char[] model, int length, bool def=false);
+native void Playermodel_GetAnimation(int client, char[] model, int length, bool def=false);
+native int Playermodel_GetEntity(int client);
+native int Playermodel_SetAnimation(int client, const char[] model, bool def=false);
+native PlayerModelType Playermodel_GetType(int client, bool def=false);
+native int PlayerModel_SetType(int client, const char[] model, PlayerModelType type, bool def=false);
+
+native int Playermodel_GetSkin(int client, bool def=false);
+native void Playermodel_SetSkin(int client, int skin, bool def=false);
+
+stock bool Playermodel_IsSet(int client, bool def=false)
+{
+	return (Playermodel_GetType(client, def) != PlayerModelDefault);
+}
+
+#if defined GAME_TF2
+stock void GetModelForPlayerClass(int client, char[] model, int length)
+{
+	TFClassType class = TF2_GetPlayerClass(client);
+	GetModelForClass(class, model, length);
+}
+
+stock void GetModelForClass(TFClassType class, char[] model, int length)
+{
+	switch(class)
+	{
+		case TFClass_Unknown: { strcopy(model, length, "models/error.mdl"); }
+		case TFClass_Engineer: { strcopy(model, length, "models/player/engineer.mdl"); }
+		case TFClass_Scout: { strcopy(model, length, "models/player/scout.mdl"); }
+		case TFClass_Medic: { strcopy(model, length, "models/player/medic.mdl"); }
+		case TFClass_Soldier: { strcopy(model, length, "models/player/soldier.mdl"); }
+		case TFClass_Heavy: { strcopy(model, length, "models/player/heavy.mdl"); }
+		case TFClass_DemoMan: { strcopy(model, length, "models/player/demo.mdl"); }
+		case TFClass_Spy: { strcopy(model, length, "models/player/spy.mdl"); }
+		case TFClass_Sniper: { strcopy(model, length, "models/player/sniper.mdl"); }
+		case TFClass_Pyro: { strcopy(model, length, "models/player/pyro.mdl"); }
+	}
+}
+#endif
+
+public SharedPlugin __pl_playermodel = 
+{
+	name = "playermodel",
+	file = "playermodel.smx",
+#if defined REQUIRE_PLUGIN
+	required = 1,
+#else
+	required = 0,
+#endif
+};
+
+#if !defined REQUIRE_PLUGIN
+public void __pl_playermodel_SetNTVOptional()
+{
+	MarkNativeAsOptional("Playermodel_Clear");
+	MarkNativeAsOptional("Playermodel_GetModel");
+	MarkNativeAsOptional("Playermodel_GetAnimation");
+	MarkNativeAsOptional("Playermodel_GetEntity");
+	MarkNativeAsOptional("Playermodel_SetAnimation");
+	MarkNativeAsOptional("Playermodel_GetType");
+	MarkNativeAsOptional("PlayerModel_SetType");
+	MarkNativeAsOptional("Playermodel_GetSkin");
+	MarkNativeAsOptional("Playermodel_SetSkin");
+}
+#endif

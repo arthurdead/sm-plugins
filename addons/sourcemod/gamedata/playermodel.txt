@@ -1,0 +1,14 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"CBasePlayer::EquipWearable"
+			{
+				"windows" "430"
+				"linux" "431"
+			}
+		}
+	}
+}
