@@ -157,8 +157,8 @@ void Unhook(bool value)
 void Hook()
 {
 	if(!gamerules_hooked) {
-		SendProxy_HookGameRules("m_bIsInTraining", Prop_Int, HookIsTraining);
-		SendProxy_HookGameRules("m_bIsTrainingHUDVisible", Prop_Int, HookIsTraining);
+		SendProxy_HookGameRules("m_bIsInTraining", Prop_Int, HookIsTraining, true);
+		SendProxy_HookGameRules("m_bIsTrainingHUDVisible", Prop_Int, HookIsTraining, true);
 		gamerules_hooked = true;
 	}
 

@@ -6,8 +6,6 @@
 #include <keyvalues>
 #include <tf2_stocks>
 
-#define SENDPROXY_PER_PLAYER
-
 #pragma semicolon 1
 #pragma newdecls required
 
@@ -110,7 +108,7 @@ void SetAsInMVM(int client, bool is, FromWhere source)
 
 	if(source != FromClientCMD) {
 		if(g_iPlayersInMVM == 1) {
-			SendProxy_HookGameRules("m_bPlayingMannVsMachine", Prop_Int, IsMVM);
+			SendProxy_HookGameRules("m_bPlayingMannVsMachine", Prop_Int, IsMVM, false);
 			int ent = FindEntityByClassname(-1, "info_populator");
 			if(ent == -1) {
 				ent = CreateEntityByName("info_populator");
@@ -283,11 +281,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 	}
 }
 
-#if defined SENDPROXY_PER_PLAYER
-Action IsMVM(const char[] cPropName, int &iValue, const int iElement, const int iClient)
-#else
 Action IsMVM(const char[] cPropName, int &iValue, const int iElement)
-#endif
 {
 	iValue = 0;
 	return Plugin_Changed;
