@@ -1,0 +1,190 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"UTIL_GetLocalPlayer"
+			{
+				"library"	"server"
+				"linux"		"@_Z19UTIL_GetLocalPlayerv"
+			}
+			"UTIL_GetListenServerHost"
+			{
+				"library"	"server"
+				"linux"		"@_Z24UTIL_GetListenServerHostv"
+			}
+			"NDebugOverlay::Line"
+			{
+				"library"	"server"
+				"linux"		"@_ZN13NDebugOverlay4LineERK6VectorS2_iiibf"
+			}
+			"NDebugOverlay::Triangle"
+			{
+				"library"	"server"
+				"linux"		"@_ZN13NDebugOverlay8TriangleERK6VectorS2_S2_iiiibf"
+			}
+			"NDebugOverlay::Circle"
+			{
+				"library"	"server"
+				"linux"		"@_ZN13NDebugOverlay6CircleERK6VectorS2_S2_fiiiibf"
+			}
+		}
+		"Functions"
+		{
+			"NDebugOverlay::Line"
+			{
+				"signature" "NDebugOverlay::Line"
+				"callconv" "cdecl"
+				"return" "void"
+				"this" "ignore"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"origin"
+					{
+						"type" "vectorptr"
+					}
+					"target"
+					{
+						"type" "vectorptr"
+					}
+					"r"
+					{
+						"type" "int"
+					}
+					"g"
+					{
+						"type" "int"
+					}
+					"b"
+					{
+						"type" "int"
+					}
+					"noDepthTest"
+					{
+						"type" "bool"
+					}
+					"duration"
+					{
+						"type" "float"
+					}
+				}
+			}
+			"NDebugOverlay::Circle"
+			{
+				"signature" "NDebugOverlay::Circle"
+				"callconv" "cdecl"
+				"return" "void"
+				"this" "ignore"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"position"
+					{
+						"type" "vectorptr"
+					}
+					"xAxis"
+					{
+						"type" "vectorptr"
+					}
+					"yAxis"
+					{
+						"type" "vectorptr"
+					}
+					"radius"
+					{
+						"type" "float"
+					}
+					"r"
+					{
+						"type" "int"
+					}
+					"g"
+					{
+						"type" "int"
+					}
+					"b"
+					{
+						"type" "int"
+					}
+					"a"
+					{
+						"type" "int"
+					}
+					"noDepthTest"
+					{
+						"type" "bool"
+					}
+					"duration"
+					{
+						"type" "float"
+					}
+				}
+			}
+			"NDebugOverlay::Triangle"
+			{
+				"signature" "NDebugOverlay::Triangle"
+				"callconv" "cdecl"
+				"return" "void"
+				"this" "ignore"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"p1"
+					{
+						"type" "vectorptr"
+					}
+					"p2"
+					{
+						"type" "vectorptr"
+					}
+					"p3"
+					{
+						"type" "vectorptr"
+					}
+					"r"
+					{
+						"type" "int"
+					}
+					"g"
+					{
+						"type" "int"
+					}
+					"b"
+					{
+						"type" "int"
+					}
+					"a"
+					{
+						"type" "int"
+					}
+					"noDepthTest"
+					{
+						"type" "bool"
+					}
+					"duration"
+					{
+						"type" "float"
+					}
+				}
+			}
+			"UTIL_GetLocalPlayer"
+			{
+				"signature" "UTIL_GetLocalPlayer"
+				"callconv" "cdecl"
+				"return" "cbaseentity"
+				"this" "ignore"
+				"hooktype" "raw"
+			}
+			"UTIL_GetListenServerHost"
+			{
+				"signature" "UTIL_GetListenServerHost"
+				"callconv" "cdecl"
+				"return" "cbaseentity"
+				"this" "ignore"
+				"hooktype" "raw"
+			}
+		}
+	}
+}
