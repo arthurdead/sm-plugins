@@ -85,6 +85,23 @@ stock void GetModelForClass(TFClassType class, char[] model, int length)
 		case TFClass_Pyro: { strcopy(model, length, "models/player/pyro.mdl"); }
 	}
 }
+
+stock void GetArmModelForClass(TFClassType class, char[] model, int length)
+{
+	switch(class)
+	{
+		case TFClass_Unknown: { strcopy(model, length, "models/error.mdl"); }
+		case TFClass_Engineer: { strcopy(model, length, "models/weapons/c_models/c_engineer_arms.mdl"); }
+		case TFClass_Scout: { strcopy(model, length, "models/weapons/c_models/c_scout_arms.mdl"); }
+		case TFClass_Medic: { strcopy(model, length, "models/weapons/c_models/c_medic_arms.mdl"); }
+		case TFClass_Soldier: { strcopy(model, length, "models/weapons/c_models/c_soldier_arms.mdl"); }
+		case TFClass_Heavy: { strcopy(model, length, "models/weapons/c_models/c_heavy_arms.mdl"); }
+		case TFClass_DemoMan: { strcopy(model, length, "models/weapons/c_models/c_demo_arms.mdl"); }
+		case TFClass_Spy: { strcopy(model, length, "models/weapons/c_models/c_spy_arms.mdl"); }
+		case TFClass_Sniper: { strcopy(model, length, "models/weapons/c_models/c_sniper_arms.mdl"); }
+		case TFClass_Pyro: { strcopy(model, length, "models/weapons/c_models/c_pyro_arms.mdl"); }
+	}
+}
 #endif
 
 public SharedPlugin __pl_playermodel = 

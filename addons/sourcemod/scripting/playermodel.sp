@@ -280,14 +280,26 @@ enum struct PlayerModelInfo
 		this.owner = client;
 
 		if(!StrEqual(this.animation, "")) {
-			this.SetCustomModel(this.animation);
+			char currmodel[PLATFORM_MAX_PATH];
+		#if defined GAME_TF2
+			GetEntPropString(client, Prop_Send, "m_iszCustomModel", currmodel, sizeof(currmodel));
+			if(StrEqual(currmodel, "")) {
+				GetModelForClass(TF2_GetPlayerClass(client), currmodel, sizeof(currmodel));
+			}
+		#else
+			GetEntPropString(entity, Prop_Data, "m_ModelName", currmodel, sizeof(currmodel));
+		#endif
 
-			if(this.type == PlayerModelCustomModel || this.type == PlayerModelDefault) {
-				if(this.type == PlayerModelDefault) {
-					this.GetStandardModel(this.model, PLAYERMODELINFO_MODEL_LENGTH);
+			if(!StrEqual(this.animation, currmodel)) {
+				this.SetCustomModel(this.animation);
+
+				if(this.type == PlayerModelCustomModel || this.type == PlayerModelDefault) {
+					if(this.type == PlayerModelDefault) {
+						this.GetStandardModel(this.model, PLAYERMODELINFO_MODEL_LENGTH);
+					}
+					this.tmp_type = this.type;
+					this.type = PlayerModelBonemerge;
 				}
-				this.tmp_type = this.type;
-				this.type = PlayerModelBonemerge;
 			}
 		}
 

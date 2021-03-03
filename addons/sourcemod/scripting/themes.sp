@@ -168,6 +168,16 @@ float totalChance = 0.0;
 // Theme selection style
 int selectionStyle = STYLE_RANDOM;
 
+enum struct FishInfo
+{
+	char model[PLATFORM_MAX_PATH];
+	float pos[3];
+	float range;
+	int count;
+}
+
+ArrayList fishes = null;
+
 bool bSystem2 = false;
 	
 /* PLUGIN *********************************************************************/
@@ -681,7 +691,32 @@ bool LoadConfig()
 		
 		// Read custom attributes for all themes that are specific to this map
 		ReadThemeAttributes(kvMaps);
-		
+
+		if(kvMaps.JumpToKey("fish_pools")) {
+			delete fishes;
+			fishes = new ArrayList(sizeof(FishInfo));
+
+			if(kvMaps.GotoFirstSubKey()) {
+				do {
+					FishInfo info;
+					kvMaps.GetString("model", info.model, sizeof(info.model), "models/error.mdl");
+
+					PrecacheModel(info.model);
+
+					info.count = kvMaps.GetNum("count", 10);
+					info.range = kvMaps.GetFloat("range", 150.0);
+
+					kvMaps.GetVector("pos", info.pos);
+
+					fishes.PushArray(info, sizeof(info));
+				} while(kvMaps.GotoNextKey());
+
+				kvMaps.GoBack();
+			}
+
+			kvMaps.GoBack();
+		}
+
 		// Reset theme convar
 		cvNextTheme.SetString("");
 		
@@ -1045,6 +1080,15 @@ void UpdateDownloadsTable()
 		Format(filename, sizeof(filename), "materials/correction/%s", mapColorCorrection2);
 		AddFileToDownloadsTable(filename);
 	}
+
+	if(fishes != null) {
+		for(int i = 0; i < fishes.Length; ++i) {
+			FishInfo info;
+			fishes.GetArray(i, info, sizeof(info));
+
+			AddFileToDownloadsTable(info.model);
+		}
+	}
 }
 
 void OnMapManifestFTP(bool success, const char[] error, System2FTPRequest request, System2FTPResponse response)
@@ -1126,10 +1170,10 @@ void OnCopyMapTemplate(bool success, const char[] from, const char[] to)
 	}
 }
 
-void HandleMapParticleManifest(const char[] map)
+void HandleMapParticleManifest(const char[] mapname)
 {
 	char file[96];
-	Format(file, sizeof(file), "maps/%s_particles.txt", map);
+	Format(file, sizeof(file), "maps/%s_particles.txt", mapname);
 
 	if(!FileExists(file, true)) {
 		if(cvManifests.BoolValue && bSystem2) {
@@ -1526,6 +1570,48 @@ void ApplyConfigRound()
 			AcceptEntityInput(ent, "TurnOn");
 		}
 	}
+
+	if(fishes != null) {
+		int entity = -1;
+		while((entity = FindEntityByClassname(entity, "func_fish_pool")) != -1) {
+		#if defined CAN_GET_UTLVECTOR
+			char name[32];
+			GetEntPropString(entity, Prop_Data, "m_iName", name, sizeof(name));
+
+			if(StrContains(name, "themes_fish_pool") != -1)
+			{
+				int len = GetEntPropArraySize(entity, Prop_Data, "m_fishes");
+				for(int i = 0; i < len; ++i) {
+					int fish = GetEntPropEnt(entity, Prop_Data, "m_fishes", i);
+					RemoveEntity(fish);
+				}
+		#endif
+				RemoveEntity(entity);
+		#if defined CAN_GET_UTLVECTOR
+			}
+		#endif
+		}
+
+	#if !defined CAN_GET_UTLVECTOR
+		entity = -1;
+		while((entity = FindEntityByClassname(entity, "fish")) != -1) {
+			RemoveEntity(entity);
+		}
+	#endif
+
+		for(int i = 0; i < fishes.Length; ++i) {
+			FishInfo info;
+			fishes.GetArray(i, info, sizeof(info));
+
+			entity = CreateEntityByName("func_fish_pool");
+			DispatchKeyValue(entity, "targetname", "themes_fish_pool");
+			SetEntPropString(entity, Prop_Data, "m_ModelName", info.model);
+			SetEntPropFloat(entity, Prop_Data, "m_maxRange", info.range);
+			SetEntProp(entity, Prop_Data, "m_fishCount", info.count);
+			TeleportEntity(entity, info.pos);
+			DispatchSpawn(entity);
+		}
+	}
 }
 
 /* CreateParticles()
@@ -1550,7 +1636,7 @@ void CreateParticles()
 				}
 			}
 		}
-		
+
 		/*ent = -1;
 		
 		while ((ent = FindEntityByClassname(ent, "item_ammopack_full")) != -1) {
@@ -1573,16 +1659,15 @@ void CreateParticles()
 		
 		for (x = 0; x < nx; x++) {
 			for (y = 0; y < ny; y++) {
+				float pos[3];
+				pos[0] = mapX1[currentStage] + x*1024.0 + 512.0 - ox;
+				pos[1] = mapY1[currentStage] + y*1024.0 + 512.0 - oy;
+				pos[2] = mapParticleHeight + mapZ[currentStage];
+
 				int particle = CreateEntityByName("info_particle_system");
 
 				// Check if it was created correctly
 				if (IsValidEdict(particle)) {
-					float pos[3];
-					
-					pos[0] = mapX1[currentStage] + x*1024.0 + 512.0 - ox;
-					pos[1] = mapY1[currentStage] + y*1024.0 + 512.0 - oy;
-					pos[2] = mapParticleHeight + mapZ[currentStage];
-					
 					// Teleport, set up
 					TeleportEntity(particle, pos, NULL_VECTOR, NULL_VECTOR);
 					DispatchKeyValue(particle, "effect_name", mapParticle);

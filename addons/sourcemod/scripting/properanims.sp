@@ -18,30 +18,6 @@ public void OnPluginStart()
 
 //#define DISABLE_CACHE
 
-/*
-TODO
-
-make the animation select based on the other weapons of the player
-
-scout:
-	1: minigun
-	2: shotgun
-	3: fire axe
-anim on shotgun: heavy
-
-heavy:
-	1: rocket launcher
-	2: pistol
-	3: wrench
-anim on pistol: engineer
-
-medic:
-	1: rocket launcher
-	2: shotgun
-	3: fists
-anim on shotgun: random
-*/
-
 TFClassType secondaryshotguns[] =
 {
 	TFClass_Soldier,
