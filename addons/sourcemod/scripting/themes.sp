@@ -583,7 +583,7 @@ void InitConfig()
 	totalChance = 0.0;
 	selectionStyle = STYLE_RANDOM;
 
-	fishes = null;
+	delete fishes;
 }
 
 /* LoadConfig()
