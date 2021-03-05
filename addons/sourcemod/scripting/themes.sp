@@ -582,6 +582,8 @@ void InitConfig()
 	numUnknownChanceThemes = 0;
 	totalChance = 0.0;
 	selectionStyle = STYLE_RANDOM;
+
+	fishes = null;
 }
 
 /* LoadConfig()

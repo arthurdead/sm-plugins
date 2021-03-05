@@ -19,6 +19,8 @@ int tf_gamerules = -1;
 int m_bIsInTrainingOffset = -1;
 int m_bIsTrainingHUDVisibleOffset = -1;
 
+ConVar tf_training_client_message = null;
+
 public void OnPluginStart()
 {
 	TrainingObjective = GetUserMessageId("TrainingObjective");
@@ -29,6 +31,8 @@ public void OnPluginStart()
 
 	AddCommandListener(command_menu, "menuopen");
 	AddCommandListener(command_menu, "menuclosed");
+
+	tf_training_client_message = FindConVar("tf_training_client_message");
 
 	HookEvent("player_spawn", player_spawn);
 	HookEvent("teamplay_round_start", teamplay_round_start);
@@ -65,6 +69,13 @@ public void OnMapStart()
 		if(tf_gamerules == -1) {
 			ThrowError("tf_gamerules was not found");
 		}
+	}
+}
+
+public void OnMapEnd()
+{
+	for(int i = 1; i <= MaxClients; ++i) {
+		DisableClient(i, true);
 	}
 }
 
@@ -133,7 +144,12 @@ Action command_menu(int client, const char[] command, int args)
 
 public void OnGameFrame()
 {
-	if(num_enabled > 0) {
+#if defined SET_PROP
+	if((num_enabled > 0) && (num_enabled != MaxClients))
+#else
+	if(num_enabled > 0)
+#endif
+	{
 		ChangeGameRulesState();
 	}
 }
@@ -209,11 +225,16 @@ int DisableClient(int client, bool send_empty)
 		player_vgui_timer[client] = null;
 	}
 
-	if(send_empty && IsClientInGame(client)) {
-		int clients[1];
-		clients[0] = client;
-
-		SendUsrMsgHelper(clients, sizeof(clients), "", "");
+	if(send_empty) {
+		if(!IsClientInGame(client) ||
+			IsFakeClient(client) ||
+			IsClientSourceTV(client) ||
+			IsClientReplay(client)) {
+		} else {
+			int clients[1];
+			clients[0] = client;
+			SendUsrMsgHelper(clients, sizeof(clients), "", "");
+		}
 	}
 
 	if(msg_enabled[client]) {
@@ -312,10 +333,14 @@ int ChangeTitleAll(Handle plugin, int params)
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
-				clients[numClients++] = i;
-			}
+		if(!IsClientInGame(i) ||
+			IsFakeClient(i) ||
+			IsClientSourceTV(i) ||
+			IsClientReplay(i)) {
+			continue;
+		}
+		if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
+			clients[numClients++] = i;
 		}
 	}
 
@@ -339,10 +364,14 @@ int ChangeTextAll(Handle plugin, int params)
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
-				clients[numClients++] = i;
-			}
+		if(!IsClientInGame(i) ||
+			IsFakeClient(i) ||
+			IsClientSourceTV(i) ||
+			IsClientReplay(i)) {
+			continue;
+		}
+		if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
+			clients[numClients++] = i;
 		}
 	}
 
@@ -432,6 +461,12 @@ int SendToClients(Handle plugin, int params)
 	{
 		for(int i = 0; i < numClients; ++i) {
 			int client = clients[i];
+			if(!IsClientInGame(client) ||
+				IsFakeClient(client) ||
+				IsClientSourceTV(client) ||
+				IsClientReplay(client)) {
+				continue;
+			}
 			EnableClient(client);
 		}
 
@@ -460,14 +495,18 @@ int SendToAll(Handle plugin, int params)
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			clients[numClients++] = i;
-		#if !defined SET_PROP
-			EnableClient(i);
-		#endif
-		}
 	#if defined SET_PROP
 		DisableClient(i, true);
+	#endif
+		if(!IsClientInGame(i) ||
+			IsFakeClient(i) ||
+			IsClientSourceTV(i) ||
+			IsClientReplay(i)) {
+			continue;
+		}
+		clients[numClients++] = i;
+	#if !defined SET_PROP
+		EnableClient(i);
 	#endif
 	}
 
@@ -479,6 +518,13 @@ int SendToAll(Handle plugin, int params)
 int SendToClient(Handle plugin, int params)
 {
 	int client = GetNativeCell(1);
+
+	if(!IsClientInGame(client) ||
+		IsFakeClient(client) ||
+		IsClientSourceTV(client) ||
+		IsClientReplay(client)) {
+		return 0;
+	}
 
 	int length = 0;
 	GetNativeStringLength(2, length);
