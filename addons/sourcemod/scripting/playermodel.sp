@@ -610,7 +610,7 @@ int Native_Clear(Handle plugin, int params)
 
 public void OnPluginEnd()
 {
-	for(int i = 1; i < MaxClients; i++) {
+	for(int i = 1; i <= MaxClients; i++) {
 		if(IsClientInGame(i)) {
 			OnClientDisconnect(i);
 		}
@@ -654,7 +654,7 @@ public void OnPluginStart()
 	HookEvent("post_inventory_application", post_inventory_application);
 #endif
 
-	for(int i = 1; i < MaxClients; i++) {
+	for(int i = 1; i <= MaxClients; i++) {
 		if(IsClientInGame(i)) {
 			OnClientPutInServer(i);
 		}
