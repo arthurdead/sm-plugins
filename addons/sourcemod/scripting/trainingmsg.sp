@@ -10,6 +10,7 @@ int num_enabled = 0;
 bool gamerules_hooked = false;
 bool g_bLateLoaded = false;
 int player_wants_vgui[MAXPLAYERS+1] = {0, ...};
+Handle player_vgui_timer[MAXPLAYERS+1] = {null, ...};
 
 UserMsg TrainingObjective = INVALID_MESSAGE_ID;
 UserMsg TrainingMsg = INVALID_MESSAGE_ID;
@@ -61,6 +62,9 @@ public void OnMapStart()
 {
 	if(g_bLateLoaded) {
 		tf_gamerules = FindEntityByClassname(-1, "tf_gamerules");
+		if(tf_gamerules == -1) {
+			ThrowError("tf_gamerules was not found");
+		}
 	}
 }
 
@@ -83,6 +87,8 @@ void ChangeGameRulesState()
 	if(tf_gamerules != -1) {
 		ChangeEdictState(tf_gamerules, m_bIsInTrainingOffset);
 		ChangeEdictState(tf_gamerules, m_bIsTrainingHUDVisibleOffset);
+	} else {
+		ThrowError("tf_gamerules was not found");
 	}
 }
 
@@ -90,6 +96,7 @@ Action Timer_ResetWantsVgui(Handle timer, int client)
 {
 	client = GetClientOfUserId(client);
 	if(client != -1) {
+		player_vgui_timer[client] = null;
 		player_wants_vgui[client] = 0;
 		ChangeGameRulesState();
 	}
@@ -108,7 +115,7 @@ Action command_menu(int client, const char[] command, int args)
 			} else {
 				if(player_wants_vgui[client]++ == 0) {
 					ChangeGameRulesState();
-					CreateTimer(0.2, Timer_ResetWantsVgui, GetClientUserId(client));
+					player_vgui_timer[client] = CreateTimer(0.2, Timer_ResetWantsVgui, GetClientUserId(client));
 
 					BfWrite usrmsg = view_as<BfWrite>(StartMessageOne("HudNotifyCustom", client));
 					usrmsg.WriteString("You need to double-tap to change class.");
@@ -124,6 +131,13 @@ Action command_menu(int client, const char[] command, int args)
 	return Plugin_Continue;
 }
 
+public void OnGameFrame()
+{
+	if(num_enabled > 0) {
+		ChangeGameRulesState();
+	}
+}
+
 Action HookIsTraining(const char[] cPropName, int &iValue, const int iElement, const int iClient)
 {
 	if(msg_enabled[iClient]) {
@@ -134,7 +148,8 @@ Action HookIsTraining(const char[] cPropName, int &iValue, const int iElement, c
 		}
 		return Plugin_Changed;
 	} else {
-		return Plugin_Continue;
+		iValue = 0;
+		return Plugin_Changed;
 	}
 }
 
@@ -150,7 +165,12 @@ void Unhook(bool value)
 	GameRules_SetProp("m_bIsInTraining", value);
 	GameRules_SetProp("m_bIsTrainingHUDVisible", value);
 #else
-	ChangeGameRulesState();
+	if(!value) {
+		GameRules_SetProp("m_bIsInTraining", 0);
+		GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
+	} else {
+		ChangeGameRulesState();
+	}
 #endif
 }
 
@@ -165,8 +185,37 @@ void Hook()
 	ChangeGameRulesState();
 }
 
-int DisableClient(int client)
+void EnableClient(int client)
 {
+	player_wants_vgui[client] = 0;
+
+	if(player_vgui_timer[client] != null) {
+		KillTimer(player_vgui_timer[client]);
+		player_vgui_timer[client] = null;
+	}
+
+	if(!msg_enabled[client]) {
+		msg_enabled[client] = true;
+		++num_enabled;
+	}
+}
+
+int DisableClient(int client, bool send_empty)
+{
+	player_wants_vgui[client] = 0;
+
+	if(player_vgui_timer[client] != null) {
+		KillTimer(player_vgui_timer[client]);
+		player_vgui_timer[client] = null;
+	}
+
+	if(send_empty && IsClientInGame(client)) {
+		int clients[1];
+		clients[0] = client;
+
+		SendUsrMsgHelper(clients, sizeof(clients), "", "");
+	}
+
 	if(msg_enabled[client]) {
 		msg_enabled[client] = false;
 		--num_enabled;
@@ -185,24 +234,17 @@ int DisableClient(int client)
 void DisableAll()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(msg_enabled[i]) {
-			msg_enabled[i] = false;
-			--num_enabled;
-
-			if(num_enabled == 0) {
-				break;
-			}
+		if(DisableClient(i, true) == 2) {
+			break;
 		}
 	}
-
-	Unhook(false);
 }
 
 Action player_spawn(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	int ret = DisableClient(client);
+	int ret = DisableClient(client, true);
 	if(ret == 1) {
 		ChangeGameRulesState();
 	}
@@ -269,8 +311,8 @@ int ChangeTitleAll(Handle plugin, int params)
 
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
-	for(int i = 1; i <= MaxClients; i++) {
-		if(IsClientConnected(i)) {
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
 			if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
 				clients[numClients++] = i;
 			}
@@ -296,8 +338,8 @@ int ChangeTextAll(Handle plugin, int params)
 
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
-	for(int i = 1; i <= MaxClients; i++) {
-		if(IsClientConnected(i)) {
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
 			if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
 				clients[numClients++] = i;
 			}
@@ -379,13 +421,8 @@ int SendToClients(Handle plugin, int params)
 	if(numClients == MaxClients) {
 		for(int i = 0; i < numClients; ++i) {
 			int client = clients[i];
-			if(msg_enabled[client]) {
-				msg_enabled[client] = false;
-				--num_enabled;
-
-				if(num_enabled == 0) {
-					break;
-				}
+			if(DisableClient(client, false) == 2) {
+				break;
 			}
 		}
 
@@ -395,10 +432,7 @@ int SendToClients(Handle plugin, int params)
 	{
 		for(int i = 0; i < numClients; ++i) {
 			int client = clients[i];
-			if(!msg_enabled[client]) {
-				msg_enabled[client] = true;
-				++num_enabled;
-			}
+			EnableClient(client);
 		}
 
 		SendToClientsHelper(clients, numClients, title, msg);
@@ -425,21 +459,15 @@ int SendToAll(Handle plugin, int params)
 
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
-	for(int i = 1; i <= MaxClients; i++) {
-		if(IsClientConnected(i)) {
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
 			clients[numClients++] = i;
 		#if !defined SET_PROP
-			if(!msg_enabled[i]) {
-				msg_enabled[i] = true;
-				++num_enabled;
-			}
+			EnableClient(i);
 		#endif
 		}
 	#if defined SET_PROP
-		if(msg_enabled[i]) {
-			msg_enabled[i] = false;
-			--num_enabled;
-		}
+		DisableClient(i, true);
 	#endif
 	}
 
@@ -469,10 +497,7 @@ int SendToClient(Handle plugin, int params)
 	int clients[1];
 	clients[0] = client;
 
-	if(!msg_enabled[client]) {
-		msg_enabled[client] = true;
-		++num_enabled;
-	}
+	EnableClient(client);
 
 	SendToClientsHelper(clients, sizeof(clients), title, msg);
 
@@ -495,7 +520,7 @@ int RemoveFromClients(Handle plugin, int params)
 
 	for(int i = 0; i < numClients; ++i) {
 		int client = clients[i];
-		int ret = DisableClient(client);
+		int ret = DisableClient(client, true);
 		if(ret == 2) {
 			return 0;
 		}
@@ -508,16 +533,12 @@ int RemoveFromClients(Handle plugin, int params)
 
 public void OnClientDisconnect(int client)
 {
-	DisableClient(client);
-	player_wants_vgui[client] = 0;
+	DisableClient(client, true);
 }
 
 public void OnPluginEnd()
 {
-#if defined SET_PROP
-	GameRules_SetProp("m_bIsInTraining", 0);
-	GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
-#else
-	ChangeGameRulesState();
-#endif
+	for(int i = 1; i <= MaxClients; ++i) {
+		DisableClient(i, true);
+	}
 }
