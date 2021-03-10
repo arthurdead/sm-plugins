@@ -1,0 +1,173 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CBaseEntity::MyNPCPointer"
+			{
+				"library" "server"
+				"linux" "@_ZN11CBaseEntity12MyNPCPointerEv"
+			}
+			"CBaseCombatCharacter::SetDefaultRelationship"
+			{
+				"library" "server"
+				"linux" "@_ZN20CBaseCombatCharacter22SetDefaultRelationshipE7Class_TS0_13Disposition_ti"
+			}
+			"CBaseCombatCharacter::AllocateDefaultRelationships"
+			{
+				"library" "server"
+				"linux" "@_ZN20CBaseCombatCharacter28AllocateDefaultRelationshipsEv"
+			}
+		}
+		"Offsets"
+		{
+			"CBaseEntity::IsNPC"
+			{
+				"linux" "71"
+			}
+			"IBody::GetSolidMask"
+			{
+				"linux" "81"
+			}
+			"IBody::GetCollisionGroup"
+			{
+				"linux" "82"
+			}
+			"CBaseEntity::PhysicsSolidMaskForEntity"
+			{
+				"linux" "168"
+			}
+			"CGameRules::InitDefaultAIRelationships"
+			{
+				"linux" "102"
+			}
+			"CGameRules::AIClassText"
+			{
+				"linux" "103"
+			}
+			"CBaseEntity::Classify"
+			{
+				"linux" "54"
+			}
+			"CBaseCombatCharacter::HasHumanGibs"
+			{
+				"linux" "288"
+			}
+			"CBaseCombatCharacter::HasAlienGibs"
+			{
+				"linux" "289"
+			}
+			"CBaseEntity::BloodColor"
+			{
+				"linux" "69"
+			}
+			"CBaseCombatCharacter::GetBossType"
+			{
+				"linux" "323"
+			}
+			"CTFWeaponBase::GetWeaponID"
+			{
+				"linux" "378"
+			}
+		}
+		"Functions"
+		{
+			"CBaseEntity::PhysicsSolidMaskForEntity"
+			{
+				"offset" "CBaseEntity::PhysicsSolidMaskForEntity"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CBaseEntity::BloodColor"
+			{
+				"offset" "CBaseEntity::BloodColor"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CBaseCombatCharacter::HasHumanGibs"
+			{
+				"offset" "CBaseCombatCharacter::HasHumanGibs"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CBaseCombatCharacter::HasAlienGibs"
+			{
+				"offset" "CBaseCombatCharacter::HasAlienGibs"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CGameRules::InitDefaultAIRelationships"
+			{
+				"offset" "CGameRules::InitDefaultAIRelationships"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "ignore"
+				"hooktype" "gamerules"
+			}
+			"CGameRules::AIClassText"
+			{
+				"offset" "CGameRules::AIClassText"
+				"callconv" "thiscall"
+				"return" "charptr"
+				"this" "ignore"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"classType"
+					{
+						"type" "int"
+					}
+				}
+			}
+			"IBody::GetCollisionGroup"
+			{
+				"offset" "IBody::GetSolidMask"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "address"
+				"hooktype" "raw"
+			}
+			"IBody::GetSolidMask"
+			{
+				"offset" "IBody::GetSolidMask"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "address"
+				"hooktype" "raw"
+			}
+			"CBaseEntity::Classify"
+			{
+				"offset" "CBaseEntity::Classify"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CBaseEntity::IsNPC"
+			{
+				"offset" "CBaseEntity::IsNPC"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CBaseEntity::MyNPCPointer"
+			{
+				"signature" "CBaseEntity::MyNPCPointer"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+		}
+	}
+}
