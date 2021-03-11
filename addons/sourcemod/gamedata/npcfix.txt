@@ -110,7 +110,7 @@
 				"offset" "CGameRules::InitDefaultAIRelationships"
 				"callconv" "thiscall"
 				"return" "void"
-				"this" "ignore"
+				"this" "address"
 				"hooktype" "gamerules"
 			}
 			"CGameRules::AIClassText"
@@ -118,7 +118,7 @@
 				"offset" "CGameRules::AIClassText"
 				"callconv" "thiscall"
 				"return" "charptr"
-				"this" "ignore"
+				"this" "address"
 				"hooktype" "gamerules"
 				"arguments"
 				{
