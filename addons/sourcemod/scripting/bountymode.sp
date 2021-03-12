@@ -48,6 +48,7 @@ Handle hAddExperiencePoints = null;
 Handle hRefundExperiencePoints = null;
 ArrayList g_StationModels = null;
 ArrayList g_CreatedStations = null;
+ArrayList g_TempStations = null;
 bool g_bDoingUpgradeHelper[MAXPLAYERS+1] = {false, ...};
 int g_iLaserBeamIndex = -1;
 bool g_bWasDisableByMVM = false;
@@ -992,8 +993,8 @@ public void OnGameFrame()
 
 			char progress_bar[64];
 			StrCat(progress_bar, sizeof(progress_bar), "[");
-			for(int i = 0; i < 16; ++i) {
-				if(i >= progress) {
+			for(int j = 0; j < 16; ++j) {
+				if(j >= progress) {
 					StrCat(progress_bar, sizeof(progress_bar), "_");
 				} else {
 					StrCat(progress_bar, sizeof(progress_bar), "|");
@@ -1099,12 +1100,16 @@ Action sm_upgrdhel(int client, int args)
 	return Plugin_Handled;
 }
 
-int CreateStation(float ang[3])
+int CreateStation(float ang[3], bool temp = false)
 {
 	int func = CreateEntityByName("func_upgradestation");
 	DispatchSpawn(func);
 
-	g_CreatedStations.Push(EntIndexToEntRef(func));
+	if(temp) {
+		g_TempStations.Push(EntIndexToEntRef(func));
+	} else {
+		g_CreatedStations.Push(EntIndexToEntRef(func));
+	}
 
 	int m_fEffects = GetEntProp(func, Prop_Send, "m_fEffects");
 	m_fEffects |= EF_NODRAW;
@@ -1148,7 +1153,11 @@ void CreateStationModels(float pos[3], float ang[3])
 
 void CreateTempStation(float pos[3], float ang[3], bool enabled = true)
 {
-	int func = CreateStation(ang);
+	if(g_TempStations == null) {
+		g_TempStations = new ArrayList();
+	}
+
+	int func = CreateStation(ang, true);
 
 	if(enabled) {
 		AcceptEntityInput(func, "Enable");
@@ -1287,6 +1296,24 @@ public void OnPluginEnd()
 	OnMapEnd();
 }
 
+void DestroyTempStations()
+{
+	if(g_TempStations != null) {
+		g_bRemovingStations = true;
+
+		for(int i = 0; i < g_TempStations.Length; ++i) {
+			int entity = EntRefToEntIndex(g_TempStations.Get(i));
+			if(entity != -1) {
+				RemoveEntity(entity);
+			}
+		}
+
+		g_bRemovingStations = false;
+
+		delete g_TempStations;
+	}
+}
+
 void DestroyStations()
 {
 	if(g_CreatedStations != null) {
@@ -1303,6 +1330,8 @@ void DestroyStations()
 
 		delete g_CreatedStations;
 	}
+
+	DestroyTempStations();
 
 	if(g_StationModels != null) {
 		g_bRemovingStationModels = true;
@@ -1572,6 +1601,7 @@ Action object_destroyed(Event event, const char[] name, bool dontBroadcast)
 
 Action teamplay_round_start(Event event, const char[] name, bool dontBroadcast)
 {
+	DestroyTempStations();
 	CreateStations();
 
 	return Plugin_Continue;
@@ -1833,6 +1863,8 @@ public void OnEntityDestroyed(int entity)
 				g_UpgradeStation = g_MapUpgradeStations.Get(0);
 			} else if(g_CreatedStations != null && g_CreatedStations.Length > 0) {
 				g_UpgradeStation = g_CreatedStations.Get(0);
+			} else if(g_TempStations != null && g_TempStations.Length > 0) {
+				g_UpgradeStation = g_TempStations.Get(0);
 			} else {
 				g_UpgradeStation = INVALID_ENT_REFERENCE;
 			}
@@ -1850,6 +1882,15 @@ public void OnEntityDestroyed(int entity)
 			int index = g_CreatedStations.FindValue(EntIndexToEntRef(entity));
 			if(index != -1) {
 				g_CreatedStations.Erase(index);
+			}
+		}
+	}
+
+	if(!g_bRemovingStations) {
+		if(g_TempStations != null) {
+			int index = g_TempStations.FindValue(EntIndexToEntRef(entity));
+			if(index != -1) {
+				g_TempStations.Erase(index);
 			}
 		}
 	}
