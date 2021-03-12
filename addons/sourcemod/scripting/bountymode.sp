@@ -504,7 +504,9 @@ void AddCurrency(int client, int cash, bool dolimit = true)
 void SetExperienceLevel(int client, int level, bool set_points = false)
 {
 	SetEntProp(client, Prop_Send, "m_nExperienceLevel", level);
-	//SetEntProp(client, Prop_Send, "m_nExperienceLevelProgress", 0);
+	if(level == 1) {
+		SetEntProp(client, Prop_Send, "m_nExperienceLevelProgress", 0);
+	}
 	if(set_points) {
 		int m_nExperiencePoints = GetEntData(client, m_nExperiencePointsOffset);
 		int new_points = ((level - 1) * 400);
@@ -522,7 +524,7 @@ void SetExperienceLevel(int client, int level, bool set_points = false)
 void SetExperiencePoints(int client, int points)
 {
 	SetEntData(client, m_nExperiencePointsOffset, points);
-	if(points > 0 && points > 400) {
+	if(points > 0 && points >= 400) {
 		SetExperienceLevel(client, (points / 400) + 1);
 	} else {
 		SetExperienceLevel(client, 1);
