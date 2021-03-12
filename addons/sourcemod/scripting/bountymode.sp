@@ -1552,8 +1552,10 @@ public void OnClientDisconnect(int client)
 
 		SetAsInMVM(client, false, FromDeath);
 
-		GrantOrRemoveAllUpgrades(client, true, false);
-		RemovePlayerAndItemUpgradesFromHistory(client);
+		if(IsClientInGame(client)) {
+			GrantOrRemoveAllUpgrades(client, true, false);
+			RemovePlayerAndItemUpgradesFromHistory(client);
+		}
 	}
 }
 
