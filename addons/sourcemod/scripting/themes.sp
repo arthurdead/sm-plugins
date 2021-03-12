@@ -224,6 +224,7 @@ ConVar cvDeleteBZ2 = null;
 ConVar cvUrl = null;
 ConVar cvEstimateMethod = null;
 ConVar cvDefaultThemeset = null;
+ConVar cvBZ2CopyFolder = null;
 
 void ClampCompression(ConVar convar, const char[] oldValue, const char[] newValue)
 {
@@ -276,6 +277,7 @@ public void OnPluginStart()
 	cvUrl = CreateConVar("sm_themes_ftp_url", "");
 	cvEstimateMethod = CreateConVar("sm_themes_region_method", "0", "0 == entities, 1 == m_WorldMaxs/Mins");
 	cvDefaultThemeset = CreateConVar("sm_themes_default_themeset", "standard");
+	cvBZ2CopyFolder = CreateConVar("sm_themes_bz2_folder", "");
 
 	RegAdminCmd("sm_themes_reload", ConCommand_ReloadTheme, ADMFLAG_GENERIC);
 
@@ -1106,6 +1108,17 @@ void OnMapManifestFTP(bool success, const char[] error, System2FTPRequest reques
 	}
 }
 
+void OnCopyMapBZ2(bool success, const char[] from, const char[] to)
+{
+	if(success) {
+		DeleteFile(from);
+	} else {
+		if(!RenameFile(to, from, true)) {
+			LogMessage("Error: Could not copy bz2 to: %s", to);
+		}
+	}
+}
+
 void OnCompressMapParticles(bool success, const char[] command, System2ExecuteOutput output, DataPack data)
 {
 	data.Reset();
@@ -1133,6 +1146,15 @@ void OnCompressMapParticles(bool success, const char[] command, System2ExecuteOu
 			ftp.SetAuthentication(usrname, pass);
 			ftp.SetInputFile(filename);
 			ftp.StartRequest();
+		}
+
+		char folder[PLATFORM_MAX_PATH];
+		cvBZ2CopyFolder.GetString(folder, sizeof(folder));
+
+		if(!StrEqual(folder, "")) {
+			StrCat(folder, sizeof(folder), filename);
+
+			System2_CopyFile(OnCopyMapBZ2, filename, folder);
 		}
 	} else {
 		LogMessage("Error: Could not compress particle manifest: %s", filename);
@@ -1202,14 +1224,14 @@ void HandleParticleFiles()
 	char file[96];
 	
 	// Add ALL map particle manifest files (due to waffle bug)
-	if (kvMaps.GotoFirstSubKey()) {
+	/*if (kvMaps.GotoFirstSubKey()) {
 		do {
 			kvMaps.GetSectionName(file, sizeof(file));
 			HandleMapParticleManifest(file);
 		} while (kvMaps.GotoNextKey());
 		
 		kvMaps.GoBack();
-	}
+	}*/
 
 	GetCurrentMap(file, sizeof(file));
 	HandleMapParticleManifest(file);
