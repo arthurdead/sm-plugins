@@ -57,6 +57,7 @@ bool g_bRemovingStationModels = false;
 Handle g_HUDSync = null;
 int m_nExperiencePointsOffset = -1;
 bool g_bGotSpawn[MAXPLAYERS+1] = {false, ...};
+int g_hUpgradeEntity[MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 
 enum struct StationInfo
 {
@@ -282,6 +283,8 @@ public void OnPluginStart()
 	RegAdminCmd("sm_ptsadd", sm_ptsadd, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_ptsset", sm_ptsset, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_ptsrem", sm_ptsrem, ADMFLAG_GENERIC);
+
+	RegConsoleCmd("sm_upgrade", sm_upgrade);
 
 	char upgradefile[64];
 	BuildPath(Path_SM, upgradefile, sizeof(upgradefile), "data/bountymode.txt");
@@ -709,6 +712,16 @@ void EnableBountyMode()
 	}
 }
 
+void DeleteClientStation(int client)
+{
+	int entity = EntRefToEntIndex(g_hUpgradeEntity[client]);
+	g_hUpgradeEntity[client] = INVALID_ENT_REFERENCE;
+	if(entity != -1) {
+		RemoveEntity(entity);
+		SetEntProp(client, Prop_Send, "m_bInUpgradeZone", 0);
+	}
+}
+
 void DisableBountyMode()
 {
 	if(g_bIsEnabled) {
@@ -722,6 +735,8 @@ void DisableBountyMode()
 				SetExperiencePoints(i, 0);
 				GrantOrRemoveAllUpgrades(i, true, false);
 				RemovePlayerAndItemUpgradesFromHistory(i);
+				DeleteClientStation(i);
+				SetEntProp(i, Prop_Send, "m_bInUpgradeZone", 0);
 			}
 			m_bIsInMVM[i] = false;
 		}
@@ -1101,16 +1116,10 @@ Action sm_upgrdhel(int client, int args)
 	return Plugin_Handled;
 }
 
-int CreateStation(float ang[3], bool temp = false)
+int CreateStationEntity()
 {
 	int func = CreateEntityByName("func_upgradestation");
 	DispatchSpawn(func);
-
-	if(temp) {
-		g_TempStations.Push(EntIndexToEntRef(func));
-	} else {
-		g_CreatedStations.Push(EntIndexToEntRef(func));
-	}
 
 	int m_fEffects = GetEntProp(func, Prop_Send, "m_fEffects");
 	m_fEffects |= EF_NODRAW;
@@ -1119,6 +1128,52 @@ int CreateStation(float ang[3], bool temp = false)
 	SetEntProp(func, Prop_Send, "m_nSolidType", SOLID_OBB);
 
 	SetEntityModel(func, "models/props_mvm/mvm_upgrade_center.mdl");
+
+	return func;
+}
+
+Action sm_upgrade(int client, int args)
+{
+	if(client == 0) {
+		ReplyToCommand(client, "[SM] you must be ingame to use this comamnd.");
+		return Plugin_Handled;
+	}
+
+	DeleteClientStation(client);
+
+	int func = CreateStationEntity();
+
+	g_hUpgradeEntity[client] = EntIndexToEntRef(func);
+
+	float mins[3];
+	GetEntPropVector(client, Prop_Data, "m_vecMins", mins);
+
+	float maxs[3];
+	GetEntPropVector(client, Prop_Data, "m_vecMaxs", maxs);
+
+	SetEntPropVector(func, Prop_Data, "m_vecMins", mins);
+	SetEntPropVector(func, Prop_Data, "m_vecMaxs", maxs);
+
+	float pos[3];
+	GetClientAbsOrigin(client, pos);
+
+	float ang[3];
+	GetClientAbsAngles(client, ang);
+
+	TeleportEntity(func, pos, ang);
+
+	return Plugin_Handled;
+}
+
+int CreateStation(float ang[3], bool temp = false)
+{
+	int func = CreateStationEntity();
+
+	if(temp) {
+		g_TempStations.Push(EntIndexToEntRef(func));
+	} else {
+		g_CreatedStations.Push(EntIndexToEntRef(func));
+	}
 
 	SetEntPropVector(func, Prop_Data, "m_vecMins", g_UpgradeStationMins);
 	SetEntPropVector(func, Prop_Data, "m_vecMaxs", g_UpgradeStationMaxs);
@@ -1507,6 +1562,7 @@ Action MVMResetPlayerUpgradeSpending(UserMsg msg_id, BfRead msg, const int[] pla
 {
 	int client = msg.ReadByte();
 	SetAsInMVM(client, false, FromUpgradeZone);
+	//DeleteClientStation(client);
 	return Plugin_Continue;
 }
 
@@ -1542,6 +1598,7 @@ void InUpgradeZone(const int iEntity, const char[] cPropName, const int iOldValu
 		SetAsInMVM(iEntity, true, FromUpgradeZone);
 	} else {
 		SetAsInMVM(iEntity, false, FromUpgradeZone);
+		DeleteClientStation(iEntity);
 	}
 }
 
@@ -1554,9 +1611,15 @@ public Action OnClientCommandKeyValues(int client, KeyValues kv)
 		if(StrEqual(name, "MVM_Upgrade") ||
 			StrEqual(name, "MvM_UpgradesBegin")) {
 			SetAsInMVM(client, true, FromClientCMD);
-		} else if(StrEqual(name, "MvM_UpgradesDone") ||
-					StrEqual(name, "MVM_Respec")) {
-			SetAsInMVM(client, false, FromClientCMD);
+		} else {
+			bool MvM_UpgradesDone = StrEqual(name, "MvM_UpgradesDone");
+			if(MvM_UpgradesDone ||
+				StrEqual(name, "MVM_Respec")) {
+				SetAsInMVM(client, false, FromClientCMD);
+			}
+			if(MvM_UpgradesDone) {
+				DeleteClientStation(client);
+			}
 		}
 	}
 
@@ -1572,6 +1635,8 @@ public void OnClientCommandKeyValues_Post(int client, KeyValues kv)
 		if(StrEqual(name, "MVM_Upgrade") ||
 			StrEqual(name, "MvM_UpgradesBegin")) {
 			SetAsInMVM(client, false, FromClientCMD);
+		} else if(StrEqual(name, "MvM_UpgradesDone")) {
+			DeleteClientStation(client);
 		}
 	}
 }
@@ -1580,6 +1645,8 @@ public void OnClientDisconnect(int client)
 {
 	g_bDoingUpgradeHelper[client] = false;
 	g_bGotSpawn[client] = false;
+
+	DeleteClientStation(client);
 
 	if(tf_bountymode.BoolValue) {
 		SetAsInMVM(client, false, FromDeath);
@@ -1822,6 +1889,7 @@ void UpgradeEndTouch(int entity, int other)
 {
 	if(IsPlayer(other)) {
 		SetAsInMVM(other, false, FromUpgradeZone);
+		DeleteClientStation(other);
 	}
 }
 
