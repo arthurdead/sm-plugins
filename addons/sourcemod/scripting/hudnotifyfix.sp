@@ -1,12 +1,27 @@
 #include <sourcemod>
 
-Handle hud[MAXPLAYERS+1] = {null, ...};
+Handle hud = null;
 Handle hud_timer[MAXPLAYERS+1] = {null, ...};
 
 ConVar hudnotifyfix_max_icon = null;
 ConVar hudnotifyfix_max_text = null;
 ConVar hudnotifyfix_duration = null;
 ConVar hudnotifyfix_mode = null;
+
+void on_mode_change(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	int value = StringToInt(newValue);
+
+	if(value == 1) {
+		hud = CreateHudSynchronizer();
+	} else {
+		delete hud;
+
+		for(int i = 1; i <= MaxClients; ++i) {
+			delete hud_timer[i];
+		}
+	}
+}
 
 public void OnPluginStart()
 {
@@ -15,12 +30,20 @@ public void OnPluginStart()
 	hudnotifyfix_duration = CreateConVar("hudnotifyfix_duration", "3");
 	hudnotifyfix_mode = CreateConVar("hudnotifyfix_mode", "1", "0 == disable, 1 == hud, 2 == chat");
 
+	hudnotifyfix_mode.AddChangeHook(on_mode_change);
+
 	HookUserMessage(GetUserMessageId("HudNotifyCustom"), HudNotifyCustom);
+}
+
+public void OnConfigsExecuted()
+{
+	if(hudnotifyfix_mode.IntValue == 1) {
+		hud = CreateHudSynchronizer();
+	}
 }
 
 public void OnClientDisconnect(int client)
 {
-	delete hud[client];
 	delete hud_timer[client];
 }
 
@@ -28,8 +51,7 @@ Action Timer_RemoveHud(Handle timer, int client)
 {
 	client = GetClientOfUserId(client);
 	if(client != -1) {
-		ClearSyncHud(client, hud[client]);
-		delete hud[client];
+		ClearSyncHud(client, hud);
 		hud_timer[client] = null;
 	}
 	return Plugin_Continue;
@@ -52,10 +74,8 @@ void PrintHudNotifyCustom(int client, float duration, DataPack data)
 	delete data;
 
 	if(hudnotifyfix_mode.IntValue == 1) {
-		bool had = hud[client] != null;
-
-		if(hud[client] == null) {
-			hud[client] = CreateHudSynchronizer();
+		if(hud == null) {
+			hud = CreateHudSynchronizer();
 		}
 
 		int r = 255;
@@ -80,12 +100,9 @@ void PrintHudNotifyCustom(int client, float duration, DataPack data)
 
 		float x = (0.5 - ((textlen / 2) * 0.01)) + 0.04;
 
-		if(had) {
-			ClearSyncHud(client, hud[client]);
-		}
-
+		ClearSyncHud(client, hud);
 		SetHudTextParams(x, 0.64, duration, r, g, b, 255);
-		ShowSyncHudText(client, hud[client], "%s", text);
+		ShowSyncHudText(client, hud, "%s", text);
 
 		if(hud_timer[client] != null) {
 			KillTimer(hud_timer[client]);

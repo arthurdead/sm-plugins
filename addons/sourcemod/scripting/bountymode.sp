@@ -688,7 +688,7 @@ void EnableBountyMode()
 		HookUserMessage(GetUserMessageId("MVMResetPlayerUpgradeSpending"), MVMResetPlayerUpgradeSpending);
 		HookUserMessage(GetUserMessageId("MVMLocalPlayerWaveSpendingValue"), MVMLocalPlayerWaveSpendingValue);
 		HookUserMessage(GetUserMessageId("MVMPlayerUpgradedEvent"), MVMPlayerUpgradedEvent);
-		HookUserMessage(GetUserMessageId("TextMsg"), TextMsg);
+		HookUserMessage(GetUserMessageId("TextMsg"), TextMsg, true);
 
 		int entity = -1;
 		while((entity = FindEntityByClassname(entity, "func_upgradestation")) != -1) {
@@ -760,7 +760,7 @@ void DisableBountyMode()
 		UnhookUserMessage(GetUserMessageId("MVMResetPlayerUpgradeSpending"), MVMResetPlayerUpgradeSpending);
 		UnhookUserMessage(GetUserMessageId("MVMLocalPlayerWaveSpendingValue"), MVMLocalPlayerWaveSpendingValue);
 		UnhookUserMessage(GetUserMessageId("MVMPlayerUpgradedEvent"), MVMPlayerUpgradedEvent);
-		UnhookUserMessage(GetUserMessageId("TextMsg"), TextMsg);
+		UnhookUserMessage(GetUserMessageId("TextMsg"), TextMsg, true);
 
 		if(g_iPlayersInMVM > 0) {
 			SendProxy_UnhookGameRules("m_bPlayingMannVsMachine", IsMVM);
@@ -1424,6 +1424,40 @@ Action MVMLocalPlayerWaveSpendingValue(UserMsg msg_id, BfRead msg, const int[] p
 	return Plugin_Continue;
 }
 
+Action Timer_TextMsg(Handle timer, DataPack data)
+{
+	data.Reset();
+
+	int dst = data.ReadCell();
+
+	BfWrite usrmsg = view_as<BfWrite>(StartMessageAll("TextMsg"));
+	usrmsg.WriteByte(dst);
+
+	int len = data.ReadCell();
+	char[] text = new char[len];
+	data.ReadString(text, len);
+	usrmsg.WriteString(text);
+
+	len = data.ReadCell();
+	char[] param1 = new char[len];
+	data.ReadString(param1, len);
+	usrmsg.WriteString(param1);
+
+	len = data.ReadCell();
+	char[] param2 = new char[len];
+	data.ReadString(param2, len);
+	usrmsg.WriteString(param2);
+
+	len = data.ReadCell();
+	char[] param3 = new char[len];
+	data.ReadString(param3, len);
+	usrmsg.WriteString(param3);
+
+	EndMessage();
+
+	return Plugin_Continue;
+}
+
 Action TextMsg(UserMsg msg_id, BfRead msg, const int[] players, int playersNum, bool reliable, bool init)
 {
 	int dst = msg.ReadByte();
@@ -1432,58 +1466,31 @@ Action TextMsg(UserMsg msg_id, BfRead msg, const int[] players, int playersNum, 
 	msg.ReadString(text, sizeof(text));
 
 	if(StrEqual(text, "#TF_PlayerLeveled")) {
-
-		/*DataPack data = null;
+		DataPack data = null;
+		CreateDataTimer(0.1, Timer_TextMsg, data);
 
 		data.WriteCell(dst);
 
-		data.WriteCell(sizeof(text));
-		data.WriteString("%1 Has Leveled-Up.");
+		int len = sizeof(text);
+		data.WriteCell(len);
+		data.WriteString("%s1 | %s2 has leveled-up to level %s3.");
 
-		msg.ReadString(text, sizeof(text));
-		data.WriteCell(sizeof(text));
-		data.WriteString(text, sizeof(text));
+		len = sizeof(text);
+		msg.ReadString(text, len);
+		data.WriteCell(len);
+		data.WriteString(text);
 
-		msg.ReadString(text, sizeof(text));
-		data.WriteCell(sizeof(text));
-		data.WriteString(text, sizeof(text));
+		len = sizeof(text);
+		msg.ReadString(text, len);
+		data.WriteCell(len);
+		data.WriteString(text);
 
-		msg.ReadString(text, sizeof(text));
-		data.WriteCell(sizeof(text));
-		data.WriteString(text, sizeof(text));*/
+		len = sizeof(text);
+		msg.ReadString(text, len);
+		data.WriteCell(len);
+		data.WriteString(text);
 
-		/*
-		data.Reset();
-
-		int dst = data.ReadCell();
-
-		BfWrite usrmsg = view_as<BfWrite>(StartMessageAll("TextMsg"));
-		usrmsg.WriteByte(dst);
-
-		int len = data.ReadCell();
-		char[] text = new char[len];
-		data.ReadString(text, len);
-		usrmsg.WriteString(text);
-
-		len = data.ReadCell();
-		char[] param1 = new char[len];
-		data.ReadString(param1, len);
-		usrmsg.WriteString(text);
-
-		len = data.ReadCell();
-		char[] param2 = new char[len];
-		data.ReadString(param2, len);
-		usrmsg.WriteString(param2);
-
-		len = data.ReadCell();
-		char[] param3 = new char[len];
-		data.ReadString(param3, len);
-		usrmsg.WriteString(param3);
-
-		EndMessage();
-		*/
-
-		return Plugin_Continue;
+		return Plugin_Handled;
 	}
 
 	return Plugin_Continue;
