@@ -54,7 +54,7 @@ int g_iLaserBeamIndex = -1;
 bool g_bWasDisableByMVM = false;
 bool g_bRemovingStations = false;
 bool g_bRemovingStationModels = false;
-Handle m_hHUDSync[MAXPLAYERS+1] = {null, ...};
+Handle g_HUDSync = null;
 int m_nExperiencePointsOffset = -1;
 bool g_bGotSpawn[MAXPLAYERS+1] = {false, ...};
 
@@ -642,7 +642,6 @@ Action sm_lvlset(int client, int args) { return sm_cash_helper(client, args, "sm
 public void OnClientPutInServer(int client)
 {
 	if(tf_bountymode.BoolValue) {
-		m_hHUDSync[client] = CreateHudSynchronizer();
 		AddCurrency(client, tf_bountymode_currency_starting.IntValue, false);
 	}
 }
@@ -650,11 +649,10 @@ public void OnClientPutInServer(int client)
 void EnableBountyMode()
 {
 	if(!g_bIsEnabled) {
+		g_HUDSync = CreateHudSynchronizer();
+
 		for(int i = 1; i <= MaxClients; ++i) {
 			if(IsClientInGame(i)) {
-				if(m_hHUDSync[i] == null) {
-					m_hHUDSync[i] = CreateHudSynchronizer();
-				}
 				AddCurrency(i, tf_bountymode_currency_starting.IntValue, false);
 				//SendProxy_HookPropChangeSafe(i, "m_bInUpgradeZone", Prop_Int, InUpgradeZone);
 			}
@@ -716,9 +714,8 @@ void DisableBountyMode()
 	if(g_bIsEnabled) {
 		for(int i = 1; i <= MaxClients; ++i) {
 			if(IsClientInGame(i)) {
-				if(m_hHUDSync[i] != null) {
-					ClearSyncHud(i, m_hHUDSync[i]);
-					delete m_hHUDSync[i];
+				if(g_HUDSync != null) {
+					ClearSyncHud(i, g_HUDSync);
 				}
 				SendProxy_UnhookPropChange(i, "m_bInUpgradeZone", InUpgradeZone);
 				SetEntProp(i, Prop_Send, "m_nCurrency", 0);
@@ -728,6 +725,8 @@ void DisableBountyMode()
 			}
 			m_bIsInMVM[i] = false;
 		}
+
+		delete g_HUDSync;
 
 		ReportUpgradeSetMVM = false;
 
@@ -971,7 +970,7 @@ public void OnGameFrame()
 			continue;
 		}
 
-		if(m_hHUDSync[i] != null) {
+		if(g_HUDSync != null) {
 			int team = GetClientTeam(i);
 
 			SetHudTextParams(0.17, 0.82, 0.1, team == 2 ? 255 : 0, 0, team == 3 ? 255 : 0, 255);
@@ -1004,7 +1003,7 @@ public void OnGameFrame()
 			}
 			StrCat(progress_bar, sizeof(progress_bar), "]");
 
-			ShowSyncHudText(i, m_hHUDSync[i], "%s\nExp Points: %i\nExp Level: %i\nMoney: %i", progress_bar, m_nExperiencePoints, m_nExperienceLevel, m_nCurrency);
+			ShowSyncHudText(i, g_HUDSync, "%s\nExp Points: %i\nExp Level: %i\nMoney: %i", progress_bar, m_nExperiencePoints, m_nExperienceLevel, m_nCurrency);
 		}
 
 		if(g_bDoingUpgradeHelper[i]) {
@@ -1576,11 +1575,6 @@ public void OnClientDisconnect(int client)
 	g_bGotSpawn[client] = false;
 
 	if(tf_bountymode.BoolValue) {
-		if(m_hHUDSync[client] != null) {
-			ClearSyncHud(client, m_hHUDSync[client]);
-			delete m_hHUDSync[client];
-		}
-
 		SetAsInMVM(client, false, FromDeath);
 
 		if(IsClientInGame(client)) {
