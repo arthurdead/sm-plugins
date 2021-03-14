@@ -174,7 +174,7 @@ int TrainingMsgMenuCtor(Handle plugin, int params)
 	info.keys |= (1 << 9);
 	info.pan = new Panel();
 	info.pan.SetKeys(info.keys);
-	info.items = new ArrayList(TRAINING_MSG_MAX_WIDTH);
+	info.items = new ArrayList(ByteCountToCells(TRAINING_MSG_MAX_WIDTH));
 
 	TraningMsgMenuFunction func;
 	func.func = GetNativeFunction(1);
@@ -469,7 +469,10 @@ Action Timer_ResetWantsVgui(Handle timer, int client)
 
 Action command_menu(int client, const char[] command, int args)
 {
-	if(msg_enabled[client]) {
+	int m_bIsInTraining = GameRules_GetProp("m_bIsInTraining");
+	int m_bIsTrainingHUDVisible = GameRules_GetProp("m_bIsTrainingHUDVisible");
+
+	if(msg_enabled[client] || (m_bIsInTraining && m_bIsTrainingHUDVisible)) {
 		if(StrEqual(command, "menuclosed")) {
 			if(player_wants_vgui[client] >= 3) {
 				--player_wants_vgui[client];
