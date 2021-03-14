@@ -2,8 +2,7 @@
 #include <sdktools>
 #include <sendproxy>
 #include <tf2_stocks>
-
-//#define SET_PROP
+#include <trainingmsg>
 
 bool msg_enabled[MAXPLAYERS+1] = {false, ...};
 int num_enabled = 0;
@@ -11,6 +10,7 @@ bool gamerules_hooked = false;
 bool g_bLateLoaded = false;
 int player_wants_vgui[MAXPLAYERS+1] = {0, ...};
 Handle player_vgui_timer[MAXPLAYERS+1] = {null, ...};
+int current_player_menu[MAXPLAYERS+1] = {-1, ...};
 
 UserMsg TrainingObjective = INVALID_MESSAGE_ID;
 UserMsg TrainingMsg = INVALID_MESSAGE_ID;
@@ -20,9 +20,31 @@ int m_bIsInTrainingOffset = -1;
 int m_bIsTrainingHUDVisibleOffset = -1;
 
 ConVar tf_training_client_message = null;
+ConVar sm_trainingmsg_setprop = null;
+
+ArrayList TraningMsgMenus = null;
+ArrayList TraningMsgMenusFunctions = null;
+
+enum struct TraningMsgMenuFunction
+{
+	Handle plugin;
+	Function func;
+}
+
+enum struct TraningMsgMenuInfo
+{
+	Panel pan;
+	ArrayList items;
+	char title[TRAINING_MSG_MAX_WIDTH];
+	int curritem;
+	int keys;
+}
 
 public void OnPluginStart()
 {
+	TraningMsgMenus = new ArrayList(sizeof(TraningMsgMenuInfo));
+	TraningMsgMenusFunctions = new ArrayList(sizeof(TraningMsgMenuFunction));
+
 	TrainingObjective = GetUserMessageId("TrainingObjective");
 	TrainingMsg = GetUserMessageId("TrainingMsg");
 
@@ -33,6 +55,8 @@ public void OnPluginStart()
 	AddCommandListener(command_menu, "menuclosed");
 
 	tf_training_client_message = FindConVar("tf_training_client_message");
+
+	sm_trainingmsg_setprop = CreateConVar("sm_trainingmsg_setprop", "0");
 
 	HookEvent("player_spawn", player_spawn);
 	HookEvent("teamplay_round_start", teamplay_round_start);
@@ -56,10 +80,340 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("ChangeTrainingMessageTitleAll", ChangeTitleAll);
 	CreateNative("ChangeTrainingMessageTextAll", ChangeTextAll);
 
+	CreateNative("TrainingMsgMenu.TrainingMsgMenu", TrainingMsgMenuCtor);
+	CreateNative("TrainingMsgMenu.SetTitle", TrainingMsgMenuSetTitle);
+	CreateNative("TrainingMsgMenu.DrawItem", TrainingMsgMenuDrawItem);
+	CreateNative("TrainingMsgMenu.AddItem", TrainingMsgMenuAddItem);
+	CreateNative("TrainingMsgMenu.ExitButton.set", TrainingMsgMenuExitButton);
+	CreateNative("TrainingMsgMenu.SendToClient", TrainingMsgMenuSendToClient);
+
 	RegPluginLibrary("trainingmsg");
 
 	g_bLateLoaded = late;
 	return APLRes_Success;
+}
+
+bool CancelTrainingMsgMenu(int client)
+{
+	int index = current_player_menu[client];
+	current_player_menu[client] = -1;
+	if(index != -1) {
+		TraningMsgMenuFunction func;
+		TraningMsgMenusFunctions.GetArray(index, func, sizeof(TraningMsgMenuFunction));
+
+		Call_StartFunction(func.plugin, func.func);
+		Call_PushCell(TrainingMsgMenuAction_Cancel);
+		Call_PushCell(client);
+		Call_PushCell(TrainingMsgMenuCancel_Interrupted);
+		Call_Finish();
+
+		TraningMsgMenusFunctions.Erase(index);
+		return true;
+	}
+	return false;
+}
+
+int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int param2)
+{
+	if(action == MenuAction_Select && param2 == 10) {
+		action = MenuAction_Cancel;
+		param2 = MenuCancel_Exit;
+	}
+
+	switch(action) {
+		case MenuAction_Select: {
+			int index = current_player_menu[param1];
+			current_player_menu[param1] = -1;
+			DisableClient(param1, _, false);
+
+			TraningMsgMenuFunction func;
+			TraningMsgMenusFunctions.GetArray(index, func, sizeof(TraningMsgMenuFunction));
+
+			Call_StartFunction(func.plugin, func.func);
+			Call_PushCell(TrainingMsgMenuAction_Select);
+			Call_PushCell(param1);
+			Call_PushCell(param2);
+			Call_PushCell(0);
+			Call_Finish();
+
+			TraningMsgMenusFunctions.Erase(index);
+		}
+		case MenuAction_Cancel: {
+			int index = current_player_menu[param1];
+			current_player_menu[param1] = -1;
+			DisableClient(param1, _, false);
+
+			TraningMsgMenuFunction func;
+			TraningMsgMenusFunctions.GetArray(index, func, sizeof(TraningMsgMenuFunction));
+
+			Call_StartFunction(func.plugin, func.func);
+			Call_PushCell(TrainingMsgMenuAction_Cancel);
+			Call_PushCell(param1);
+
+			switch(param2) {
+				case MenuCancel_Disconnected: { Call_PushCell(TrainingMsgMenuCancel_Disconnected); }
+				case MenuCancel_Interrupted: { Call_PushCell(TrainingMsgMenuCancel_Interrupted); }
+				case MenuCancel_Exit: { Call_PushCell(TrainingMsgMenuCancel_Exit); }
+				case MenuCancel_Timeout: { Call_PushCell(TrainingMsgMenuCancel_Timeout); }
+				default: { Call_PushCell(-1); }
+			}
+
+			Call_PushCell(0);
+			Call_Finish();
+
+			TraningMsgMenusFunctions.Erase(index);
+		}
+	}
+	return 0;
+}
+
+int TrainingMsgMenuCtor(Handle plugin, int params)
+{
+	TraningMsgMenuInfo info;
+
+	info.keys |= (1 << 9);
+	info.pan = new Panel();
+	info.pan.SetKeys(info.keys);
+	info.items = new ArrayList(TRAINING_MSG_MAX_WIDTH);
+
+	TraningMsgMenuFunction func;
+	func.func = GetNativeFunction(1);
+	func.plugin = plugin;
+
+	TraningMsgMenusFunctions.PushArray(func, sizeof(TraningMsgMenuFunction));
+
+	return TraningMsgMenus.PushArray(info, sizeof(TraningMsgMenuInfo));
+}
+
+void AddItemToString(ArrayList items, int keys, int i, int block, char[] msg, int len, bool newline, bool pipe)
+{
+	char[] item = new char[block];
+	items.GetString(i, item, block);
+
+	if(keys & (1 << i)) {
+		char num[2];
+		IntToString(i+1, num, sizeof(num));
+		StrCat(msg, len, num);
+		StrCat(msg, len, ". ");
+	}
+
+	StrCat(msg, len, item);
+
+	if(pipe) {
+		StrCat(msg, len, " | ");
+	}
+
+	if(newline) {
+		StrCat(msg, len, "\n");
+	}
+}
+
+int TrainingMsgMenuSendToClient(Handle plugin, int params)
+{
+	int index = GetNativeCell(1);
+
+	if(index < 0 || index > TraningMsgMenus.Length) {
+		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
+	}
+
+	int client = GetNativeCell(2);
+
+	if(!IsClientInGame(client) ||
+		IsFakeClient(client) ||
+		IsClientSourceTV(client) ||
+		IsClientReplay(client)) {
+		return 0;
+	}
+
+	int time = GetNativeCell(3);
+
+	TraningMsgMenuInfo info;
+	TraningMsgMenus.GetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	bool ret = info.pan.Send(client, GlobalTrainingMsgMenuHandler, time);
+	if(ret) {
+		CancelTrainingMsgMenu(client);
+		EnableClient(client);
+
+		current_player_menu[client] = index;
+
+		int clients[1];
+		clients[0] = client;
+
+		int block = info.items.BlockSize;
+		int itemnum = info.items.Length;
+		int len = (itemnum * block) + (3 * TRAINING_MSG_MAX_WIDTH);
+		char[] msg = new char[len];
+
+		if(itemnum > TRAINING_MSG_MAX_HEIGHT) {
+			itemnum = TRAINING_MSG_MAX_HEIGHT;
+		}
+
+		for(int i = 0; i < itemnum; ++i) {
+			AddItemToString(info.items, info.keys, i, block, msg, len, true, false);
+		}
+
+		SendToClientsHelper(clients, sizeof(clients), info.title, msg);
+	}
+
+	delete info.pan;
+	delete info.items;
+
+	TraningMsgMenus.Erase(index);
+
+	return ret;
+}
+
+int TrainingMsgMenuExitButton(Handle plugin, int params)
+{
+	int index = GetNativeCell(1);
+
+	if(index < 0 || index > TraningMsgMenus.Length) {
+		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
+	}
+
+	TraningMsgMenuInfo info;
+	TraningMsgMenus.GetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	if(GetNativeCell(2)) {
+		info.keys |= (1 << 9);
+	} else {
+		info.keys &= ~(1 << 9);
+	}
+	info.pan.SetKeys(info.keys);
+
+	TraningMsgMenus.SetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	return 0;
+}
+
+int TrainingMsgMenuAddItem(Handle plugin, int params)
+{
+	int index = GetNativeCell(1);
+
+	if(index < 0 || index > TraningMsgMenus.Length) {
+		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
+	}
+
+	TraningMsgMenuInfo info;
+	TraningMsgMenus.GetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	if(info.curritem == TRAINING_MSG_MAX_HEIGHT) {
+		return 0;
+	}
+
+	int length = 0;
+	GetNativeStringLength(2, length);
+	length++;
+
+	char[] title = new char[length];
+	GetNativeString(2, title, length);
+
+	ReplaceString(title, length, "\n", "");
+
+	info.keys |= (1 << info.curritem);
+	info.pan.SetKeys(info.keys);
+	++info.curritem;
+
+	info.items.PushString(title);
+
+	TraningMsgMenus.SetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	any data = GetNativeCell(3);
+
+	return 1;
+}
+
+int TrainingMsgMenuDrawItem(Handle plugin, int params)
+{
+	int index = GetNativeCell(1);
+
+	if(index < 0 || index > TraningMsgMenus.Length) {
+		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
+	}
+
+	TraningMsgMenuInfo info;
+	TraningMsgMenus.GetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	if(info.curritem == TRAINING_MSG_MAX_HEIGHT) {
+		return 0;
+	}
+
+	int length = 0;
+	GetNativeStringLength(2, length);
+	length++;
+
+	char[] title = new char[length];
+	GetNativeString(2, title, length);
+
+	ReplaceString(title, length, "\n", "");
+
+	++info.curritem;
+	info.items.PushString(title);
+
+	TraningMsgMenus.SetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	return 1;
+}
+
+int TrainingMsgMenuSetTitle(Handle plugin, int params)
+{
+	int index = GetNativeCell(1);
+
+	if(index < 0 || index > TraningMsgMenus.Length) {
+		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
+	}
+
+	TraningMsgMenuInfo info;
+	TraningMsgMenus.GetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	int length = 0;
+	GetNativeStringLength(2, length);
+	length++;
+
+	char[] title = new char[length];
+	GetNativeString(2, title, length);
+
+	ReplaceString(title, length, "\n", "");
+
+	strcopy(info.title, sizeof(info.title), title);
+
+	TraningMsgMenus.SetArray(index, info, sizeof(TraningMsgMenuInfo));
+
+	return 0;
+}
+
+public void OnGameFrame()
+{
+	bool any_enabled = false;
+
+	if(sm_trainingmsg_setprop.BoolValue) {
+		any_enabled = ((num_enabled > 0) && (num_enabled != MaxClients));
+	} else {
+		any_enabled = (num_enabled > 0);
+	}
+
+	if(any_enabled)
+	{
+		ChangeGameRulesState();
+
+		/*for(int i = 0; i < TraningMsgMenusFunctions.Length; ++i) {
+			Handle plugin[1];
+			TraningMsgMenusFunctions.GetArray(i, plugin, 1);
+
+			if(GetPluginStatus(plugin[0]) != Plugin_Running) {
+				for(int j = 1; j <= MaxClients; ++j) {
+					if(current_player_menu[j] == i) {
+						DisableClient(j, _, false);
+						current_player_menu[j] = -1;
+					}
+				}
+
+				TraningMsgMenusFunctions.Erase(i);
+				++i;
+			}
+		}*/
+	}
 }
 
 public void OnMapStart()
@@ -75,7 +429,7 @@ public void OnMapStart()
 public void OnMapEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
-		DisableClient(i, true);
+		DisableClient(i);
 	}
 }
 
@@ -142,18 +496,6 @@ Action command_menu(int client, const char[] command, int args)
 	return Plugin_Continue;
 }
 
-public void OnGameFrame()
-{
-#if defined SET_PROP
-	if((num_enabled > 0) && (num_enabled != MaxClients))
-#else
-	if(num_enabled > 0)
-#endif
-	{
-		ChangeGameRulesState();
-	}
-}
-
 Action HookIsTraining(const char[] cPropName, int &iValue, const int iElement, const int iClient)
 {
 	if(msg_enabled[iClient]) {
@@ -177,17 +519,19 @@ void Unhook(bool value)
 		gamerules_hooked = false;
 	}
 
-#if defined SET_PROP
-	GameRules_SetProp("m_bIsInTraining", value);
-	GameRules_SetProp("m_bIsTrainingHUDVisible", value);
-#else
-	if(!value) {
-		GameRules_SetProp("m_bIsInTraining", 0);
-		GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
-	} else {
+	if(sm_trainingmsg_setprop.BoolValue) {
+		GameRules_SetProp("m_bIsInTraining", value);
+		GameRules_SetProp("m_bIsTrainingHUDVisible", value);
 		ChangeGameRulesState();
+	} else {
+		if(!value) {
+			GameRules_SetProp("m_bIsInTraining", 0);
+			GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
+			ChangeGameRulesState();
+		} else {
+			ChangeGameRulesState();
+		}
 	}
-#endif
 }
 
 void Hook()
@@ -216,13 +560,17 @@ void EnableClient(int client)
 	}
 }
 
-int DisableClient(int client, bool send_empty)
+int DisableClient(int client, bool send_empty = true, bool cancel_menu = true)
 {
 	player_wants_vgui[client] = 0;
 
 	if(player_vgui_timer[client] != null) {
 		KillTimer(player_vgui_timer[client]);
 		player_vgui_timer[client] = null;
+	}
+
+	if(cancel_menu) {
+		CancelTrainingMsgMenu(client);
 	}
 
 	if(send_empty) {
@@ -255,7 +603,7 @@ int DisableClient(int client, bool send_empty)
 void DisableAll()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(DisableClient(i, true) == 2) {
+		if(DisableClient(i) == 2) {
 			break;
 		}
 	}
@@ -265,7 +613,7 @@ Action player_spawn(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	int ret = DisableClient(client, true);
+	int ret = DisableClient(client);
 	if(ret == 1) {
 		ChangeGameRulesState();
 	}
@@ -299,11 +647,11 @@ void SendToClientsHelper(int[] clients, int numClients, const char[] title, cons
 
 void SendToAllHelper(int[] clients, int numClients, const char[] title, const char[] msg)
 {
-#if !defined SET_PROP
-	Hook();
-#else
-	Unhook(true);
-#endif
+	if(sm_trainingmsg_setprop.BoolValue) {
+		Hook();
+	} else {
+		Unhook(true);
+	}
 	SendUsrMsgHelper(clients, numClients, title, msg);
 }
 
@@ -341,6 +689,9 @@ int ChangeTitleAll(Handle plugin, int params)
 		}
 		if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
 			clients[numClients++] = i;
+			if(CancelTrainingMsgMenu(i)) {
+				//TODO!!! change msg
+			}
 		}
 	}
 
@@ -372,6 +723,9 @@ int ChangeTextAll(Handle plugin, int params)
 		}
 		if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
 			clients[numClients++] = i;
+			if(CancelTrainingMsgMenu(i)) {
+				//TODO!!! change title
+			}
 		}
 	}
 
@@ -394,6 +748,13 @@ int ChangeTitle(Handle plugin, int params)
 	int[] clients = new int[numClients];
 	GetNativeArray(1, clients, numClients);
 
+	for(int i = 0; i < numClients; ++i) {
+		int client = clients[i];
+		if(CancelTrainingMsgMenu(client)) {
+			//TODO!!! change msg
+		}
+	}
+
 	int length = 0;
 	GetNativeStringLength(3, length);
 	length++;
@@ -412,6 +773,13 @@ int ChangeText(Handle plugin, int params)
 
 	int[] clients = new int[numClients];
 	GetNativeArray(1, clients, numClients);
+
+	for(int i = 0; i < numClients; ++i) {
+		int client = clients[i];
+		if(CancelTrainingMsgMenu(client)) {
+			//TODO!!! change title
+		}
+	}
 
 	int length = 0;
 	GetNativeStringLength(3, length);
@@ -446,19 +814,17 @@ int SendToClients(Handle plugin, int params)
 	char[] msg = new char[length];
 	GetNativeString(4, msg, length);
 
-#if defined SET_PROP
-	if(numClients == MaxClients) {
+	if(sm_trainingmsg_setprop.BoolValue && numClients == MaxClients) {
 		for(int i = 0; i < numClients; ++i) {
 			int client = clients[i];
 			if(DisableClient(client, false) == 2) {
 				break;
 			}
+			CancelTrainingMsgMenu(client);
 		}
 
 		SendToAllHelper(clients, numClients, title, msg);
-	} else
-#endif
-	{
+	} else {
 		for(int i = 0; i < numClients; ++i) {
 			int client = clients[i];
 			if(!IsClientInGame(client) ||
@@ -467,6 +833,7 @@ int SendToClients(Handle plugin, int params)
 				IsClientReplay(client)) {
 				continue;
 			}
+			CancelTrainingMsgMenu(client);
 			EnableClient(client);
 		}
 
@@ -495,9 +862,9 @@ int SendToAll(Handle plugin, int params)
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
-	#if defined SET_PROP
-		DisableClient(i, true);
-	#endif
+		if(sm_trainingmsg_setprop.BoolValue) {
+			DisableClient(i);
+		}
 		if(!IsClientInGame(i) ||
 			IsFakeClient(i) ||
 			IsClientSourceTV(i) ||
@@ -505,9 +872,10 @@ int SendToAll(Handle plugin, int params)
 			continue;
 		}
 		clients[numClients++] = i;
-	#if !defined SET_PROP
-		EnableClient(i);
-	#endif
+		CancelTrainingMsgMenu(i);
+		if(!sm_trainingmsg_setprop.BoolValue) {
+			EnableClient(i);
+		}
 	}
 
 	SendToAllHelper(clients, numClients, title, msg);
@@ -543,6 +911,7 @@ int SendToClient(Handle plugin, int params)
 	int clients[1];
 	clients[0] = client;
 
+	CancelTrainingMsgMenu(client);
 	EnableClient(client);
 
 	SendToClientsHelper(clients, sizeof(clients), title, msg);
@@ -566,7 +935,7 @@ int RemoveFromClients(Handle plugin, int params)
 
 	for(int i = 0; i < numClients; ++i) {
 		int client = clients[i];
-		int ret = DisableClient(client, true);
+		int ret = DisableClient(client);
 		if(ret == 2) {
 			return 0;
 		}
@@ -579,12 +948,14 @@ int RemoveFromClients(Handle plugin, int params)
 
 public void OnClientDisconnect(int client)
 {
-	DisableClient(client, true);
+	if(DisableClient(client, _, false) == 1) {
+		ChangeGameRulesState();
+	}
 }
 
 public void OnPluginEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
-		DisableClient(i, true);
+		DisableClient(i);
 	}
 }

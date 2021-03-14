@@ -54,17 +54,17 @@
 				"library" "server"
 				"linux" "@_ZN12CTFGameRules24DistributeCurrencyAmountEiP9CTFPlayerbbb"
 			}
-			"CPopulationManager::Update"
+			"CPopulationManager::AllocateBots"
 			{
 				"library" "server"
-				"linux" "@_ZN18CPopulationManager6UpdateEv"
+				"linux" "@_ZN18CPopulationManager12AllocateBotsEv"
 			}
 		}
 		"Functions"
 		{
-			"CPopulationManager::Update"
+			"CPopulationManager::AllocateBots"
 			{
-				"signature" "CPopulationManager::Update"
+				"signature" "CPopulationManager::AllocateBots"
 				"callconv" "thiscall"
 				"return" "void"
 				"this" "entity"

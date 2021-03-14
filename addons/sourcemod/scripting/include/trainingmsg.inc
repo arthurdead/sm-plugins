@@ -3,6 +3,45 @@
 #endif
 #define trainingmsg_inc
 
+#define TRAINING_MSG_MAX_WIDTH 43
+#define TRAINING_MSG_MAX_HEIGHT 4
+
+enum TrainingMsgMenuAction
+{
+	TrainingMsgMenuAction_Select,
+	TrainingMsgMenuAction_Cancel,
+};
+
+enum
+{
+	TrainingMsgMenuCancel_Disconnected,
+	TrainingMsgMenuCancel_Interrupted,
+	TrainingMsgMenuCancel_Exit,
+	TrainingMsgMenuCancel_Timeout,
+};
+
+typedef TrainingMsgMenuHandler = function void (TrainingMsgMenuAction action, int client, int param1, any data);
+
+#define TRAININGMSGMENU_TIME_FOREVER 0
+
+methodmap TrainingMsgMenu
+{
+	public native TrainingMsgMenu(TrainingMsgMenuHandler handler);
+
+	public native void SetTitle(const char[] str);
+
+	public native bool DrawItem(const char[] str);
+	public native bool AddItem(const char[] str, any data = 0);
+
+	property bool ExitButton {
+		public native set(bool value);
+	}
+
+	public native bool SendToClient(int client, int time);
+	//public native void SendToAll(int time);
+	//public native void SendToClients(const int[] clients, int numClients, int time);
+};
+
 native bool IsTrainingMessageVisibleToClient(int client);
 native bool IsTrainingMessageVisibleToAll();
 

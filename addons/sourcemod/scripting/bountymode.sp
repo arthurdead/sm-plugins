@@ -33,7 +33,7 @@ DynamicDetour dhReportUpgrade = null;
 DynamicDetour dhCanPlayerUseRespec = null;
 DynamicDetour dhAddCurrency = null;
 DynamicDetour dhDistributeCurrencyAmount = null;
-DynamicDetour dhUpdate = null;
+DynamicDetour dhAllocateBots = null;
 KeyValues kvUpgrades = null;
 int tf_gamerules = INVALID_ENT_REFERENCE;
 ConVar tf_mvm_death_penalty = null;
@@ -204,7 +204,7 @@ public void OnPluginStart()
 	dhCanPlayerUseRespec = DynamicDetour.FromConf(gamedata, "CTFGameRules::CanPlayerUseRespec");
 	dhAddCurrency = DynamicDetour.FromConf(gamedata, "CTFPlayer::AddCurrency");
 	dhDistributeCurrencyAmount = DynamicDetour.FromConf(gamedata, "CTFGameRules::DistributeCurrencyAmount");
-	dhUpdate = DynamicDetour.FromConf(gamedata, "CPopulationManager::Update");
+	dhAllocateBots = DynamicDetour.FromConf(gamedata, "CPopulationManager::AllocateBots");
 
 	StartPrepSDKCall(SDKCall_Entity);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CUpgrades::GrantOrRemoveAllUpgrades");
@@ -257,11 +257,12 @@ public void OnPluginStart()
 	tf_mvm_respec_credit_goal.Flags &= ~FCVAR_NOTIFY;
 
 	tf_mvm_death_penalty = FindConVar("tf_mvm_death_penalty");
+	tf_mvm_death_penalty.Flags &= ~FCVAR_NOTIFY;
 
 	tf_bountymode_currency_penalty_ondeath = CreateConVar("tf_bountymode_currency_penalty_ondeath", "0", "The percentage of unspent money players lose when they die in Bounty Mode.\n");
 	tf_bountymode_currency_starting = CreateConVar("tf_bountymode_currency_starting", "1000", "How much new players start with when playing Bounty Mode.\n");
 	tf_bountymode_upgrades_wipeondeath = CreateConVar("tf_bountymode_upgrades_wipeondeath", "0", "If set to true, wipe player/item upgrades on death.\n");
-	tf_bountymode = CreateConVar("tf_bountymode", "1", "Allow upgrades and award currency for mission objectives and killing enemy players.\n");
+	tf_bountymode = CreateConVar("tf_bountymode", "1", "Allow upgrades and award currency for mission objectives and killing enemy players.\n", FCVAR_REPLICATED);
 	tf_bountymode_currency_limit = CreateConVar("tf_bountymode_currency_limit", "0", "The maximum amount a player can hold in Bounty Mode.\n");
 
 	tf_bountymode.AddChangeHook(cc_bountymode_changed);
@@ -537,7 +538,7 @@ void SetExperiencePoints(int client, int points)
 Action sm_cash_helper(int client, int args, const char[] cmd, int type, int variable)
 {
 	if(args != 2) {
-		ReplyToCommand(client, "[SM] Usage: %s <filter> <cash>", cmd);
+		ReplyToCommand(client, "[SM] Usage: %s <filter> <value>", cmd);
 		return Plugin_Handled;
 	}
 
@@ -673,13 +674,15 @@ void EnableBountyMode()
 			bountymode_toggled.Fire();
 		}
 
+		GameRules_SetProp("m_bBountyModeEnabled", 1);
+
 		dhGameModeUsesUpgrades.Enable(Hook_Pre, GameModeUsesUpgradesPre);
 		dhReportUpgrade.Enable(Hook_Pre, ReportUpgradePre);
 		dhReportUpgrade.Enable(Hook_Post, ReportUpgradePost);
 		dhCanPlayerUseRespec.Enable(Hook_Pre, CanPlayerUseRespecPre);
 		dhAddCurrency.Enable(Hook_Pre, AddCurrencyPre);
 		dhDistributeCurrencyAmount.Enable(Hook_Pre, DistributeCurrencyAmountPre);
-		dhUpdate.Enable(Hook_Pre, UpdatePre);
+		dhAllocateBots.Enable(Hook_Pre, AllocateBotsPre);
 
 		HookEvent("player_team", player_team);
 		HookEvent("player_changeclass", player_changeclass);
@@ -751,6 +754,8 @@ void DisableBountyMode()
 			bountymode_toggled.Fire();
 		}
 
+		GameRules_SetProp("m_bBountyModeEnabled", 0);
+
 		g_MapUpgradeStations.Clear();
 		delete g_MapUpgradeStations;
 		g_UpgradeStation = INVALID_ENT_REFERENCE;
@@ -788,7 +793,7 @@ void DisableBountyMode()
 		dhCanPlayerUseRespec.Disable(Hook_Pre, CanPlayerUseRespecPre);
 		dhAddCurrency.Disable(Hook_Pre, AddCurrencyPre);
 		dhDistributeCurrencyAmount.Disable(Hook_Pre, DistributeCurrencyAmountPre);
-		dhUpdate.Disable(Hook_Pre, UpdatePre);
+		dhAllocateBots.Disable(Hook_Pre, AllocateBotsPre);
 
 		g_bIsEnabled = false;
 	}
@@ -1321,12 +1326,10 @@ public void OnMapStart()
 {
 	g_iLaserBeamIndex = PrecacheModel("materials/sprites/laser.vmt");
 
-	if(!g_bLateLoaded) {
-		PrecacheModel("models/props_mvm/mvm_upgrade_center.mdl");
-		PrecacheModel("models/props_mvm/mvm_upgrade_tools.mdl");
-		PrecacheModel("models/props_mvm/mvm_upgrade_sign.mdl");
-		PrecacheSound("mvm/mvm_money_pickup.wav");
-	}
+	PrecacheModel("models/props_mvm/mvm_upgrade_center.mdl");
+	PrecacheModel("models/props_mvm/mvm_upgrade_tools.mdl");
+	PrecacheModel("models/props_mvm/mvm_upgrade_sign.mdl");
+	PrecacheSound("mvm/mvm_money_pickup.wav");
 
 	tf_gamerules = FindEntityByClassname(-1, "tf_gamerules");
 	if(tf_gamerules != -1) {
@@ -1808,7 +1811,7 @@ MRESReturn GameModeUsesUpgradesPre(int pThis, DHookReturn hReturn, DHookParam hP
 	return MRES_Supercede;
 }
 
-MRESReturn UpdatePre(int pThis, DHookReturn hReturn, DHookParam hParams)
+MRESReturn AllocateBotsPre(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
 	return MRES_Supercede;
 }
@@ -1902,7 +1905,7 @@ void StationCreated(int entity)
 
 void PopulatorCreated(int entity)
 {
-	//HasInfoPopulator = true;
+	HasInfoPopulator = true;
 }
 
 public void OnEntityDestroyed(int entity)
