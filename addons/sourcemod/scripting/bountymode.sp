@@ -58,6 +58,7 @@ Handle g_HUDSync = null;
 int m_nExperiencePointsOffset = -1;
 bool g_bGotSpawn[MAXPLAYERS+1] = {false, ...};
 int g_hUpgradeEntity[MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
+int m_bPlayingMannVsMachineOffset = -1;
 
 enum struct StationInfo
 {
@@ -237,6 +238,8 @@ public void OnPluginStart()
 	hRefundExperiencePoints = EndPrepSDKCall();
 
 	delete gamedata;
+
+	m_bPlayingMannVsMachineOffset = FindSendPropInfo("CTFGameRules", "m_bPlayingMannVsMachine");
 
 #if defined SOURCEMOD_DIDNT_IMPLEMENT_ADDSERVERTAGS
 	sv_tags = FindConVar("sv_tags");
@@ -1455,9 +1458,9 @@ void SetAsInMVM(int client, bool is, FromWhere source)
 
 	if(source != FromUpgradeZone) {
 		if(is) {
-			GameRules_SetProp("m_bPlayingMannVsMachine", 1);
+			GameRules_SetPlayingMVM(1);
 		} else {
-			GameRules_SetProp("m_bPlayingMannVsMachine", 0);
+			GameRules_SetPlayingMVM(0);
 		}
 	}
 
@@ -1605,6 +1608,14 @@ void InUpgradeZone(const int iEntity, const char[] cPropName, const int iOldValu
 	}
 }
 
+void GameRules_SetPlayingMVM(int value)
+{
+	int entity = EntRefToEntIndex(tf_gamerules);
+	if(entity != -1) {
+		SetEntData(entity, m_bPlayingMannVsMachineOffset, value);
+	}
+}
+
 public Action OnClientCommandKeyValues(int client, KeyValues kv)
 {
 	if(tf_bountymode.BoolValue) {
@@ -1621,6 +1632,7 @@ public Action OnClientCommandKeyValues(int client, KeyValues kv)
 				SetAsInMVM(client, false, FromClientCMD);
 			}
 			if(MvM_UpgradesDone) {
+				GameRules_SetPlayingMVM(1);
 				DeleteClientStation(client);
 			}
 		}
@@ -1639,6 +1651,7 @@ public void OnClientCommandKeyValues_Post(int client, KeyValues kv)
 			StrEqual(name, "MvM_UpgradesBegin")) {
 			SetAsInMVM(client, false, FromClientCMD);
 		} else if(StrEqual(name, "MvM_UpgradesDone")) {
+			GameRules_SetPlayingMVM(0);
 			DeleteClientStation(client);
 		}
 	}
@@ -1672,8 +1685,18 @@ Action object_destroyed(Event event, const char[] name, bool dontBroadcast)
 	return Plugin_Continue;
 }
 
+void RestorePlayerCurrency()
+{
+	int entity = EntRefToEntIndex(InfoPopulatorIndex);
+	if(entity != -1) {
+		
+	}
+}
+
 Action teamplay_round_start(Event event, const char[] name, bool dontBroadcast)
 {
+	RestorePlayerCurrency();
+
 	DestroyTempStations();
 	CreateStations();
 
@@ -1783,7 +1806,7 @@ MRESReturn ReportUpgradePre(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
 	if(!HasInfoPopulator) {
 		if(GameRules_GetProp("m_bPlayingMannVsMachine")) {
-			GameRules_SetProp("m_bPlayingMannVsMachine", 0);
+			GameRules_SetPlayingMVM(0);
 			ReportUpgradeSetMVM = true;
 		}
 	}
@@ -1796,7 +1819,7 @@ MRESReturn ReportUpgradePre(int pThis, DHookReturn hReturn, DHookParam hParams)
 MRESReturn ReportUpgradePost(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
 	if(ReportUpgradeSetMVM) {
-		GameRules_SetProp("m_bPlayingMannVsMachine", 1);
+		GameRules_SetPlayingMVM(1);
 		ReportUpgradeSetMVM = false;
 	}
 
