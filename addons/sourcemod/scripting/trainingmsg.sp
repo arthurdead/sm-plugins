@@ -48,8 +48,8 @@ public void OnPluginStart()
 	TrainingObjective = GetUserMessageId("TrainingObjective");
 	TrainingMsg = GetUserMessageId("TrainingMsg");
 
-	m_bIsInTrainingOffset = FindSendPropInfo("CTFGameRules", "m_bIsInTraining");
-	m_bIsTrainingHUDVisibleOffset = FindSendPropInfo("CTFGameRules", "m_bIsTrainingHUDVisible");
+	m_bIsInTrainingOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bIsInTraining");
+	m_bIsTrainingHUDVisibleOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bIsTrainingHUDVisible");
 
 	AddCommandListener(command_menu, "menuopen");
 	AddCommandListener(command_menu, "menuclosed");

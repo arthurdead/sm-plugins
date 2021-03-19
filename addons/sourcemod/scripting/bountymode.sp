@@ -21,9 +21,9 @@ ConVar tf_gamemode_mvm = null;
 ConVar tf_mvm_respec_enabled = null;
 ConVar tf_mvm_respec_limit = null;
 ConVar tf_mvm_respec_credit_goal = null;
-bool ReportUpgradeSetMVM = false;
-bool HasInfoPopulator = false;
-int InfoPopulatorIndex = INVALID_ENT_REFERENCE;
+bool g_bReportUpgradeSetMVM = false;
+int g_SpawnedInfoPopulator = INVALID_ENT_REFERENCE;
+int g_InfoPopulator = INVALID_ENT_REFERENCE;
 int g_iPlayersInMVM = 0;
 bool m_bIsInMVM[MAXPLAYERS] = {false,...};
 bool g_bLateLoaded = false;
@@ -51,7 +51,7 @@ ArrayList g_CreatedStations = null;
 ArrayList g_TempStations = null;
 bool g_bDoingUpgradeHelper[MAXPLAYERS+1] = {false, ...};
 int g_iLaserBeamIndex = -1;
-bool g_bWasDisableByMVM = false;
+bool g_bIsMVM = false;
 bool g_bRemovingStations = false;
 bool g_bRemovingStationModels = false;
 Handle g_HUDSync = null;
@@ -111,7 +111,7 @@ void sv_tags_changed(ConVar convar, const char[] oldValue, const char[] newValue
 		return;
 	}
 
-	if(tf_bountymode.BoolValue) {
+	if(g_bIsEnabled) {
 		AddBountyTagEx(newValue);
 	}
 }
@@ -182,9 +182,7 @@ void cc_bountymode_changed(ConVar convar, const char[] oldValue, const char[] ne
 		int entity = EntRefToEntIndex(tf_gamerules);
 		if(entity != -1) {
 			if(GameRules_GetProp("m_bPlayingMannVsMachine")) {
-				g_bWasDisableByMVM = true;
-				convar.BoolValue = false;
-				return;
+				g_bIsMVM = true;
 			}
 		}
 
@@ -239,7 +237,7 @@ public void OnPluginStart()
 
 	delete gamedata;
 
-	m_bPlayingMannVsMachineOffset = FindSendPropInfo("CTFGameRules", "m_bPlayingMannVsMachine");
+	m_bPlayingMannVsMachineOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bPlayingMannVsMachine");
 
 #if defined SOURCEMOD_DIDNT_IMPLEMENT_ADDSERVERTAGS
 	sv_tags = FindConVar("sv_tags");
@@ -482,21 +480,28 @@ void RemoveCurrency(int client, int cash)
 	AddPlayerCurrencySpent(client, cash);
 }
 
+int LimitCash(int cash, int current)
+{
+	int nLimit = tf_bountymode_currency_limit.IntValue;
+	if(nLimit > 0) {
+		int nNewCurrency = cash + current;
+		if(nNewCurrency > nLimit) {
+			int nDelta = nNewCurrency - nLimit;
+			if(nDelta) {
+				cash -= nDelta;
+			}
+		}
+	}
+
+	return cash;
+}
+
 void AddCurrency(int client, int cash, bool dolimit = true)
 {
 	int m_nCurrency = GetEntProp(client, Prop_Send, "m_nCurrency");
 
 	if(dolimit) {
-		int nLimit = tf_bountymode_currency_limit.IntValue;
-		if(nLimit > 0) {
-			int nNewCurrency = cash + m_nCurrency;
-			if(nNewCurrency > nLimit) {
-				int nDelta = nNewCurrency - nLimit;
-				if(nDelta) {
-					cash -= nDelta;
-				}
-			}
-		}
+		cash = LimitCash(cash, m_nCurrency);
 	}
 
 	if(m_nCurrency + cash > 30000) {
@@ -648,7 +653,7 @@ Action sm_lvlset(int client, int args) { return sm_cash_helper(client, args, "sm
 
 public void OnClientPutInServer(int client)
 {
-	if(tf_bountymode.BoolValue) {
+	if(g_bIsEnabled && !g_bIsMVM) {
 		AddCurrency(client, tf_bountymode_currency_starting.IntValue, false);
 	}
 }
@@ -658,16 +663,20 @@ void EnableBountyMode()
 	if(!g_bIsEnabled) {
 		g_HUDSync = CreateHudSynchronizer();
 
-		for(int i = 1; i <= MaxClients; ++i) {
-			if(IsClientInGame(i)) {
-				AddCurrency(i, tf_bountymode_currency_starting.IntValue, false);
-				//SendProxy_HookPropChangeSafe(i, "m_bInUpgradeZone", Prop_Int, InUpgradeZone);
+		if(!g_bIsMVM) {
+			for(int i = 1; i <= MaxClients; ++i) {
+				if(IsClientInGame(i)) {
+					AddCurrency(i, tf_bountymode_currency_starting.IntValue, false);
+					//SendProxy_HookPropChangeSafe(i, "m_bInUpgradeZone", Prop_Int, InUpgradeZone);
+				}
 			}
 		}
 
-		tf_mvm_respec_enabled.BoolValue = true;
-		tf_mvm_respec_limit.IntValue = 0;
-		tf_mvm_respec_credit_goal.IntValue = 0;
+		if(!g_bIsMVM) {
+			tf_mvm_respec_enabled.BoolValue = true;
+			tf_mvm_respec_limit.IntValue = 0;
+			tf_mvm_respec_credit_goal.IntValue = 0;
+		}
 
 		g_MapUpgradeStations = new ArrayList();
 
@@ -679,13 +688,15 @@ void EnableBountyMode()
 
 		GameRules_SetProp("m_bBountyModeEnabled", 1);
 
-		dhGameModeUsesUpgrades.Enable(Hook_Pre, GameModeUsesUpgradesPre);
-		dhReportUpgrade.Enable(Hook_Pre, ReportUpgradePre);
-		dhReportUpgrade.Enable(Hook_Post, ReportUpgradePost);
-		dhCanPlayerUseRespec.Enable(Hook_Pre, CanPlayerUseRespecPre);
-		dhAddCurrency.Enable(Hook_Pre, AddCurrencyPre);
-		dhDistributeCurrencyAmount.Enable(Hook_Pre, DistributeCurrencyAmountPre);
-		dhAllocateBots.Enable(Hook_Pre, AllocateBotsPre);
+		if(!g_bIsMVM) {
+			dhGameModeUsesUpgrades.Enable(Hook_Pre, GameModeUsesUpgradesPre);
+			dhReportUpgrade.Enable(Hook_Pre, ReportUpgradePre);
+			dhReportUpgrade.Enable(Hook_Post, ReportUpgradePost);
+			dhCanPlayerUseRespec.Enable(Hook_Pre, CanPlayerUseRespecPre);
+			dhAllocateBots.Enable(Hook_Pre, AllocateBotsPre);
+			dhAddCurrency.Enable(Hook_Pre, AddCurrencyPre);
+			dhDistributeCurrencyAmount.Enable(Hook_Pre, DistributeCurrencyAmountPre);
+		}
 
 		HookEvent("player_team", player_team);
 		HookEvent("player_changeclass", player_changeclass);
@@ -694,9 +705,11 @@ void EnableBountyMode()
 		HookEvent("teamplay_flag_event", teamplay_flag_event);
 		HookEvent("object_destroyed", object_destroyed);
 		HookEvent("teamplay_round_start", teamplay_round_start);
-		HookUserMessage(GetUserMessageId("MVMResetPlayerUpgradeSpending"), MVMResetPlayerUpgradeSpending);
-		HookUserMessage(GetUserMessageId("MVMLocalPlayerWaveSpendingValue"), MVMLocalPlayerWaveSpendingValue);
-		HookUserMessage(GetUserMessageId("MVMPlayerUpgradedEvent"), MVMPlayerUpgradedEvent);
+		if(!g_bIsMVM) {
+			HookUserMessage(GetUserMessageId("MVMResetPlayerUpgradeSpending"), MVMResetPlayerUpgradeSpending);
+			HookUserMessage(GetUserMessageId("MVMLocalPlayerWaveSpendingValue"), MVMLocalPlayerWaveSpendingValue);
+			HookUserMessage(GetUserMessageId("MVMPlayerUpgradedEvent"), MVMPlayerUpgradedEvent);
+		}
 		HookUserMessage(GetUserMessageId("TextMsg"), TextMsg, true);
 
 		int entity = -1;
@@ -736,20 +749,22 @@ void DisableBountyMode()
 				if(g_HUDSync != null) {
 					ClearSyncHud(i, g_HUDSync);
 				}
-				SendProxy_UnhookPropChange(i, "m_bInUpgradeZone", InUpgradeZone);
-				SetEntProp(i, Prop_Send, "m_nCurrency", 0);
+				if(!g_bIsMVM) {
+					SendProxy_UnhookPropChange(i, "m_bInUpgradeZone", InUpgradeZone);
+					SetEntProp(i, Prop_Send, "m_nCurrency", 0);
+					GrantOrRemoveAllUpgrades(i, true, false);
+					RemovePlayerAndItemUpgradesFromHistory(i);
+					SetEntProp(i, Prop_Send, "m_bInUpgradeZone", 0);
+				}
 				SetExperiencePoints(i, 0);
-				GrantOrRemoveAllUpgrades(i, true, false);
-				RemovePlayerAndItemUpgradesFromHistory(i);
 				DeleteClientStation(i);
-				SetEntProp(i, Prop_Send, "m_bInUpgradeZone", 0);
 			}
 			m_bIsInMVM[i] = false;
 		}
 
 		delete g_HUDSync;
 
-		ReportUpgradeSetMVM = false;
+		g_bReportUpgradeSetMVM = false;
 
 		Event bountymode_toggled = CreateEvent("bountymode_toggled");
 		if(bountymode_toggled != null) {
@@ -761,18 +776,18 @@ void DisableBountyMode()
 
 		g_MapUpgradeStations.Clear();
 		delete g_MapUpgradeStations;
-		g_UpgradeStation = INVALID_ENT_REFERENCE;
 
-		tf_mvm_respec_enabled.RestoreDefault();
-		tf_mvm_respec_limit.RestoreDefault();
-		tf_mvm_respec_credit_goal.RestoreDefault();
-
-		int entity = EntRefToEntIndex(InfoPopulatorIndex);
-		if(entity != -1) {
-			RemoveEntity(entity);
-			InfoPopulatorIndex = INVALID_ENT_REFERENCE;
+		if(!g_bIsMVM) {
+			tf_mvm_respec_enabled.RestoreDefault();
+			tf_mvm_respec_limit.RestoreDefault();
+			tf_mvm_respec_credit_goal.RestoreDefault();
 		}
-		HasInfoPopulator = false;
+
+		int entity = EntRefToEntIndex(g_SpawnedInfoPopulator);
+		if(entity != -1) {
+			g_SpawnedInfoPopulator = INVALID_ENT_REFERENCE;
+			RemoveEntity(entity);
+		}
 
 		UnhookEvent("player_team", player_team);
 		UnhookEvent("player_changeclass", player_changeclass);
@@ -780,23 +795,29 @@ void DisableBountyMode()
 		UnhookEvent("player_death", player_death);
 		UnhookEvent("teamplay_flag_event", teamplay_flag_event);
 		UnhookEvent("object_destroyed", object_destroyed);
-		UnhookUserMessage(GetUserMessageId("MVMResetPlayerUpgradeSpending"), MVMResetPlayerUpgradeSpending);
-		UnhookUserMessage(GetUserMessageId("MVMLocalPlayerWaveSpendingValue"), MVMLocalPlayerWaveSpendingValue);
-		UnhookUserMessage(GetUserMessageId("MVMPlayerUpgradedEvent"), MVMPlayerUpgradedEvent);
+		if(!g_bIsMVM) {
+			UnhookUserMessage(GetUserMessageId("MVMResetPlayerUpgradeSpending"), MVMResetPlayerUpgradeSpending);
+			UnhookUserMessage(GetUserMessageId("MVMLocalPlayerWaveSpendingValue"), MVMLocalPlayerWaveSpendingValue);
+			UnhookUserMessage(GetUserMessageId("MVMPlayerUpgradedEvent"), MVMPlayerUpgradedEvent);
+		}
 		UnhookUserMessage(GetUserMessageId("TextMsg"), TextMsg, true);
 
-		if(g_iPlayersInMVM > 0) {
-			SendProxy_UnhookGameRules("m_bPlayingMannVsMachine", IsMVM);
+		if(!g_bIsMVM) {
+			if(g_iPlayersInMVM > 0) {
+				SendProxy_UnhookGameRules("m_bPlayingMannVsMachine", IsMVM);
+			}
 		}
 		g_iPlayersInMVM = 0;
 
-		dhGameModeUsesUpgrades.Disable(Hook_Pre, GameModeUsesUpgradesPre);
-		dhReportUpgrade.Disable(Hook_Pre, ReportUpgradePre);
-		dhReportUpgrade.Disable(Hook_Post, ReportUpgradePost);
-		dhCanPlayerUseRespec.Disable(Hook_Pre, CanPlayerUseRespecPre);
-		dhAddCurrency.Disable(Hook_Pre, AddCurrencyPre);
-		dhDistributeCurrencyAmount.Disable(Hook_Pre, DistributeCurrencyAmountPre);
-		dhAllocateBots.Disable(Hook_Pre, AllocateBotsPre);
+		if(!g_bIsMVM) {
+			dhGameModeUsesUpgrades.Disable(Hook_Pre, GameModeUsesUpgradesPre);
+			dhReportUpgrade.Disable(Hook_Pre, ReportUpgradePre);
+			dhReportUpgrade.Disable(Hook_Post, ReportUpgradePost);
+			dhCanPlayerUseRespec.Disable(Hook_Pre, CanPlayerUseRespecPre);
+			dhAddCurrency.Disable(Hook_Pre, AddCurrencyPre);
+			dhAllocateBots.Disable(Hook_Pre, AllocateBotsPre);
+			dhDistributeCurrencyAmount.Disable(Hook_Pre, DistributeCurrencyAmountPre);
+		}
 
 		g_bIsEnabled = false;
 	}
@@ -996,9 +1017,6 @@ public void OnGameFrame()
 		if(g_HUDSync != null) {
 			int team = GetClientTeam(i);
 
-			SetHudTextParams(0.17, 0.82, 0.1, team == 2 ? 255 : 0, 0, team == 3 ? 255 : 0, 255);
-
-			int m_nCurrency = GetEntProp(i, Prop_Send, "m_nCurrency");
 			int m_nExperienceLevel = GetEntProp(i, Prop_Send, "m_nExperienceLevel");
 			int m_nExperiencePoints = GetEntData(i, m_nExperiencePointsOffset);
 			int m_nExperienceLevelProgress = GetEntProp(i, Prop_Send, "m_nExperienceLevelProgress");
@@ -1026,7 +1044,14 @@ public void OnGameFrame()
 			}
 			StrCat(progress_bar, sizeof(progress_bar), "]");
 
-			ShowSyncHudText(i, g_HUDSync, "%s\nExp Points: %i\nExp Level: %i\nMoney: %i", progress_bar, m_nExperiencePoints, m_nExperienceLevel, m_nCurrency);
+			if(!g_bIsMVM) {
+				SetHudTextParams(0.17, 0.82, 0.1, team == 2 ? 255 : 0, 0, team == 3 ? 255 : 0, 255);
+				int m_nCurrency = GetEntProp(i, Prop_Send, "m_nCurrency");
+				ShowSyncHudText(i, g_HUDSync, "%s\nExp Points: %i\nExp Level: %i\nMoney: %i", progress_bar, m_nExperiencePoints, m_nExperienceLevel, m_nCurrency);
+			} else {
+				SetHudTextParams(0.17, 0.82, 0.1, team == 2 ? 255 : 0, 0, team == 3 ? 255 : 0, 255);
+				ShowSyncHudText(i, g_HUDSync, "%s\nExp Points: %i\nExp Level: %i", progress_bar, m_nExperiencePoints, m_nExperienceLevel);
+			}
 		}
 
 		if(g_bDoingUpgradeHelper[i]) {
@@ -1299,7 +1324,7 @@ void ParseKeyValues()
 					do {
 						StationInfo info;
 
-						info.enabled = kvUpgrades.GetNum("enabled", tf_bountymode.BoolValue || GameRules_GetProp("m_bPlayingMannVsMachine"));
+						info.enabled = kvUpgrades.GetNum("enabled", g_bIsEnabled || GameRules_GetProp("m_bPlayingMannVsMachine"));
 
 						kvUpgrades.GetVector("pos", info.pos);
 						kvUpgrades.GetVector("ang", info.ang);
@@ -1345,11 +1370,10 @@ public void OnMapStart()
 
 	if(tf_bountymode.BoolValue) {
 		if(GameRules_GetProp("m_bPlayingMannVsMachine")) {
-			g_bWasDisableByMVM = true;
-			tf_bountymode.BoolValue = false;
-		} else {
-			EnableBountyMode();
+			g_bIsMVM = true;
 		}
+
+		EnableBountyMode();
 	}
 }
 
@@ -1413,12 +1437,8 @@ void DestroyStations()
 
 public void OnMapEnd()
 {
-	if(tf_bountymode.BoolValue) {
+	if(g_bIsEnabled) {
 		DisableBountyMode();
-	}
-
-	if(g_bWasDisableByMVM) {
-		tf_bountymode.BoolValue = true;
 	}
 
 	DestroyStations();
@@ -1426,21 +1446,20 @@ public void OnMapEnd()
 
 void NeedPopulator()
 {
-	if(!HasInfoPopulator) {
-		InfoPopulatorIndex = CreateEntityByName("info_populator");
-		DispatchSpawn(InfoPopulatorIndex);
-		InfoPopulatorIndex = EntIndexToEntRef(InfoPopulatorIndex);
-		HasInfoPopulator = true;
+	int entity = EntRefToEntIndex(g_SpawnedInfoPopulator);
+	if(entity == -1) {
+		entity = CreateEntityByName("info_populator");
+		DispatchSpawn(entity);
+		g_SpawnedInfoPopulator = EntIndexToEntRef(entity);
 	}
 }
 
 void DontNeedPopulator()
 {
-	int entity = EntRefToEntIndex(InfoPopulatorIndex);
+	int entity = EntRefToEntIndex(g_SpawnedInfoPopulator);
 	if(entity != -1) {
+		g_SpawnedInfoPopulator = INVALID_ENT_REFERENCE;
 		RemoveEntity(entity);
-		InfoPopulatorIndex = INVALID_ENT_REFERENCE;
-		HasInfoPopulator = false;
 	}
 }
 
@@ -1582,9 +1601,18 @@ void GrantOrRemoveAllUpgrades(int client, bool remove, bool refund)
 	}
 }
 
+int GetInfoPopulatorIndex()
+{
+	int entity = EntRefToEntIndex(g_InfoPopulator);
+	if(entity == -1) {
+		entity = EntRefToEntIndex(g_SpawnedInfoPopulator);
+	}
+	return entity;
+}
+
 void AddPlayerCurrencySpent(int client, int cash)
 {
-	int entity = EntRefToEntIndex(InfoPopulatorIndex);
+	int entity = GetInfoPopulatorIndex();
 	if(entity != -1) {
 		SDKCall(hAddPlayerCurrencySpent, entity, client, cash);
 	}
@@ -1592,7 +1620,7 @@ void AddPlayerCurrencySpent(int client, int cash)
 
 void RemovePlayerAndItemUpgradesFromHistory(int client)
 {
-	int entity = EntRefToEntIndex(InfoPopulatorIndex);
+	int entity = GetInfoPopulatorIndex();
 	if(entity != -1) {
 		SDKCall(hRemovePlayerAndItemUpgradesFromHistory, entity, client);
 	}
@@ -1610,32 +1638,40 @@ void InUpgradeZone(const int iEntity, const char[] cPropName, const int iOldValu
 
 void GameRules_SetPlayingMVM(int value)
 {
+#if 0
 	int entity = EntRefToEntIndex(tf_gamerules);
 	if(entity != -1) {
-		SetEntData(entity, m_bPlayingMannVsMachineOffset, value);
+		//SetEntData(entity, m_bPlayingMannVsMachineOffset, value);
 	}
+#else
+	GameRules_SetProp("m_bPlayingMannVsMachine", value);
+#endif
 }
 
 public Action OnClientCommandKeyValues(int client, KeyValues kv)
 {
-	if(tf_bountymode.BoolValue) {
-		char name[32];
-		kv.GetSectionName(name, sizeof(name));
+	char name[32];
+	kv.GetSectionName(name, sizeof(name));
 
+	bool MvM_UpgradesDone = StrEqual(name, "MvM_UpgradesDone");
+
+	if(g_bIsEnabled && !g_bIsMVM) {
 		if(StrEqual(name, "MVM_Upgrade") ||
 			StrEqual(name, "MvM_UpgradesBegin")) {
 			SetAsInMVM(client, true, FromClientCMD);
 		} else {
-			bool MvM_UpgradesDone = StrEqual(name, "MvM_UpgradesDone");
 			if(MvM_UpgradesDone ||
 				StrEqual(name, "MVM_Respec")) {
 				SetAsInMVM(client, false, FromClientCMD);
 			}
 			if(MvM_UpgradesDone) {
 				GameRules_SetPlayingMVM(1);
-				DeleteClientStation(client);
 			}
 		}
+	}
+
+	if(MvM_UpgradesDone) {
+		DeleteClientStation(client);
 	}
 
 	return Plugin_Continue;
@@ -1643,17 +1679,22 @@ public Action OnClientCommandKeyValues(int client, KeyValues kv)
 
 public void OnClientCommandKeyValues_Post(int client, KeyValues kv)
 {
-	if(tf_bountymode.BoolValue) {
-		char name[32];
-		kv.GetSectionName(name, sizeof(name));
+	char name[32];
+	kv.GetSectionName(name, sizeof(name));
 
+	bool MvM_UpgradesDone = StrEqual(name, "MvM_UpgradesDone");
+
+	if(g_bIsEnabled && !g_bIsMVM) {
 		if(StrEqual(name, "MVM_Upgrade") ||
 			StrEqual(name, "MvM_UpgradesBegin")) {
 			SetAsInMVM(client, false, FromClientCMD);
-		} else if(StrEqual(name, "MvM_UpgradesDone")) {
+		} else if(MvM_UpgradesDone) {
 			GameRules_SetPlayingMVM(0);
-			DeleteClientStation(client);
 		}
+	}
+
+	if(MvM_UpgradesDone) {
+		DeleteClientStation(client);
 	}
 }
 
@@ -1664,7 +1705,7 @@ public void OnClientDisconnect(int client)
 
 	DeleteClientStation(client);
 
-	if(tf_bountymode.BoolValue) {
+	if(g_bIsEnabled && !g_bIsMVM) {
 		SetAsInMVM(client, false, FromDeath);
 
 		if(IsClientInGame(client)) {
@@ -1679,7 +1720,7 @@ Action object_destroyed(Event event, const char[] name, bool dontBroadcast)
 	int attacker = GetClientOfUserId(event.GetInt("attacker"));
 
 	if(attacker != 0) {
-		SDKCall(hAddExperiencePoints, attacker, CalculateCurrencyAmount_ByType(TF_CURRENCY_KILLED_OBJECT), true, -1);
+		SDKCall(hAddExperiencePoints, attacker, CalculateCurrencyAmount_ByType(TF_CURRENCY_KILLED_OBJECT), !g_bIsMVM, -1);
 	}
 
 	return Plugin_Continue;
@@ -1687,7 +1728,7 @@ Action object_destroyed(Event event, const char[] name, bool dontBroadcast)
 
 void RestorePlayerCurrency()
 {
-	int entity = EntRefToEntIndex(InfoPopulatorIndex);
+	int entity = GetInfoPopulatorIndex();
 	if(entity != -1) {
 		
 	}
@@ -1711,7 +1752,7 @@ Action teamplay_flag_event(Event event, const char[] name, bool dontBroadcast)
 	//TODO!!! check if its ctf specifically
 
 	if(eventtype == TF_FLAGEVENT_CAPTURED) {
-		SDKCall(hAddExperiencePoints, client, CalculateCurrencyAmount_ByType(TF_CURRENCY_CAPTURED_OBJECTIVE), true, -1);
+		SDKCall(hAddExperiencePoints, client, CalculateCurrencyAmount_ByType(TF_CURRENCY_CAPTURED_OBJECTIVE), false, -1);
 	}
 
 	return Plugin_Continue;
@@ -1724,7 +1765,9 @@ Action Timer_WaitForSpawn(Handle timer, int client)
 		if(g_bGotSpawn[client]) {
 			SDKCall(hRefundExperiencePoints, client);
 		} else {
-			SetEntProp(client, Prop_Send, "m_nCurrency", 0);
+			if(!g_bIsMVM) {
+				SetEntProp(client, Prop_Send, "m_nCurrency", 0);
+			}
 			SetExperiencePoints(client, 0);
 		}
 		g_bGotSpawn[client] = false;
@@ -1769,33 +1812,35 @@ Action player_death(Event event, const char[] name, bool dontBroadcast)
 
 	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {
 		if(attacker != 0 && attacker != client) {
-			SDKCall(hAddExperiencePoints, attacker, CalculateCurrencyAmount_ByType(TF_CURRENCY_KILLED_PLAYER), true, client);
+			SDKCall(hAddExperiencePoints, attacker, CalculateCurrencyAmount_ByType(TF_CURRENCY_KILLED_PLAYER), !g_bIsMVM, client);
 		}
 
 		if(assister != 0 && assister != client) {
-			SDKCall(hAddExperiencePoints, assister, CalculateCurrencyAmount_ByType(TF_CURRENCY_ASSISTED_PLAYER), true, -1);
+			SDKCall(hAddExperiencePoints, assister, CalculateCurrencyAmount_ByType(TF_CURRENCY_ASSISTED_PLAYER), !g_bIsMVM, -1);
 		}
 
-		float flPenalty = tf_bountymode_currency_penalty_ondeath.FloatValue;
-		if(flPenalty) {
-			int m_nCurrency = GetEntProp(client, Prop_Send, "m_nCurrency");
-			if(m_nCurrency) {
-				int newcurrency = RoundToFloor(float(m_nCurrency) * flPenalty);
-				if(newcurrency > 30000) {
-					newcurrency = 30000;
-				}
-				if(newcurrency < 0) {
-					newcurrency = 0;
-				}
-				if(newcurrency > 0) {
-					RemoveCurrency(client, newcurrency);
+		if(!g_bIsMVM) {
+			float flPenalty = tf_bountymode_currency_penalty_ondeath.FloatValue;
+			if(flPenalty) {
+				int m_nCurrency = GetEntProp(client, Prop_Send, "m_nCurrency");
+				if(m_nCurrency) {
+					int newcurrency = RoundToFloor(float(m_nCurrency) * flPenalty);
+					if(newcurrency > 30000) {
+						newcurrency = 30000;
+					}
+					if(newcurrency < 0) {
+						newcurrency = 0;
+					}
+					if(newcurrency > 0) {
+						RemoveCurrency(client, newcurrency);
+					}
 				}
 			}
-		}
 
-		if(tf_bountymode_upgrades_wipeondeath.BoolValue) {
-			GrantOrRemoveAllUpgrades(client, true, false);
-			RemovePlayerAndItemUpgradesFromHistory(client);
+			if(tf_bountymode_upgrades_wipeondeath.BoolValue) {
+				GrantOrRemoveAllUpgrades(client, true, false);
+				RemovePlayerAndItemUpgradesFromHistory(client);
+			}
 		}
 	}
 
@@ -1804,10 +1849,10 @@ Action player_death(Event event, const char[] name, bool dontBroadcast)
 
 MRESReturn ReportUpgradePre(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-	if(!HasInfoPopulator) {
+	if(GetInfoPopulatorIndex() == -1) {
 		if(GameRules_GetProp("m_bPlayingMannVsMachine")) {
 			GameRules_SetPlayingMVM(0);
-			ReportUpgradeSetMVM = true;
+			g_bReportUpgradeSetMVM = true;
 		}
 	}
 
@@ -1818,9 +1863,9 @@ MRESReturn ReportUpgradePre(int pThis, DHookReturn hReturn, DHookParam hParams)
 
 MRESReturn ReportUpgradePost(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-	if(ReportUpgradeSetMVM) {
+	if(g_bReportUpgradeSetMVM) {
 		GameRules_SetPlayingMVM(1);
-		ReportUpgradeSetMVM = false;
+		g_bReportUpgradeSetMVM = false;
 	}
 
 	//DontNeedPopulator();
@@ -1839,57 +1884,66 @@ MRESReturn AllocateBotsPre(int pThis, DHookReturn hReturn, DHookParam hParams)
 	return MRES_Supercede;
 }
 
+void OnCurrencyCollected(int nAmount, bool bCountAsDropped, bool bIsBonus)
+{
+	int entity = GetInfoPopulatorIndex();
+	if(entity != -1) {
+		
+	}
+}
+
 MRESReturn DistributeCurrencyAmountPre(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-	if(tf_bountymode.BoolValue) {
-		int shared = hParams.Get(3);
+	int shared = hParams.Get(3);
+	int cash = hParams.Get(1);
+	bool bCountAsDropped = hParams.Get(4);
+	bool bIsBonus = hParams.Get(5);
 
-		if(shared) {
-			int client = hParams.Get(2);
-			int cash = hParams.Get(1);
+	OnCurrencyCollected(cash, bCountAsDropped, bIsBonus);
 
-			int team = GetClientTeam(client);
+	if(shared) {
+		int client = hParams.Get(2);
 
-			for(int i = 1; i <= MaxClients; ++i) {
-				if(!IsClientInGame(i) ||
-					!IsPlayerAlive(i)) {
-					continue;
-				}
+		int team = GetClientTeam(client);
 
-				if(GetClientTeam(i) != team) {
-					continue;
-				}
-
-				AddCurrency(i, cash);
+		for(int i = 1; i <= MaxClients; ++i) {
+			if(!IsClientInGame(i) ||
+				!IsPlayerAlive(i)) {
+				continue;
 			}
 
-			return MRES_Supercede;
+			if(GetClientTeam(i) != team) {
+				continue;
+			}
+
+			AddCurrency(i, cash);
 		}
+
+		hReturn.Value = cash;
+		return MRES_Supercede;
 	}
-	
+
 	return MRES_Ignored;
 }
 
 MRESReturn AddCurrencyPre(int pThis, DHookParam hParams)
 {
-	if(tf_bountymode.BoolValue) {
-		int nAmount = hParams.Get(1);
-		int m_nCurrency = GetEntProp(pThis, Prop_Send, "m_nCurrency");
+	int nAmount = hParams.Get(1);
+	int m_nCurrency = GetEntProp(pThis, Prop_Send, "m_nCurrency");
 
-		int nLimit = tf_bountymode_currency_limit.IntValue;
-		if(nLimit > 0) {
-			int nNewCurrency = nAmount + m_nCurrency;
-			if(nNewCurrency > nLimit) {
-				int nDelta = nNewCurrency - nLimit;
-				if(nDelta) {
-					nAmount -= nDelta;
-					hParams.Set(1, nAmount);
-					return MRES_ChangedHandled;
-				}
+	int nLimit = tf_bountymode_currency_limit.IntValue;
+	if(nLimit > 0) {
+		int nNewCurrency = nAmount + m_nCurrency;
+		if(nNewCurrency > nLimit) {
+			int nDelta = nNewCurrency - nLimit;
+			if(nDelta) {
+				nAmount -= nDelta;
+				hParams.Set(1, nAmount);
+				return MRES_ChangedHandled;
 			}
 		}
 	}
-	
+
 	return MRES_Ignored;
 }
 
@@ -1922,13 +1976,15 @@ void UpgradeEndTouch(int entity, int other)
 void StationCreated(int entity)
 {
 	g_UpgradeStation = EntIndexToEntRef(entity);
-	SDKHook(entity, SDKHook_StartTouch, UpgradeStartTouch);
-	SDKHook(entity, SDKHook_EndTouch, UpgradeEndTouch);
+	if(!g_bIsMVM) {
+		SDKHook(entity, SDKHook_StartTouch, UpgradeStartTouch);
+		SDKHook(entity, SDKHook_EndTouch, UpgradeEndTouch);
+	}
 }
 
 void PopulatorCreated(int entity)
 {
-	HasInfoPopulator = true;
+	g_InfoPopulator = EntIndexToEntRef(entity);
 }
 
 public void OnEntityDestroyed(int entity)
@@ -1941,9 +1997,15 @@ public void OnEntityDestroyed(int entity)
 		entity = EntRefToEntIndex(entity);
 	}
 
-	if(InfoPopulatorIndex != INVALID_ENT_REFERENCE) {
-		if(entity == EntRefToEntIndex(InfoPopulatorIndex)) {
-			InfoPopulatorIndex = INVALID_ENT_REFERENCE;
+	if(g_SpawnedInfoPopulator != INVALID_ENT_REFERENCE) {
+		if(entity == EntRefToEntIndex(g_SpawnedInfoPopulator)) {
+			g_SpawnedInfoPopulator = INVALID_ENT_REFERENCE;
+		}
+	}
+
+	if(g_InfoPopulator != INVALID_ENT_REFERENCE) {
+		if(entity == EntRefToEntIndex(g_InfoPopulator)) {
+			g_InfoPopulator = INVALID_ENT_REFERENCE;
 		}
 	}
 
