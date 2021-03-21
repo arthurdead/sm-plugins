@@ -45,6 +45,19 @@ methodmap TrainingMsgMenu
 native bool IsTrainingMessageVisibleToClient(int client);
 native bool IsTrainingMessageVisibleToAll();
 
+stock void TrainingMsgAddHintText(char[] buffer, int len, const char[] text)
+{
+	int bufferlen = strlen(buffer);
+	buffer[bufferlen] = 2;
+	buffer[bufferlen+1] = 0;
+
+	StrCat(buffer, len, text);
+
+	bufferlen += strlen(text);
+	buffer[bufferlen] = 1;
+	buffer[bufferlen+1] = 0;
+}
+
 native void SendTrainingMessageToClients(const int[] clients, int numClients, const char[] title, const char[] msg);
 native void SendTrainingMessageToAll(const char[] title, const char[] msg);
 native void SendTrainingMessageToClient(int client, const char[] title, const char[] msg);
