@@ -1510,29 +1510,32 @@ Action Timer_TextMsg(Handle timer, DataPack data)
 
 	int dst = data.ReadCell();
 
-	BfWrite usrmsg = view_as<BfWrite>(StartMessageAll("TextMsg"));
-	usrmsg.WriteByte(dst);
-
 	int len = data.ReadCell();
 	char[] text = new char[len];
 	data.ReadString(text, len);
-	usrmsg.WriteString(text);
 
 	len = data.ReadCell();
 	char[] param1 = new char[len];
 	data.ReadString(param1, len);
-	usrmsg.WriteString(param1);
 
 	len = data.ReadCell();
 	char[] param2 = new char[len];
 	data.ReadString(param2, len);
-	usrmsg.WriteString(param2);
 
 	len = data.ReadCell();
 	char[] param3 = new char[len];
 	data.ReadString(param3, len);
-	usrmsg.WriteString(param3);
 
+	len = data.ReadCell();
+	int[] players = new int[len];
+	data.ReadCellArray(players, len);
+
+	BfWrite usrmsg = view_as<BfWrite>(StartMessage("TextMsg", players, len));
+	usrmsg.WriteByte(dst);
+	usrmsg.WriteString(text);
+	usrmsg.WriteString(param1);
+	usrmsg.WriteString(param2);
+	usrmsg.WriteString(param3);
 	EndMessage();
 
 	return Plugin_Continue;
@@ -1551,9 +1554,10 @@ Action TextMsg(UserMsg msg_id, BfRead msg, const int[] players, int playersNum, 
 
 		data.WriteCell(dst);
 
-		int len = sizeof(text);
+		char[] newtext = "%s1 | %s2 has leveled-up to level %s3.";
+		int len = strlen(newtext)+1;
 		data.WriteCell(len);
-		data.WriteString("%s1 | %s2 has leveled-up to level %s3.");
+		data.WriteString(newtext);
 
 		len = sizeof(text);
 		msg.ReadString(text, len);
@@ -1570,7 +1574,10 @@ Action TextMsg(UserMsg msg_id, BfRead msg, const int[] players, int playersNum, 
 		data.WriteCell(len);
 		data.WriteString(text);
 
-		return Plugin_Handled;
+		data.WriteCell(playersNum);
+		data.WriteCellArray(players, playersNum);
+
+		return Plugin_Stop;
 	}
 
 	return Plugin_Continue;
