@@ -45,18 +45,10 @@ methodmap TrainingMsgMenu
 native bool IsTrainingMessageVisibleToClient(int client);
 native bool IsTrainingMessageVisibleToAll();
 
-stock void TrainingMsgAddHintText(char[] buffer, int len, const char[] text)
-{
-	int bufferlen = strlen(buffer);
-	buffer[bufferlen] = 2;
-	buffer[bufferlen+1] = 0;
-
-	StrCat(buffer, len, text);
-
-	bufferlen += strlen(text);
-	buffer[bufferlen] = 1;
-	buffer[bufferlen+1] = 0;
-}
+/*
+if you want text to be hinted use \x2 before the text and \x1 after like this
+Format(mytext, sizeof(mytext), "\x2this text is hinted \x1now this text isnt");
+*/
 
 native void SendTrainingMessageToClients(const int[] clients, int numClients, const char[] title, const char[] msg);
 native void SendTrainingMessageToAll(const char[] title, const char[] msg);
