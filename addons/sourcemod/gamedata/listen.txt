@@ -1,7 +1,13 @@
 "Games"
 {
-	"tf"
+	"#default"
 	{
+		"#supported"
+		{
+			"game"	"tf"
+			"game"	"left4dead2"
+		}
+
 		"Signatures"
 		{
 			"UTIL_GetLocalPlayer"

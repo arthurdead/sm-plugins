@@ -33,9 +33,18 @@ int arrow = -1;
 
 public void OnMapStart()
 {
-	halo = PrecacheModel("materials/sprites/halo01.vmt");
-	laser = PrecacheModel("materials/sprites/laser.vmt");
-	arrow = PrecacheModel("materials/sprites/obj_icons/capture_highlight.vmt");
+	switch(GetEngineVersion()) {
+		case Engine_TF2: {
+			halo = PrecacheModel("materials/sprites/halo01.vmt");
+			laser = PrecacheModel("materials/sprites/laser.vmt");
+			arrow = PrecacheModel("materials/sprites/obj_icons/capture_highlight.vmt");
+		}
+		case Engine_Left4Dead2: {
+			halo = PrecacheModel("materials/sprites/glow01.vmt");
+			laser = PrecacheModel("materials/sprites/laserbeam.vmt");
+			arrow = PrecacheModel("materials/sprites/laserbeam.vmt");
+		}
+	}
 }
 
 void DrawLine(int client, float origin[3], float target[3], int r, int g, int b, bool noDepthTest, float duration)
