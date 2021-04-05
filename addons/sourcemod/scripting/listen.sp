@@ -53,6 +53,10 @@ void DrawLine(int client, float origin[3], float target[3], int r, int g, int b,
 		duration = 0.1;
 	}
 
+	if(duration > 25.6) {
+		duration = 25.6;
+	}
+
 	int mdl = noDepthTest ? arrow : laser;
 	int hal = halo;
 
