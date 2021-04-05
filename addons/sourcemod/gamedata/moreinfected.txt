@@ -1,0 +1,40 @@
+"Games"
+{
+	"left4dead2"
+	{
+		"Signatures"
+		{
+			"ZombieManager::SpawnCommonZombie"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager17SpawnCommonZombieEP13TerrorNavAreaRK6VectorNS_28CommonInfectedSpawnDirectiveE"
+			}
+		}
+		"Functions"
+		{
+			"ZombieManager::SpawnCommonZombie"
+			{
+				"signature" "ZombieManager::SpawnCommonZombie"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"area"
+					{
+						"type" "int"
+					}
+					"pos"
+					{
+						"type" "vectorptr"
+					}
+					"type"
+					{
+						"type" "int"
+					}
+				}
+			}
+		}
+	}
+}

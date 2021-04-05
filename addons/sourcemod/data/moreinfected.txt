@@ -1,0 +1,9 @@
+"moreinfected"
+{
+	"re_classiczombie"
+	{
+		"class" "common"
+		"chance" "20"
+		"plugin" "re_npcs.smx"
+	}
+}
