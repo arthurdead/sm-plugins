@@ -9,6 +9,41 @@
 				"library" "server"
 				"linux" "@_ZN13ZombieManager17SpawnCommonZombieEP13TerrorNavAreaRK6VectorNS_28CommonInfectedSpawnDirectiveE"
 			}
+			"ZombieManager::SpawnSpecial<TerrorNavArea>"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager12SpawnSpecialE15ZombieClassTypePK13TerrorNavAreaRK6QAngle"
+			}
+			"ZombieManager::SpawnSpecial<Vector>"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager12SpawnSpecialE15ZombieClassTypeRK6VectorRK6QAngle"
+			}
+			"ZombieManager::SpawnTank<TerrorNavArea>"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager9SpawnTankEPK13TerrorNavAreaRK6QAngleb"
+			}
+			"ZombieManager::SpawnTank<Vector>"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager9SpawnTankERK6VectorRK6QAngle"
+			}
+			"ZombieManager::SpawnWitch<TerrorNavArea>"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager10SpawnWitchEPK13TerrorNavAreaRK6QAngleb"
+			}
+			"ZombieManager::SpawnWitch<Vector>"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager10SpawnWitchERK6VectorRK6QAngle"
+			}
+			"ZombieManager::SpawnWitchBride"
+			{
+				"library" "server"
+				"linux" "@_ZN13ZombieManager15SpawnWitchBrideERK6VectorRK6QAngle"
+			}
 		}
 		"Functions"
 		{
@@ -32,6 +67,155 @@
 					"type"
 					{
 						"type" "int"
+					}
+				}
+			}
+			"ZombieManager::SpawnSpecial<TerrorNavArea>"
+			{
+				"signature" "ZombieManager::SpawnSpecial<TerrorNavArea>"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"type"
+					{
+						"type" "int"
+					}
+					"area"
+					{
+						"type" "int"
+					}
+					"ang"
+					{
+						"type" "vectorptr"
+					}
+				}
+			}
+			"ZombieManager::SpawnSpecial<Vector>"
+			{
+				"signature" "ZombieManager::SpawnSpecial<Vector>"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"type"
+					{
+						"type" "int"
+					}
+					"pos"
+					{
+						"type" "vectorptr"
+					}
+					"ang"
+					{
+						"type" "vectorptr"
+					}
+				}
+			}
+			"ZombieManager::SpawnTank<TerrorNavArea>"
+			{
+				"signature" "ZombieManager::SpawnTank<TerrorNavArea>"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"area"
+					{
+						"type" "int"
+					}
+					"ang"
+					{
+						"type" "vectorptr"
+					}
+					"unk"
+					{
+						"type" "bool"
+					}
+				}
+			}
+			"ZombieManager::SpawnTank<Vector>"
+			{
+				"signature" "ZombieManager::SpawnTank<Vector>"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"pos"
+					{
+						"type" "vectorptr"
+					}
+					"ang"
+					{
+						"type" "vectorptr"
+					}
+				}
+			}
+			"ZombieManager::SpawnWitch<TerrorNavArea>"
+			{
+				"signature" "ZombieManager::SpawnWitch<TerrorNavArea>"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"area"
+					{
+						"type" "int"
+					}
+					"ang"
+					{
+						"type" "vectorptr"
+					}
+					"unk"
+					{
+						"type" "bool"
+					}
+				}
+			}
+			"ZombieManager::SpawnWitch<Vector>"
+			{
+				"signature" "ZombieManager::SpawnWitch<Vector>"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"pos"
+					{
+						"type" "vectorptr"
+					}
+					"ang"
+					{
+						"type" "vectorptr"
+					}
+				}
+			}
+			"ZombieManager::SpawnWitchBride"
+			{
+				"signature" "ZombieManager::SpawnWitchBride"
+				"callconv" "thiscall"
+				"return" "cbaseentity"
+				"this" "address"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"pos"
+					{
+						"type" "vectorptr"
+					}
+					"ang"
+					{
+						"type" "vectorptr"
 					}
 				}
 			}

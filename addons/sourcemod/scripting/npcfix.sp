@@ -269,10 +269,6 @@ void OnNPCSpawnPost(int entity)
 	flags |= FL_NPC;
 	SetEntityFlags(entity, FL_NPC);
 
-	flags = GetEntProp(entity, Prop_Data, "m_iEFlags");
-	flags |= EFL_DONTWALKON;
-	SetEntProp(entity, Prop_Data, "m_iEFlags", flags);
-
 	SetEntProp(entity, Prop_Data, "m_lifeState", LIFE_ALIVE);
 	SetEntProp(entity, Prop_Data, "m_takedamage", DAMAGE_YES);
 
@@ -285,7 +281,7 @@ void OnNPCSpawnPost(int entity)
 	SetEdictFlags(entity, flags);
 
 	flags = GetEntProp(entity, Prop_Data, "m_iEFlags");
-	flags |= EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS|EFL_DIRTY_SPATIAL_PARTITION;
+	flags |= EFL_DIRTY_SURROUNDING_COLLISION_BOUNDS|EFL_DIRTY_SPATIAL_PARTITION|EFL_DONTWALKON;
 	SetEntProp(entity, Prop_Data, "m_iEFlags", flags);
 
 	flags = GetEntProp(entity, Prop_Send, "m_usSolidFlags");
