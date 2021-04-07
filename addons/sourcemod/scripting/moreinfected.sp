@@ -3,6 +3,9 @@
 #include <keyvalues>
 #include <moreinfected>
 
+#undef REQUIRE_EXTENSIONS
+#tryinclude <nextbot>
+
 KeyValues kvInfected = null;
 
 enum struct InfectedInfo
@@ -11,8 +14,10 @@ enum struct InfectedInfo
 	char name[64];
 	char alias[64];
 	char plname[64];
+	char place[64];
 	char data[MAX_DATA_LENGTH];
 	float chance;
+	infected_directive_flags directive_flags;
 	infected_class_flags class_flags;
 }
 
@@ -31,17 +36,55 @@ enum
 	infected_class_count,
 }
 
+enum
+{
+	directive_wanderer,
+	directive_ambient,
+	directive_attack,
+	directive_special,
+	infected_directive_count,
+};
+
 ArrayList arInfectedInfos = null;
-ArrayList arClasses[infected_class_count] = {null, ...};
+StringMap infectedMap[infected_directive_count] = {null, ...};
 
 bool g_bLateLoaded = false;
+
+#if defined nextbot_included
+bool g_bNextBot = false;
+#endif
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 {
 	g_bLateLoaded = late;
 	RegPluginLibrary("moreinfected");
+
+#if defined nextbot_included
+	if(LibraryExists("nextbot")) {
+		g_bNextBot = true;
+	} else if(GetExtensionFileStatus("nextbot.ext") == 1) {
+		g_bNextBot = true;
+	}
+#endif
+
 	return APLRes_Success;
 }
+
+#if defined nextbot_included
+public void OnLibraryAdded(const char[] name)
+{
+	if(StrEqual(name, "nextbot")) {
+		g_bNextBot = true;
+	}
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+	if(StrEqual(name, "nextbot")) {
+		g_bNextBot = false;
+	}
+}
+#endif
 
 public void OnPluginStart()
 {
@@ -96,8 +139,8 @@ public void OnPluginStart()
 		if(kvInfected.GotoFirstSubKey()) {
 			arInfectedInfos = new ArrayList(sizeof(InfectedInfo));
 
-			for(int i = 0; i < infected_class_count; ++i) {
-				arClasses[i] = new ArrayList();
+			for(int i = 0; i < infected_directive_count; ++i) {
+				infectedMap[i] = new StringMap();
 			}
 
 			do {
@@ -111,48 +154,61 @@ public void OnPluginStart()
 				}
 
 				char classstr[64];
-				kvInfected.GetString("class_flags", classstr, sizeof(classstr));
+				kvInfected.GetString("class_flags", classstr, sizeof(classstr), "common");
 				infected_class_flags classflags = ClassStrToFlags(classstr);
 				if(classflags == class_flags_invalid) {
-					PrintToServer("[MOREINFECTED] %s: invalid class flags %s", name, classstr);
+					PrintToServer("[MOREINFECTED] %s: invalid class flags: %s", name, classstr);
 					continue;
 				}
 
+				if((classflags & class_flags_common) &&
+					(classflags & (class_flags_tank|
+					class_flags_smoker|
+					class_flags_charger|
+					class_flags_boomer|
+					class_flags_hunter|
+					class_flags_jockey|
+					class_flags_spitter|
+					class_flags_witch|
+					class_flags_witch_bride))) {
+					PrintToServer("[MOREINFECTED] %s: cant be both common and special: %s", name, classstr);
+					continue;
+				}
+
+				infected_directive_flags directiveflags = directive_flags_attack;
+
 				if(classflags & class_flags_common) {
-					arClasses[class_common].Push(arInfectedInfos.Length);
+					kvInfected.GetString("directive_flags", classstr, sizeof(classstr), "any");
+					directiveflags = DirectiveStrToFlags(classstr);
+					if(directiveflags == directive_flags_invalid) {
+						PrintToServer("[MOREINFECTED] %s: invalid directive flags: %s", name, classstr);
+						continue;
+					}
 				}
-				if(classflags & class_flags_tank) {
-					arClasses[class_tank].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_smoker) {
-					arClasses[class_smoker].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_charger) {
-					arClasses[class_charger].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_boomer) {
-					arClasses[class_boomer].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_hunter) {
-					arClasses[class_hunter].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_jockey) {
-					arClasses[class_jockey].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_spitter) {
-					arClasses[class_spitter].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_witch) {
-					arClasses[class_witch].Push(arInfectedInfos.Length);
-				}
-				if(classflags & class_flags_witch_bride) {
-					arClasses[class_witch_bride].Push(arInfectedInfos.Length);
+
+				char place[64];
+				kvInfected.GetString("place", place, sizeof(place), "default");
+
+				if(classflags & class_flags_common) {
+					if(directiveflags & directive_flags_wanderer) {
+						SetupClassesMap(infectedMap[directive_wanderer], classflags, arInfectedInfos.Length, place);
+					}
+					if(directiveflags & directive_flags_ambient) {
+						SetupClassesMap(infectedMap[directive_ambient], classflags, arInfectedInfos.Length, place);
+					}
+					if(directiveflags & directive_flags_attack) {
+						SetupClassesMap(infectedMap[directive_attack], classflags, arInfectedInfos.Length, place);
+					}
+				} else {
+					SetupClassesMap(infectedMap[directive_special], classflags, arInfectedInfos.Length, place);
 				}
 
 				InfectedInfo info;
 				info.chance = chance * 0.01;
 				info.class_flags = classflags;
+				info.directive_flags = directiveflags;
 				strcopy(info.name, sizeof(info.name), name);
+				strcopy(info.place, sizeof(info.place), place);
 
 				kvInfected.GetString("plugin", info.plname, sizeof(info.plname));
 				kvInfected.GetString("alias", info.alias, sizeof(info.alias));
@@ -164,6 +220,75 @@ public void OnPluginStart()
 		}
 		kvInfected.GoBack();
 	}
+}
+
+void SetupClassesMap(StringMap map, infected_class_flags classflags, int idx, const char[] place)
+{
+	ArrayList arClasses[infected_class_count] = {null, ...};
+	if(!map.GetArray(place, arClasses, sizeof(arClasses))) {
+		for(int i = 0; i < infected_class_count; ++i) {
+			arClasses[i] = new ArrayList();
+		}
+		map.SetArray(place, arClasses, sizeof(arClasses));
+	}
+
+	if(classflags & class_flags_common) {
+		arClasses[class_common].Push(idx);
+	}
+	if(classflags & class_flags_tank) {
+		arClasses[class_tank].Push(idx);
+	}
+	if(classflags & class_flags_smoker) {
+		arClasses[class_smoker].Push(idx);
+	}
+	if(classflags & class_flags_charger) {
+		arClasses[class_charger].Push(idx);
+	}
+	if(classflags & class_flags_boomer) {
+		arClasses[class_boomer].Push(idx);
+	}
+	if(classflags & class_flags_hunter) {
+		arClasses[class_hunter].Push(idx);
+	}
+	if(classflags & class_flags_jockey) {
+		arClasses[class_jockey].Push(idx);
+	}
+	if(classflags & class_flags_spitter) {
+		arClasses[class_spitter].Push(idx);
+	}
+	if(classflags & class_flags_witch) {
+		arClasses[class_witch].Push(idx);
+	}
+	if(classflags & class_flags_witch_bride) {
+		arClasses[class_witch_bride].Push(idx);
+	}
+}
+
+infected_directive_flags DirectiveStrToFlags(const char[] str)
+{
+	char flagstrs[3][64];
+	int num = ExplodeString(str, "|", flagstrs, 3, 64);
+
+	infected_directive_flags flags = directive_flags_invalid;
+
+	for(int i = 0; i < num; ++i) {
+		if(StrEqual(flagstrs[i], "wanderer")) {
+			flags |= directive_flags_wanderer;
+		} else if(StrEqual(flagstrs[i], "ambient")) {
+			flags |= directive_flags_ambient;
+		} else if(StrEqual(flagstrs[i], "attack")) {
+			flags |= directive_flags_attack;
+		} else if(StrEqual(flagstrs[i], "any_background")) {
+			flags |= directive_flags_wanderer;
+			flags |= directive_flags_ambient;
+		} else if(StrEqual(flagstrs[i], "any")) {
+			flags |= directive_flags_wanderer;
+			flags |= directive_flags_ambient;
+			flags |= directive_flags_attack;
+		}
+	}
+
+	return flags;
 }
 
 infected_class_flags ClassStrToFlags(const char[] str)
@@ -194,6 +319,17 @@ infected_class_flags ClassStrToFlags(const char[] str)
 			flags |= class_flags_witch;
 		} else if(StrEqual(flagstrs[i], "witch_bride")) {
 			flags |= class_flags_witch_bride;
+		} else if(StrEqual(flagstrs[i], "any_boss")) {
+			flags |= class_flags_tank;
+			flags |= class_flags_witch;
+			flags |= class_flags_witch_bride;
+		} else if(StrEqual(flagstrs[i], "any_special")) {
+			flags |= class_flags_smoker;
+			flags |= class_flags_charger;
+			flags |= class_flags_boomer;
+			flags |= class_flags_hunter;
+			flags |= class_flags_jockey;
+			flags |= class_flags_spitter;
 		}
 	}
 
@@ -295,11 +431,31 @@ public void OnMapStart()
 			Call_StartFunction(info.hPlugin, precache);
 			moreinfected_data data;
 			data.class_flags = info.class_flags;
+			data.directive_flags = info.directive_flags;
 			strcopy(data.data, MAX_DATA_LENGTH, info.data);
 			Call_PushArray(data, sizeof(moreinfected_data));
 			Call_Finish();
 		}
 	}
+}
+
+void GetPlaceFromNav(Address area, float pos[3], char[] place, int length)
+{
+#if 0 && defined nextbot_included
+	if(g_bNextBot) {
+		if(area == Address_Null) {
+			int id = CNavMesh.GetPlace(pos);
+			CNavMesh.PlaceToName(id, place, length);
+			return;
+		} else {
+			int id = view_as<CNavArea>(area).Place;
+			CNavMesh.PlaceToName(id, place, length);
+			return;
+		}
+	}
+#endif
+
+	strcopy(place, length, "default");
 }
 
 MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam hParams)
@@ -308,7 +464,36 @@ MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam 
 		return MRES_Ignored;
 	}
 
+	CommonInfectedSpawnDirective directive = hParams.Get(3);
+
+	StringMap placemap = null;
+	switch(directive) {
+		case SpawnDirective_Wanderer:
+		{ placemap = infectedMap[directive_wanderer]; }
+		case SpawnDirective_Ambient:
+		{ placemap = infectedMap[directive_ambient]; }
+		case SpawnDirective_Attack:
+		{ placemap = infectedMap[directive_attack]; }
+	}
+
+	Address area = hParams.Get(1);
+
+	float pos[3];
+	hParams.GetVector(2, pos);
+
+	char place[64];
+	GetPlaceFromNav(area, pos, place, sizeof(place));
+
+	ArrayList arClasses[infected_class_count] = {null, ...};
+	if(!placemap.GetArray(place, arClasses, sizeof(arClasses))) {
+		return MRES_Ignored;
+	}
+
 	ArrayList arr = arClasses[class_common];
+
+	if(arr == null || arr.Length == 0) {
+		return MRES_Ignored;
+	}
 
 	int idx = GetRandomInt(0, arr.Length-1);
 
@@ -354,16 +539,14 @@ MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam 
 		return MRES_Ignored;
 	}
 
-	float pos[3];
-	hParams.GetVector(2, pos);
-
 	Call_StartFunction(info.hPlugin, spawn);
 	Call_PushCell(entity);
-	Call_PushCell(hParams.Get(1));
+	Call_PushCell(area);
 	Call_PushArray(pos, sizeof(pos));
-	Call_PushCell(hParams.Get(3));
+	Call_PushCell(directive);
 	moreinfected_data data;
 	data.class_flags = info.class_flags;
+	data.directive_flags = info.directive_flags;
 	strcopy(data.data, MAX_DATA_LENGTH, info.data);
 	Call_PushArray(data, sizeof(moreinfected_data));
 	Call_Finish(entity);
@@ -400,6 +583,17 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 		return MRES_Ignored;
 	}
 
+	StringMap placemap = infectedMap[directive_special];
+
+	char place[64];
+	GetPlaceFromNav(g_LastArea, pos, place, sizeof(place));
+
+	ArrayList arClasses[infected_class_count] = {null, ...};
+	if(!placemap.GetArray(place, arClasses, sizeof(arClasses))) {
+		g_LastArea = Address_Null;
+		return MRES_Ignored;
+	}
+
 	ArrayList arr = null;
 
 	switch(type) {
@@ -429,7 +623,7 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 		}
 	}
 
-	if(arr == null) {
+	if(arr == null || arr.Length == 0) {
 		g_LastArea = Address_Null;
 		return MRES_Ignored;
 	}
@@ -491,6 +685,7 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 	Call_PushCell(type);
 	moreinfected_data data;
 	data.class_flags = info.class_flags;
+	data.directive_flags = info.directive_flags;
 	strcopy(data.data, MAX_DATA_LENGTH, info.data);
 	Call_PushArray(data, sizeof(moreinfected_data));
 	Call_Finish(entity);

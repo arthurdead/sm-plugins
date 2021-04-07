@@ -3,14 +3,20 @@
 #endif
 #define _moreinfected_inc_
 
-#tryinclude <datamaps>
-
-enum infected_directive
+enum CommonInfectedSpawnDirective
 {
-	directive_wanderer,
-	directive_ambient,
-	directive_attack,
+	SpawnDirective_Wanderer,
+	SpawnDirective_Ambient,
+	SpawnDirective_Attack,
 };
+
+enum infected_directive_flags
+{
+	directive_flags_invalid = 0,
+	directive_flags_wanderer = (1 << 0),
+	directive_flags_ambient = (1 << 1),
+	directive_flags_attack = (1 << 2),
+}
 
 enum infected_class_flags
 {
@@ -44,6 +50,7 @@ enum ZombieClassType
 enum struct moreinfected_data
 {
 	infected_class_flags class_flags;
+	infected_directive_flags directive_flags;
 	char data[MAX_DATA_LENGTH];
 }
 
@@ -53,30 +60,11 @@ typeset moreinfected_functions
 	function void (moreinfected_data data);
 
 	//spawn common
-	function int (int entity, Address area, float pos[3], infected_directive directive, moreinfected_data data);
+	function int (int entity, Address area, float pos[3], CommonInfectedSpawnDirective directive, moreinfected_data data);
 
 	//spawn special
 	function int (int entity, Address area, float pos[3], float ang[3], ZombieClassType type, moreinfected_data data);
 };
-
-#if defined datamaps_included
-stock CustomSendtable sendtable_from_infected_factory(CustomEntityFactory factory)
-{
-	return CustomSendtable.from_factory(factory, "Infected");
-}
-
-stock CustomEntityFactory register_infected_factory(const char[] classname)
-{
-#if 0
-	CustomEntityFactory factory = EntityFactoryDictionary.register_based_name(classname, "infected");
-	CustomSendtable sendtable = sendtable_from_infected_factory(factory);
-	sendtable.override_with("NextBotCombatCharacter");
-#else
-	CustomEntityFactory factory = register_nextbot_factory(classname);
-#endif
-	return factory;
-}
-#endif
 
 public SharedPlugin __pl_moreinfected =
 {
