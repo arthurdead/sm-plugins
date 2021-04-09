@@ -620,11 +620,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 	INextBot bot = INextBot(entity);
 	if(bot != INextBot_Null) {
-	#if defined GAME_TF2
-		bool is_player = (StrEqual(classname, "player") || StrEqual(classname, "tf_bot"));
-	#elseif defined GAME_L4D2
-		bool is_player = (StrEqual(classname, "player"));
-	#endif
+		bool is_player = (entity >= 1 && entity <= MaxClients);
 
 	#if defined GAME_TF2
 		bool is_tank = StrEqual(classname, "tank_boss");
@@ -633,7 +629,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 		bool is_hatman = StrEqual(classname, "headless_hatman");
 		bool is_monoculos = StrEqual(classname, "eyeball_boss");
 	#elseif defined GAME_L4D2
-		bool is_infected = StrEqual(classname, "infected");
+		bool is_infected = (StrEqual(classname, "infected") || StrEqual(classname, "witch"));
 	#endif
 
 		if(is_player) {
