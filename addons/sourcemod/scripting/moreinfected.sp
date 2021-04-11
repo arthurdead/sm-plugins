@@ -441,16 +441,20 @@ public void OnMapStart()
 
 void GetPlaceFromNav(Address area, float pos[3], char[] place, int length)
 {
-#if 0 && defined nextbot_included
+#if defined nextbot_included
 	if(g_bNextBot) {
 		if(area == Address_Null) {
 			int id = CNavMesh.GetPlace(pos);
-			CNavMesh.PlaceToName(id, place, length);
-			return;
+			if(id != UNDEFINED_PLACE) {
+				CNavMesh.PlaceToName(id, place, length);
+				return;
+			}
 		} else {
 			int id = view_as<CNavArea>(area).Place;
-			CNavMesh.PlaceToName(id, place, length);
-			return;
+			if(id != UNDEFINED_PLACE) {
+				CNavMesh.PlaceToName(id, place, length);
+				return;
+			}
 		}
 	}
 #endif
@@ -464,7 +468,7 @@ MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam 
 		return MRES_Ignored;
 	}
 
-	CommonInfectedSpawnDirective directive = hParams.Get(3);
+	InfectedSpawnDirective directive = hParams.Get(3);
 
 	StringMap placemap = null;
 	switch(directive) {
@@ -597,28 +601,31 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 	ArrayList arr = null;
 
 	switch(type) {
-		case ZombieClassType_Smoker: {
+		case ZombieClass_Common: {
+			arr = arClasses[class_common];
+		}
+		case ZombieClass_Smoker: {
 			arr = arClasses[class_smoker];
 		}
-		case ZombieClassType_Boomer: {
+		case ZombieClass_Boomer: {
 			arr = arClasses[class_boomer];
 		}
-		case ZombieClassType_Hunter: {
+		case ZombieClass_Hunter: {
 			arr = arClasses[class_hunter];
 		}
-		case ZombieClassType_Spitter: {
+		case ZombieClass_Spitter: {
 			arr = arClasses[class_spitter];
 		}
-		case ZombieClassType_Jockey: {
+		case ZombieClass_Jockey: {
 			arr = arClasses[class_jockey];
 		}
-		case ZombieClassType_Charger: {
+		case ZombieClass_Charger: {
 			arr = arClasses[class_charger];
 		}
-		case ZombieClassType_Witch: {
+		case ZombieClass_Witch: {
 			arr = arClasses[bride ? class_witch_bride : class_witch];
 		}
-		case ZombieClassType_Tank: {
+		case ZombieClass_Tank: {
 			arr = arClasses[class_tank];
 		}
 	}
@@ -717,7 +724,7 @@ MRESReturn SpawnWitchVecPost(Address pThis, DHookReturn hReturn, DHookParam hPar
 	float ang[3];
 	hParams.GetVector(2, ang);
 
-	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClassType_Witch);
+	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClass_Witch);
 }
 
 MRESReturn SpawnWitchBrideVecPost(Address pThis, DHookReturn hReturn, DHookParam hParams)
@@ -728,7 +735,7 @@ MRESReturn SpawnWitchBrideVecPost(Address pThis, DHookReturn hReturn, DHookParam
 	float ang[3];
 	hParams.GetVector(2, ang);
 
-	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClassType_Witch, true);
+	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClass_Witch, true);
 }
 
 MRESReturn SpawnTankVecPost(Address pThis, DHookReturn hReturn, DHookParam hParams)
@@ -739,5 +746,5 @@ MRESReturn SpawnTankVecPost(Address pThis, DHookReturn hReturn, DHookParam hPara
 	float ang[3];
 	hParams.GetVector(2, ang);
 
-	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClassType_Tank);
+	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClass_Tank);
 }

@@ -3,7 +3,7 @@
 #endif
 #define _moreinfected_inc_
 
-enum CommonInfectedSpawnDirective
+enum InfectedSpawnDirective
 {
 	SpawnDirective_Wanderer,
 	SpawnDirective_Ambient,
@@ -35,14 +35,16 @@ enum infected_class_flags
 
 enum ZombieClassType
 {
-	ZombieClassType_Smoker = 1,
-	ZombieClassType_Boomer,
-	ZombieClassType_Hunter,
-	ZombieClassType_Spitter,
-	ZombieClassType_Jockey,
-	ZombieClassType_Charger,
-	ZombieClassType_Witch,
-	ZombieClassType_Tank,
+	ZombieClass_Common,
+	ZombieClass_Smoker,
+	ZombieClass_Boomer,
+	ZombieClass_Hunter,
+	ZombieClass_Spitter,
+	ZombieClass_Jockey,
+	ZombieClass_Charger,
+	ZombieClass_Witch,
+	ZombieClass_Tank,
+	ZombieClass_Invalid,
 }
 
 #define MAX_DATA_LENGTH 64
@@ -60,7 +62,7 @@ typeset moreinfected_functions
 	function void (moreinfected_data data);
 
 	//spawn common
-	function int (int entity, Address area, float pos[3], CommonInfectedSpawnDirective directive, moreinfected_data data);
+	function int (int entity, Address area, float pos[3], InfectedSpawnDirective directive, moreinfected_data data);
 
 	//spawn special
 	function int (int entity, Address area, float pos[3], float ang[3], ZombieClassType type, moreinfected_data data);
