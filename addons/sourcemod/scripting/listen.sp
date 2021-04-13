@@ -49,7 +49,7 @@ public void OnMapStart()
 
 void DrawLine(int client, float origin[3], float target[3], int r, int g, int b, bool noDepthTest, float duration)
 {
-	if(duration == 0.0) {
+	if(duration < 0.1) {
 		duration = 0.1;
 	}
 
