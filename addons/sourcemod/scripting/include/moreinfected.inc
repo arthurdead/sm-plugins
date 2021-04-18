@@ -3,6 +3,18 @@
 #endif
 #define _moreinfected_inc_
 
+#define MI_MAX_NAME_LEN 64
+#define MI_MAX_FUNC_LEN (MI_MAX_NAME_LEN+14)
+#define MI_MAX_PLACE_LEN 64
+#define MI_MAX_PLUGIN_LEN 64
+#define MI_MAX_DATA_LEN 1024
+
+#define MI_MAX_CLASS_LEN 97
+#define MI_MAX_DIRECTIVE_LEN 42
+#define MI_MAX_GENDER_LEN 15
+
+#define MI_MAX_MODEL_LEN 64
+
 enum InfectedSpawnDirective
 {
 	SpawnDirective_Wanderer,
@@ -47,13 +59,12 @@ enum ZombieClassType
 	ZombieClass_Invalid,
 }
 
-#define MAX_DATA_LENGTH 64
-
 enum struct moreinfected_data
 {
+	char name[MI_MAX_NAME_LEN];
 	infected_class_flags class_flags;
 	infected_directive_flags directive_flags;
-	char data[MAX_DATA_LENGTH];
+	KeyValues data;
 }
 
 typeset moreinfected_functions
