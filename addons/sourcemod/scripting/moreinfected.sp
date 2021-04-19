@@ -37,7 +37,7 @@ enum
 	class_witch,
 	class_witch_bride,
 	infected_class_count,
-}
+};
 
 enum
 {
@@ -62,7 +62,7 @@ enum struct HopscotchPair
 }
 
 ArrayList arInfectedInfos = null;
-StringMap infectedMap[infected_directive_count] = {null, ...};
+StringMap infectedMap[2][infected_directive_count];
 
 bool g_bLateLoaded = false;
 
@@ -211,8 +211,10 @@ void LoadKVFile()
 		if(kvInfected.GotoFirstSubKey()) {
 			arInfectedInfos = new ArrayList(sizeof(InfectedInfo));
 
-			for(int i = 0; i < infected_directive_count; ++i) {
-				infectedMap[i] = new StringMap();
+			for(int j = 0; j < 2; ++j) {
+				for(int i = 0; i < infected_directive_count; ++i) {
+					infectedMap[j][i] = new StringMap();
+				}
 			}
 
 			char name[MI_MAX_NAME_LEN];
@@ -221,6 +223,7 @@ void LoadKVFile()
 			char directivestr[MI_MAX_DIRECTIVE_LEN];
 			InfectedInfo info;
 			char datastr[MI_MAX_DATA_LEN];
+			char hookstr[5];
 
 			do {
 				kvInfected.GetSectionName(name, sizeof(name));
@@ -249,19 +252,32 @@ void LoadKVFile()
 					}
 				}
 
+				bool post = true;
+
+				kvInfected.GetString("hook", hookstr, sizeof(hookstr), "post");
+
+				if(StrEqual(hookstr, "post")) {
+					post = true;
+				} else if(StrEqual(hookstr, "pre")) {
+					post = false;
+				} else {
+					PrintToServer("[MOREINFECTED] %s: invalid hook str: %s", name, hookstr);
+					continue;
+				}
+
 				kvInfected.GetString("place", place, sizeof(place), "default");
 
 				if(classflags & class_flags_common) {
 					if(directiveflags & directive_flags_wanderer)
-					{ SetupClassesMap(infectedMap[directive_wanderer], classflags, arInfectedInfos.Length, place); }
+					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_wanderer], classflags, arInfectedInfos.Length, place); }
 					if(directiveflags & directive_flags_ambient)
-					{ SetupClassesMap(infectedMap[directive_ambient], classflags, arInfectedInfos.Length, place); }
+					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_ambient], classflags, arInfectedInfos.Length, place); }
 					if(directiveflags & directive_flags_attack)
-					{ SetupClassesMap(infectedMap[directive_attack], classflags, arInfectedInfos.Length, place); }
+					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_attack], classflags, arInfectedInfos.Length, place); }
 				}
 
 				if(classflags_has_special(classflags)) {
-					SetupClassesMap(infectedMap[directive_special], classflags, arInfectedInfos.Length, place);
+					SetupClassesMap(infectedMap[post ? 0 : 1][directive_special], classflags, arInfectedInfos.Length, place);
 				}
 
 				info.weight = weight;
@@ -284,32 +300,34 @@ void LoadKVFile()
 				arInfectedInfos.PushArray(info, sizeof(info));
 			} while(kvInfected.GotoNextKey());
 
-			for(int j = 0; j < infected_directive_count; ++j) {
-				StringMapSnapshot snapshot = infectedMap[j].Snapshot();
-				int len = snapshot.Length;
-				for(int i = 0; i < len; ++i) {
-					snapshot.GetKey(i, place, sizeof(place));
-					if(infectedMap[j].GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
-						for(int k = 0; k < infected_class_count; ++k) {
-							ArrayList arr = tmparrclasses[k];
-							if(arr == null || arr.Length == 0) {
-								continue;
+			for(int n = 0; n < 2; ++n) {
+				for(int j = 0; j < infected_directive_count; ++j) {
+					StringMapSnapshot snapshot = infectedMap[n][j].Snapshot();
+					int len = snapshot.Length;
+					for(int i = 0; i < len; ++i) {
+						snapshot.GetKey(i, place, sizeof(place));
+						if(infectedMap[n][j].GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
+							for(int k = 0; k < infected_class_count; ++k) {
+								ArrayList tmparr = tmparrclasses[k];
+								if(tmparr == null || tmparr.Length == 0) {
+									continue;
+								}
+								int arrlen = tmparr.Length;
+								ArrayList weights = new ArrayList();
+								for(int l = 0; l < arrlen; ++l) {
+									int idx = tmparr.Get(l);
+									arInfectedInfos.GetArray(idx, info, sizeof(info));
+									weights.Push(info.weight);
+								}
+								ArrayList accum = null;
+								PrepareHopscotchRandom(weights, accum);
+								tmparr.Push(weights);
+								tmparr.Push(accum);
 							}
-							ArrayList weights = new ArrayList();
-							int arrlen = arr.Length;
-							for(int l = 0; l < arrlen; ++l) {
-								int idx = arr.Get(l);
-								arInfectedInfos.GetArray(idx, info, sizeof(info));
-								weights.Push(info.weight);
-							}
-							ArrayList accum = null;
-							PrepareHopscotchRandom(weights, accum);
-							arr.Push(weights);
-							arr.Push(accum);
 						}
 					}
+					delete snapshot;
 				}
-				delete snapshot;
 			}
 
 			kvInfected.GoBack();
@@ -348,17 +366,22 @@ public void OnPluginStart()
 
 	delete gamedata;
 
+	dSpawnCommonZombie.Enable(Hook_Pre, SpawnCommonZombiePre);
 	dSpawnCommonZombie.Enable(Hook_Post, SpawnCommonZombiePost);
 
 	dSpawnSpecialNav.Enable(Hook_Post, SpawnSpecialNavPre);
+	dSpawnSpecialVec.Enable(Hook_Pre, SpawnSpecialVecPre);
 	dSpawnSpecialVec.Enable(Hook_Post, SpawnSpecialVecPost);
 
 	dSpawnTankNav.Enable(Hook_Post, SpawnTankNavPre);
+	dSpawnTankVec.Enable(Hook_Pre, SpawnTankVecPre);
 	dSpawnTankVec.Enable(Hook_Post, SpawnTankVecPost);
 
 	dSpawnWitchNav.Enable(Hook_Post, SpawnWitchNavPre);
+	dSpawnWitchVec.Enable(Hook_Pre, SpawnWitchVecPre);
 	dSpawnWitchVec.Enable(Hook_Post, SpawnWitchVecPost);
 
+	dSpawnWitchBride.Enable(Hook_Pre, SpawnWitchBrideVecPre);
 	dSpawnWitchBride.Enable(Hook_Post, SpawnWitchBrideVecPost);
 
 	HookEvent("player_death", player_death, EventHookMode_Pre);
@@ -381,31 +404,35 @@ void UnloadKVFile()
 {
 	char place[MI_MAX_PLACE_LEN];
 
-	for(int j = 0; j < infected_directive_count; ++j) {
-		StringMapSnapshot snapshot = infectedMap[j].Snapshot();
-		int len = snapshot.Length;
-		for(int i = 0; i < len; ++i) {
-			snapshot.GetKey(i, place, sizeof(place));
-			if(infectedMap[j].GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
-				for(int k = 0; k < infected_class_count; ++k) {
-					ArrayList arr = tmparrclasses[k];
-					int arrlen = arr.Length;
-					if(arr == null || arrlen == 0) {
-						continue;
+	for(int n = 0; n < 2; ++n) {
+		for(int j = 0; j < infected_directive_count; ++j) {
+			StringMapSnapshot snapshot = infectedMap[n][j].Snapshot();
+			int len = snapshot.Length;
+			for(int i = 0; i < len; ++i) {
+				snapshot.GetKey(i, place, sizeof(place));
+				if(infectedMap[n][j].GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
+					for(int k = 0; k < infected_class_count; ++k) {
+						ArrayList tmparr = tmparrclasses[k];
+						if(tmparr == null) {
+							continue;
+						}
+
+						int arrlen = tmparr.Length;
+						if(arrlen > 0) {
+							ArrayList weights = tmparr.Get(arrlen-3);
+							ArrayList accum = tmparr.Get(arrlen-2);
+
+							delete weights;
+							delete accum;
+						}
+
+						delete tmparr;
 					}
-
-					ArrayList weights = arr.Get(arrlen-3);
-					ArrayList accum = arr.Get(arrlen-2);
-
-					delete weights;
-					delete accum;
-					delete arr;
 				}
 			}
+			delete snapshot;
+			delete infectedMap[n][j];
 		}
-
-		delete snapshot;
-		delete infectedMap[j];
 	}
 
 	delete arInfectedInfos;
@@ -714,7 +741,7 @@ bool GetInfectedByChance(InfectedInfo info, ArrayList arr, const char[] func)
 	return true;
 }
 
-MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam hParams)
+MRESReturn SpawnCommonHelper(DHookReturn hReturn, DHookParam hParams, bool post)
 {
 	if(arInfectedInfos == null) {
 		return MRES_Ignored;
@@ -725,11 +752,11 @@ MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam 
 	StringMap placemap = null;
 	switch(directive) {
 		case SpawnDirective_Wanderer:
-		{ placemap = infectedMap[directive_wanderer]; }
+		{ placemap = infectedMap[post ? 0 : 1][directive_wanderer]; }
 		case SpawnDirective_Ambient:
-		{ placemap = infectedMap[directive_ambient]; }
+		{ placemap = infectedMap[post ? 0 : 1][directive_ambient]; }
 		case SpawnDirective_Attack:
-		{ placemap = infectedMap[directive_attack]; }
+		{ placemap = infectedMap[post ? 0 : 1][directive_attack]; }
 	}
 
 	Address area = hParams.Get(1);
@@ -760,9 +787,13 @@ MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam 
 		return MRES_Ignored;
 	}
 
-	int entity = hReturn.Value;
-	if(entity == -1) {
-		return MRES_Ignored;
+	int entity = -1;
+
+	if(post) {
+		entity = hReturn.Value;
+		if(entity == -1) {
+			return MRES_Ignored;
+		}
 	}
 
 	Call_StartFunction(info.hPlugin, spawn);
@@ -778,10 +809,23 @@ MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam 
 	Call_PushArray(data, sizeof(data));
 	Call_Finish(entity);
 
-	hReturn.Value = entity;
-
-	return MRES_Override;
+	if(post) {
+		hReturn.Value = entity;
+		return MRES_Override;
+	} else {
+		if(entity != -1) {
+			hReturn.Value = entity;
+			return MRES_Supercede;
+		} else {
+			return MRES_Ignored;
+		}
+	}
 }
+
+MRESReturn SpawnCommonZombiePre(Address pThis, DHookReturn hReturn, DHookParam hParams)
+{ return SpawnCommonHelper(hReturn, hParams, false); }
+MRESReturn SpawnCommonZombiePost(Address pThis, DHookReturn hReturn, DHookParam hParams)
+{ return SpawnCommonHelper(hReturn, hParams, true); }
 
 Address g_LastArea = Address_Null;
 
@@ -803,14 +847,14 @@ MRESReturn SpawnWitchNavPre(Address pThis, DHookReturn hReturn, DHookParam hPara
 	return MRES_Ignored;
 }
 
-MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], ZombieClassType type, bool bride = false)
+MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], ZombieClassType type, bool post, bool bride = false)
 {
 	if(arInfectedInfos == null) {
 		g_LastArea = Address_Null;
 		return MRES_Ignored;
 	}
 
-	StringMap placemap = infectedMap[directive_special];
+	StringMap placemap = infectedMap[post ? 0 : 1][directive_special];
 
 	char place[MI_MAX_PLACE_LEN];
 	GetPlaceFromNav(g_LastArea, pos, place, sizeof(place));
@@ -861,10 +905,14 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 		return MRES_Ignored;
 	}
 
-	int entity = hReturn.Value;
-	if(entity == -1) {
-		g_LastArea = Address_Null;
-		return MRES_Ignored;
+	int entity = -1;
+
+	if(post) {
+		entity = hReturn.Value;
+		if(entity == -1) {
+			g_LastArea = Address_Null;
+			return MRES_Ignored;
+		}
 	}
 
 	Call_StartFunction(info.hPlugin, spawn);
@@ -881,13 +929,32 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 	Call_PushArray(data, sizeof(data));
 	Call_Finish(entity);
 
-	hReturn.Value = entity;
-
 	g_LastArea = Address_Null;
-	return MRES_Override;
+	if(post) {
+		hReturn.Value = entity;
+		return MRES_Override;
+	} else {
+		if(entity != -1) {
+			hReturn.Value = entity;
+			return MRES_Supercede;
+		} else {
+			return MRES_Ignored;
+		}
+	}
 }
 
-MRESReturn SpawnSpecialVecPost(Address pThis, DHookReturn hReturn, DHookParam hParams)
+MRESReturn CallSpawnSpecialBossVec(DHookReturn hReturn, DHookParam hParams, ZombieClassType type, bool post, bool bride = false)
+{
+	float pos[3];
+	hParams.GetVector(1, pos);
+
+	float ang[3];
+	hParams.GetVector(2, ang);
+
+	return SpawnSpecialHelper(hReturn, pos, ang, type, post, bride);
+}
+
+MRESReturn CallSpawnSpecialVec(DHookReturn hReturn, DHookParam hParams, bool post, bool bride = false)
 {
 	ZombieClassType type = hParams.Get(1);
 
@@ -897,41 +964,28 @@ MRESReturn SpawnSpecialVecPost(Address pThis, DHookReturn hReturn, DHookParam hP
 	float ang[3];
 	hParams.GetVector(3, ang);
 
-	return SpawnSpecialHelper(hReturn, pos, ang, type);
+	return SpawnSpecialHelper(hReturn, pos, ang, type, post, bride);
 }
 
+MRESReturn SpawnSpecialVecPre(Address pThis, DHookReturn hReturn, DHookParam hParams)
+{ return CallSpawnSpecialVec(hReturn, hParams, false); }
+MRESReturn SpawnSpecialVecPost(Address pThis, DHookReturn hReturn, DHookParam hParams)
+{ return CallSpawnSpecialVec(hReturn, hParams, true); }
+
+MRESReturn SpawnWitchVecPre(Address pThis, DHookReturn hReturn, DHookParam hParams)
+{ return CallSpawnSpecialBossVec(hReturn, hParams, ZombieClass_Witch, false); }
 MRESReturn SpawnWitchVecPost(Address pThis, DHookReturn hReturn, DHookParam hParams)
-{
-	float pos[3];
-	hParams.GetVector(1, pos);
+{ return CallSpawnSpecialBossVec(hReturn, hParams, ZombieClass_Witch, true); }
 
-	float ang[3];
-	hParams.GetVector(2, ang);
-
-	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClass_Witch);
-}
-
+MRESReturn SpawnWitchBrideVecPre(Address pThis, DHookReturn hReturn, DHookParam hParams)
+{ return CallSpawnSpecialBossVec(hReturn, hParams, ZombieClass_Witch, false, true); }
 MRESReturn SpawnWitchBrideVecPost(Address pThis, DHookReturn hReturn, DHookParam hParams)
-{
-	float pos[3];
-	hParams.GetVector(1, pos);
+{ return CallSpawnSpecialBossVec(hReturn, hParams, ZombieClass_Witch, true, true); }
 
-	float ang[3];
-	hParams.GetVector(2, ang);
-
-	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClass_Witch, true);
-}
-
+MRESReturn SpawnTankVecPre(Address pThis, DHookReturn hReturn, DHookParam hParams)
+{ return CallSpawnSpecialBossVec(hReturn, hParams, ZombieClass_Tank, false); }
 MRESReturn SpawnTankVecPost(Address pThis, DHookReturn hReturn, DHookParam hParams)
-{
-	float pos[3];
-	hParams.GetVector(1, pos);
-
-	float ang[3];
-	hParams.GetVector(2, ang);
-
-	return SpawnSpecialHelper(hReturn, pos, ang, ZombieClass_Tank);
-}
+{ return CallSpawnSpecialBossVec(hReturn, hParams, ZombieClass_Tank, true); }
 
 static char tmpmodelbuff[MI_MAX_MODEL_LEN];
 HopscotchPair VariationsHopscotch;
@@ -1251,12 +1305,20 @@ int infected_spawn_shared(int entity, KeyValues kv, float pos[3], bool common)
 
 #if defined datamaps_included
 	if(common && g_bDatamaps && info.server) {
-		RemoveEntity(entity);
+		if(entity != -1) {
+			RemoveEntity(entity);
+		}
 		entity = CreateEntityByName("infected_server");
 		DispatchSpawn(entity);
 		TeleportEntity(entity, pos);
 	}
 #endif
+
+	if(entity == -1) {
+		entity = CreateEntityByName("infected");
+		DispatchSpawn(entity);
+		TeleportEntity(entity, pos);
+	}
 
 	if(info.health != -1) {
 		SetEntProp(entity, Prop_Data, "m_iHealth", info.health);
