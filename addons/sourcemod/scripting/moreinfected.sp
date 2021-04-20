@@ -3,6 +3,17 @@
 #include <sdkhooks>
 #include <moreinfected>
 #include <dhooks>
+#include <aliasrandom>
+
+#define MI_MAX_FUNC_LEN (MI_MAX_NAME_LEN+14)
+#define MI_MAX_PLUGIN_LEN 64
+#define MI_MAX_DATA_LEN 1024
+
+#define MI_MAX_CLASS_LEN 97
+#define MI_MAX_DIRECTIVE_LEN 42
+#define MI_MAX_GENDER_LEN 15
+
+#define MI_MAX_MODEL_LEN 64
 
 #undef REQUIRE_EXTENSIONS
 #tryinclude <datamaps>
@@ -17,9 +28,8 @@ enum struct InfectedInfo
 	char name[MI_MAX_NAME_LEN];
 	char alias[MI_MAX_NAME_LEN];
 	char plname[MI_MAX_PLUGIN_LEN];
-	char place[MI_MAX_PLACE_LEN];
 	float weight;
-	KeyValues data;
+	KeyValues kv;
 	infected_directive_flags directive_flags;
 	infected_class_flags class_flags;
 }
@@ -55,14 +65,15 @@ enum func_name
 	func_special
 };
 
-enum struct HopscotchPair
-{
-	ArrayList weights;
-	ArrayList accum;
-}
-
 ArrayList arInfectedInfos = null;
 StringMap infectedMap[2][infected_directive_count];
+bool g_bLoaded = false;
+
+static ArrayList tmparrclasses[infected_class_count] = {null, ...};
+static char tmpname[MI_MAX_NAME_LEN];
+static char tmpplace[MI_MAX_PLACE_LEN];
+static InfectedInfo tmpinfectinfo;
+static mi_data tmpdata;
 
 bool g_bLateLoaded = false;
 
@@ -82,23 +93,20 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 	RegPluginLibrary("moreinfected");
 
 #if defined nextbot_included
-	if(LibraryExists("nextbot")) {
-		g_bNextBot = true;
-	} else if(GetExtensionFileStatus("nextbot.ext") == 1) {
+	if(LibraryExists("nextbot") ||
+		GetExtensionFileStatus("nextbot.ext") == 1) {
 		g_bNextBot = true;
 	}
 #endif
 #if defined datamaps_included
-	if(LibraryExists("datamaps")) {
-		g_bDatamaps = true;
-	} else if(GetExtensionFileStatus("datamaps.ext") == 1) {
+	if(LibraryExists("datamaps") ||
+		GetExtensionFileStatus("datamaps.ext") == 1) {
 		g_bDatamaps = true;
 	}
 #endif
 #if defined animhelpers_included
-	if(LibraryExists("animhelpers")) {
-		g_bAnimhelpers = true;
-	} else if(GetExtensionFileStatus("animhelpers.ext") == 1) {
+	if(LibraryExists("animhelpers") ||
+		GetExtensionFileStatus("animhelpers.ext") == 1) {
 		g_bAnimhelpers = true;
 	}
 #endif
@@ -144,47 +152,6 @@ public void OnLibraryRemoved(const char[] name)
 #endif
 }
 
-void PrepareHopscotchRandom(ArrayList weights, ArrayList &accum)
-{
-	SortADTArray(weights, Sort_Descending, Sort_Float);
-
-	int len = weights.Length;
-	accum = new ArrayList();
-	for(int i = 0; i < len; ++i) {
-		float value = weights.Get(i);
-		if(i > 0) {
-			float last_value = accum.Get(i-1);
-			value += last_value;
-		}
-		accum.Push(value);
-	}
-}
-
-int HopscotchRandom(ArrayList weights, ArrayList accum)
-{
-	int len = accum.Length;
-	float value = accum.Get(len-1);
-	float target_dist = GetRandomFloat(0.0, 1.0) * value;
-	int idx = 0;
-	while(true) {
-		if(idx >= len) {
-			break;
-		}
-		value = accum.Get(idx);
-		if(value > target_dist) {
-			return idx;
-		}
-		float hop_distance = target_dist - value;
-		value = weights.Get(idx);
-		int hop_idx = 1 + RoundToFloor(hop_distance / value);
-		idx += hop_idx;
-	}
-
-	return -1;
-}
-
-ArrayList tmparrclasses[infected_class_count] = {null, ...};
-
 bool classflags_has_special(infected_class_flags flags)
 {
 	return (!(flags & class_flags_common) ||
@@ -199,9 +166,15 @@ bool classflags_has_special(infected_class_flags flags)
 			flags & class_flags_witch_bride);
 }
 
+ConVar sm_mi_vanilla_weight = null;
+
+static char infectedfile[PLATFORM_MAX_PATH];
+static char classstr[MI_MAX_CLASS_LEN];
+static char directivestr[MI_MAX_DIRECTIVE_LEN];
+static char datastr[MI_MAX_DATA_LEN];
+static char hookstr[5];
 void LoadKVFile()
 {
-	char infectedfile[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, infectedfile, sizeof(infectedfile), "data/moreinfected.txt");
 
 	if(FileExists(infectedfile, true)) {
@@ -217,27 +190,19 @@ void LoadKVFile()
 				}
 			}
 
-			char name[MI_MAX_NAME_LEN];
-			char place[MI_MAX_PLACE_LEN];
-			char classstr[MI_MAX_CLASS_LEN];
-			char directivestr[MI_MAX_DIRECTIVE_LEN];
-			InfectedInfo info;
-			char datastr[MI_MAX_DATA_LEN];
-			char hookstr[5];
-
 			do {
-				kvInfected.GetSectionName(name, sizeof(name));
+				kvInfected.GetSectionName(tmpname, sizeof(tmpname));
 
 				float weight = kvInfected.GetFloat("weight");
 				if(weight == 0.0) {
-					PrintToServer("[MOREINFECTED] %s: ignoring due to weight being 0", name);
+					PrintToServer("[MOREINFECTED] %s: ignoring due to weight being 0", tmpname);
 					continue;
 				}
 
 				kvInfected.GetString("class_flags", classstr, sizeof(classstr), "common");
 				infected_class_flags classflags = ClassStrToFlags(classstr);
 				if(classflags == class_flags_invalid) {
-					PrintToServer("[MOREINFECTED] %s: invalid class flags: %s", name, classstr);
+					PrintToServer("[MOREINFECTED] %s: invalid class flags: %s", tmpname, classstr);
 					continue;
 				}
 
@@ -247,7 +212,7 @@ void LoadKVFile()
 					kvInfected.GetString("directive_flags", directivestr, sizeof(directivestr), "any");
 					directiveflags = DirectiveStrToFlags(directivestr);
 					if(directiveflags == directive_flags_invalid) {
-						PrintToServer("[MOREINFECTED] %s: invalid directive flags: %s", name, directivestr);
+						PrintToServer("[MOREINFECTED] %s: invalid directive flags: %s", tmpname, directivestr);
 						continue;
 					}
 				}
@@ -261,68 +226,85 @@ void LoadKVFile()
 				} else if(StrEqual(hookstr, "pre")) {
 					post = false;
 				} else {
-					PrintToServer("[MOREINFECTED] %s: invalid hook str: %s", name, hookstr);
+					PrintToServer("[MOREINFECTED] %s: invalid hook str: %s", tmpname, hookstr);
 					continue;
 				}
 
-				kvInfected.GetString("place", place, sizeof(place), "default");
+				kvInfected.GetString("place", tmpplace, sizeof(tmpplace), "default");
 
 				if(classflags & class_flags_common) {
 					if(directiveflags & directive_flags_wanderer)
-					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_wanderer], classflags, arInfectedInfos.Length, place); }
+					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_wanderer], classflags, arInfectedInfos.Length, tmpplace); }
 					if(directiveflags & directive_flags_ambient)
-					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_ambient], classflags, arInfectedInfos.Length, place); }
+					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_ambient], classflags, arInfectedInfos.Length, tmpplace); }
 					if(directiveflags & directive_flags_attack)
-					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_attack], classflags, arInfectedInfos.Length, place); }
+					{ SetupClassesMap(infectedMap[post ? 0 : 1][directive_attack], classflags, arInfectedInfos.Length, tmpplace); }
 				}
 
 				if(classflags_has_special(classflags)) {
-					SetupClassesMap(infectedMap[post ? 0 : 1][directive_special], classflags, arInfectedInfos.Length, place);
+					SetupClassesMap(infectedMap[post ? 0 : 1][directive_special], classflags, arInfectedInfos.Length, tmpplace);
 				}
 
-				info.weight = weight;
-				info.class_flags = classflags;
-				info.directive_flags = directiveflags;
-				strcopy(info.name, sizeof(info.name), name);
-				strcopy(info.place, sizeof(info.place), place);
+				tmpinfectinfo.weight = weight;
+				tmpinfectinfo.class_flags = classflags;
+				tmpinfectinfo.directive_flags = directiveflags;
+				strcopy(tmpinfectinfo.name, MI_MAX_NAME_LEN, tmpname);
 
-				kvInfected.GetString("plugin", info.plname, sizeof(info.plname));
-				kvInfected.GetString("alias", info.alias, sizeof(info.alias));
+				kvInfected.GetString("plugin", tmpinfectinfo.plname, MI_MAX_PLUGIN_LEN);
+				kvInfected.GetString("alias", tmpinfectinfo.alias, MI_MAX_NAME_LEN);
 
 				if(kvInfected.JumpToKey("data")) {
-					kvInfected.ExportToString(datastr, sizeof(datastr));
+					kvInfected.ExportToString(datastr, MI_MAX_DATA_LEN);
 					kvInfected.GoBack();
 
-					info.data = new KeyValues("data");
-					info.data.ImportFromString(datastr);
+					tmpinfectinfo.kv = new KeyValues("data");
+					tmpinfectinfo.kv.ImportFromString(datastr);
 				}
 
-				arInfectedInfos.PushArray(info, sizeof(info));
+				arInfectedInfos.PushArray(tmpinfectinfo, sizeof(tmpinfectinfo));
 			} while(kvInfected.GotoNextKey());
+
+			float vanillaweight = sm_mi_vanilla_weight.FloatValue;
+			bool calcvanilla = (vanillaweight == -1.0);
 
 			for(int n = 0; n < 2; ++n) {
 				for(int j = 0; j < infected_directive_count; ++j) {
 					StringMapSnapshot snapshot = infectedMap[n][j].Snapshot();
 					int len = snapshot.Length;
 					for(int i = 0; i < len; ++i) {
-						snapshot.GetKey(i, place, sizeof(place));
-						if(infectedMap[n][j].GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
+						snapshot.GetKey(i, tmpplace, sizeof(tmpplace));
+						if(infectedMap[n][j].GetArray(tmpplace, tmparrclasses, sizeof(tmparrclasses))) {
 							for(int k = 0; k < infected_class_count; ++k) {
 								ArrayList tmparr = tmparrclasses[k];
-								if(tmparr == null || tmparr.Length == 0) {
+								if(tmparr == null) {
 									continue;
 								}
 								int arrlen = tmparr.Length;
-								ArrayList weights = new ArrayList();
+								if(arrlen == 0) {
+									continue;
+								}
+								ArrayList weights = new ArrayList(1, arrlen);
+								float weightaccum = 0.0;
 								for(int l = 0; l < arrlen; ++l) {
 									int idx = tmparr.Get(l);
-									arInfectedInfos.GetArray(idx, info, sizeof(info));
-									weights.Push(info.weight);
+									arInfectedInfos.GetArray(idx, tmpinfectinfo, sizeof(tmpinfectinfo));
+									float weight = tmpinfectinfo.weight;
+									if(calcvanilla) {
+										weightaccum += weight;
+									}
+									weights.Set(l, weight);
 								}
-								ArrayList accum = null;
-								PrepareHopscotchRandom(weights, accum);
-								tmparr.Push(weights);
-								tmparr.Push(accum);
+								if(calcvanilla) {
+									float weight = weightaccum / (arrlen+1);
+									weights.Push(weight);
+								} else if(vanillaweight > 0.0) {
+									weights.Push(vanillaweight);
+								}
+								ArrayList aliases = CreateAliasRandom(weights);
+								delete weights;
+								arrlen += 1;
+								tmparr.Resize(arrlen);
+								tmparr.Set(arrlen-1, aliases);
 							}
 						}
 					}
@@ -330,11 +312,24 @@ void LoadKVFile()
 				}
 			}
 
+			g_bLoaded = true;
+
 			kvInfected.GoBack();
 		}
 		kvInfected.GoBack();
 	}
 }
+
+void VanillaWeightChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if(g_bLoaded) {
+		float newvalue = StringToFloat(newValue);
+		ReloadVanillaWeight(newvalue);
+	}
+}
+
+ConVar z_mob_spawn_min_size = null;
+ConVar z_mob_spawn_max_size = null;
 
 public void OnPluginStart()
 {
@@ -395,56 +390,177 @@ public void OnPluginStart()
 	}
 #endif
 
+	sm_mi_vanilla_weight = CreateConVar("sm_mi_vanilla_weight", "-1.0");
+	sm_mi_vanilla_weight.AddChangeHook(VanillaWeightChanged);
+
 	LoadKVFile();
 
 	RegAdminCmd("sm_mi_reload", sm_mi_reload, ADMFLAG_ROOT);
+	RegAdminCmd("sm_mi_unload", sm_mi_unload, ADMFLAG_ROOT);
+
+	z_mob_spawn_min_size = FindConVar("z_mob_spawn_min_size");
+	z_mob_spawn_max_size = FindConVar("z_mob_spawn_max_size");
+
+	RegAdminCmd("sm_mi_test", sm_mi_test, ADMFLAG_ROOT);
 }
 
-void UnloadKVFile()
+Action sm_mi_test(int client, int args)
 {
-	char place[MI_MAX_PLACE_LEN];
+	bool post = true;
+	int class = class_common;
+	int directive = directive_wanderer;
+	strcopy(tmpplace, sizeof(tmpplace), "default");
+
+	StringMap placemap = infectedMap[post ? 0 : 1][directive];
+
+	if(!placemap.GetArray(tmpplace, tmparrclasses, sizeof(tmparrclasses))) {
+		ReplyToCommand(client, "failed place %s is unknown", tmpplace);
+		return Plugin_Handled;
+	}
+
+	ArrayList arr = tmparrclasses[class];
+	if(arr == null || arr.Length == 0) {
+		ReplyToCommand(client, "failed arr %i is empty", class);
+		return Plugin_Handled;
+	}
+
+	int attempts = GetRandomInt(z_mob_spawn_min_size.IntValue, z_mob_spawn_max_size.IntValue);
+	//attempts = 500;
+	int success = 0;
+	int fail = 0;
+
+	StringMap got = new StringMap();
+
+	for(int i = 0; i < attempts; ++i) {
+		if(GetInfectedByChance(tmpinfectinfo, arr, "spawn")) {
+			++success;
+		} else {
+			++fail;
+			strcopy(tmpinfectinfo.name, MI_MAX_NAME_LEN, "vanilla");
+		}
+
+		int nums = 0;
+		got.GetValue(tmpinfectinfo.name, nums);
+		++nums;
+		got.SetValue(tmpinfectinfo.name, nums);
+	}
+
+	PrintToServer("out of %i attempts %i succeded and %i failed", attempts, success, fail);
+
+	StringMapSnapshot snapshot = got.Snapshot();
+	int len = snapshot.Length;
+	for(int i = 0; i < len; ++i) {
+		snapshot.GetKey(i, tmpname, sizeof(tmpname));
+		int nums = 0;
+		if(got.GetValue(tmpname, nums)) {
+			PrintToServer("got %s %i times", tmpname, nums);
+		}
+	}
+
+	delete snapshot;
+	delete got;
+
+	return Plugin_Handled;
+}
+
+void ReloadVanillaWeight(float vanillaweight)
+{
+	if(!g_bLoaded) {
+		return;
+	}
+
+	bool calcvanilla = (vanillaweight == -1.0);
 
 	for(int n = 0; n < 2; ++n) {
 		for(int j = 0; j < infected_directive_count; ++j) {
 			StringMapSnapshot snapshot = infectedMap[n][j].Snapshot();
 			int len = snapshot.Length;
 			for(int i = 0; i < len; ++i) {
-				snapshot.GetKey(i, place, sizeof(place));
-				if(infectedMap[n][j].GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
+				snapshot.GetKey(i, tmpplace, sizeof(tmpplace));
+				if(infectedMap[n][j].GetArray(tmpplace, tmparrclasses, sizeof(tmparrclasses))) {
 					for(int k = 0; k < infected_class_count; ++k) {
 						ArrayList tmparr = tmparrclasses[k];
 						if(tmparr == null) {
 							continue;
 						}
-
-						int arrlen = tmparr.Length;
-						if(arrlen > 0) {
-							ArrayList weights = tmparr.Get(arrlen-3);
-							ArrayList accum = tmparr.Get(arrlen-2);
-
-							delete weights;
-							delete accum;
+						int actualarrlen = tmparr.Length;
+						if(actualarrlen == 0) {
+							continue;
 						}
 
-						delete tmparr;
+						int arrlen = actualarrlen-1;
+
+						ArrayList weights = new ArrayList(1, arrlen);
+
+						float weightaccum = 0.0;
+						for(int l = 0; l < arrlen; ++l) {
+							int idx = tmparr.Get(l);
+							arInfectedInfos.GetArray(idx, tmpinfectinfo, sizeof(tmpinfectinfo));
+							float weight = tmpinfectinfo.weight;
+							if(calcvanilla) {
+								weightaccum += weight;
+							}
+							weights.Set(l, weight);
+						}
+
+						if(calcvanilla) {
+							float weight = weightaccum / (arrlen+1);
+							weights.Push(weight);
+						} else if(vanillaweight > 0.0) {
+							weights.Push(vanillaweight);
+						}
+
+						ArrayList aliases = tmparr.Get(actualarrlen-1);
+						delete aliases;
+						aliases = CreateAliasRandom(weights);
+
+						delete weights;
+
+						tmparr.Set(actualarrlen-1, aliases);
 					}
 				}
 			}
-			delete snapshot;
-			delete infectedMap[n][j];
 		}
 	}
-
-	delete arInfectedInfos;
-	delete kvInfected;
 }
 
-Action sm_mi_reload(int client, int args)
+void UnloadKVFile()
 {
-	UnloadKVFile();
-	LoadKVFile();
+	if(g_bLoaded) {
+		for(int n = 0; n < 2; ++n) {
+			for(int j = 0; j < infected_directive_count; ++j) {
+				StringMapSnapshot snapshot = infectedMap[n][j].Snapshot();
+				int len = snapshot.Length;
+				for(int i = 0; i < len; ++i) {
+					snapshot.GetKey(i, tmpplace, sizeof(tmpplace));
+					if(infectedMap[n][j].GetArray(tmpplace, tmparrclasses, sizeof(tmparrclasses))) {
+						for(int k = 0; k < infected_class_count; ++k) {
+							if(tmparrclasses[k] == null) {
+								continue;
+							}
+							int arrlen = tmparrclasses[k].Length;
+							if(arrlen > 0) {
+								ArrayList aliases = tmparrclasses[k].Get(arrlen-1);
+								delete aliases;
+							}
+							delete tmparrclasses[k];
+						}
+					}
+				}
+				delete snapshot;
+				delete infectedMap[n][j];
+			}
+		}
+		int len = arInfectedInfos.Length;
+		for(int i = 0; i < len; ++i) {
+			arInfectedInfos.GetArray(i, tmpinfectinfo, sizeof(tmpinfectinfo));
+			delete tmpinfectinfo.kv;
+		}
+		delete arInfectedInfos;
+	}
+	delete kvInfected;
 
-	return Plugin_Handled;
+	g_bLoaded = false;
 }
 
 void SetupClassesMap(StringMap map, infected_class_flags classflags, int idx, const char[] place)
@@ -478,7 +594,7 @@ void SetupClassesMap(StringMap map, infected_class_flags classflags, int idx, co
 	{ tmparrclasses[class_witch_bride].Push(idx); }
 }
 
-char tmpdireflagstrs[3][MI_MAX_DIRECTIVE_LEN];
+static char tmpdireflagstrs[3][MI_MAX_DIRECTIVE_LEN];
 infected_directive_flags DirectiveStrToFlags(const char[] str)
 {
 	int num = ExplodeString(str, "|", tmpdireflagstrs, 3, MI_MAX_DIRECTIVE_LEN);
@@ -505,7 +621,7 @@ infected_directive_flags DirectiveStrToFlags(const char[] str)
 	return flags;
 }
 
-char tmpclassflagstrs[infected_class_count][MI_MAX_CLASS_LEN];
+static char tmpclassflagstrs[infected_class_count][MI_MAX_CLASS_LEN];
 infected_class_flags ClassStrToFlags(const char[] str)
 {
 	int num = ExplodeString(str, "|", tmpclassflagstrs, infected_class_count, MI_MAX_CLASS_LEN);
@@ -561,6 +677,7 @@ infected_class_flags ClassStrToFlags(const char[] str)
 	return flags;
 }
 
+static char tmpfile[MI_MAX_PLUGIN_LEN];
 public void OnAllPluginsLoaded()
 {
 	if(arInfectedInfos != null) {
@@ -572,27 +689,24 @@ public void OnAllPluginsLoaded()
 
 		bool done = false;
 
-		char file[MI_MAX_PLUGIN_LEN];
-		InfectedInfo info;
-
 		Handle iter = GetPluginIterator();
 		while(MorePlugins(iter)) {
 			Handle pl = ReadPlugin(iter);
 
-			GetPluginFilename(pl, file, sizeof(file));
+			GetPluginFilename(pl, tmpfile, sizeof(tmpfile));
 
 			for(int i = 0; i < infolist.Length; ++i) {
 				int idx = infolist.Get(i);
 
-				arInfectedInfos.GetArray(idx, info, sizeof(info));
+				arInfectedInfos.GetArray(idx, tmpinfectinfo, sizeof(tmpinfectinfo));
 
-				if(StrEqual(info.plname, file)) {
+				if(StrEqual(tmpinfectinfo.plname, tmpfile)) {
 					infolist.Erase(i);
 					--i;
 
-					info.hPlugin = pl;
+					tmpinfectinfo.hPlugin = pl;
 
-					arInfectedInfos.SetArray(idx, info, sizeof(info));
+					arInfectedInfos.SetArray(idx, tmpinfectinfo, sizeof(tmpinfectinfo));
 
 					if(infolist.Length == 0) {
 						done = true;
@@ -611,11 +725,13 @@ public void OnAllPluginsLoaded()
 			for(int i = 0; i < infolist.Length; ++i) {
 				int idx = infolist.Get(i);
 
-				arInfectedInfos.GetArray(idx, info, sizeof(info));
+				arInfectedInfos.GetArray(idx, tmpinfectinfo, sizeof(tmpinfectinfo));
 
-				PrintToServer("[MOREINFECTED] %s: plugin not found", info.name);
+				PrintToServer("[MOREINFECTED] %s: plugin not found", tmpinfectinfo.name);
 			}
 		}
+
+		delete infolist;
 	}
 }
 
@@ -660,42 +776,38 @@ void MakeFuncName(InfectedInfo info, char[] funcname, int length, func_name func
 	}
 }
 
+static char tmpfuncname[MI_MAX_FUNC_LEN];
 Function GetFunc(InfectedInfo info, func_name name)
 {
-	char funcname[MI_MAX_FUNC_LEN];
-	MakeFuncName(info, funcname, sizeof(funcname), name);
+	MakeFuncName(info, tmpfuncname, sizeof(tmpfuncname), name);
 
-	return GetFunctionByName(info.hPlugin, funcname);
+	return GetFunctionByName(info.hPlugin, tmpfuncname);
 }
 
 public void OnMapStart()
 {
 	if(arInfectedInfos != null) {
-		char funcname[MI_MAX_FUNC_LEN];
-		InfectedInfo info;
-		moreinfected_data data;
-
 		for(int i = 0; i < arInfectedInfos.Length; ++i) {
-			arInfectedInfos.GetArray(i, info, sizeof(info));
+			arInfectedInfos.GetArray(i, tmpinfectinfo, sizeof(tmpinfectinfo));
 
-			if(!IsPluginLoaded(info, "precache")) {
+			if(!IsPluginLoaded(tmpinfectinfo, "precache")) {
 				continue;
 			}
 
-			MakeFuncName(info, funcname, sizeof(funcname), func_precache);
+			MakeFuncName(tmpinfectinfo, tmpfuncname, sizeof(tmpfuncname), func_precache);
 
-			Function precache = GetFunctionByName(info.hPlugin, funcname);
+			Function precache = GetFunctionByName(tmpinfectinfo.hPlugin, tmpfuncname);
 			if(precache == INVALID_FUNCTION) {
-				PrintToServer("[MOREINFECTED] %s: precache failed: function not provided", info.name);
+				PrintToServer("[MOREINFECTED] %s: precache failed: function not provided", tmpinfectinfo.name);
 				continue;
 			}
 
-			Call_StartFunction(info.hPlugin, precache);
-			strcopy(data.name, MI_MAX_NAME_LEN, info.name);
-			data.class_flags = info.class_flags;
-			data.directive_flags = info.directive_flags;
-			data.data = info.data;
-			Call_PushArray(data, sizeof(data));
+			Call_StartFunction(tmpinfectinfo.hPlugin, precache);
+			strcopy(tmpdata.name, MI_MAX_NAME_LEN, tmpinfectinfo.name);
+			tmpdata.class_flags = tmpinfectinfo.class_flags;
+			tmpdata.directive_flags = tmpinfectinfo.directive_flags;
+			tmpdata.kv = tmpinfectinfo.kv;
+			Call_PushArray(tmpdata, sizeof(tmpdata));
 			Call_Finish();
 		}
 	}
@@ -727,10 +839,14 @@ void GetPlaceFromNav(Address area, float pos[3], char[] place, int length)
 bool GetInfectedByChance(InfectedInfo info, ArrayList arr, const char[] func)
 {
 	int len = arr.Length;
-	ArrayList weights = arr.Get(len-3);
-	ArrayList accum = arr.Get(len-2);
+	ArrayList aliases = arr.Get(len-1);
 
-	int idx = HopscotchRandom(weights, accum);
+	int idx = GetAliasRandom(aliases);
+	if(idx == len-1) {
+		return false;
+	}
+
+	idx = arr.Get(idx);
 
 	arInfectedInfos.GetArray(idx, info, sizeof(info));
 
@@ -741,6 +857,8 @@ bool GetInfectedByChance(InfectedInfo info, ArrayList arr, const char[] func)
 	return true;
 }
 
+static float tmppos[3];
+static mi_common_params tmpcommonparams;
 MRESReturn SpawnCommonHelper(DHookReturn hReturn, DHookParam hParams, bool post)
 {
 	if(arInfectedInfos == null) {
@@ -761,13 +879,11 @@ MRESReturn SpawnCommonHelper(DHookReturn hReturn, DHookParam hParams, bool post)
 
 	Address area = hParams.Get(1);
 
-	float pos[3];
-	hParams.GetVector(2, pos);
+	hParams.GetVector(2, tmppos);
 
-	char place[MI_MAX_PLACE_LEN];
-	GetPlaceFromNav(area, pos, place, sizeof(place));
+	GetPlaceFromNav(area, tmppos, tmpplace, sizeof(tmpplace));
 
-	if(!placemap.GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
+	if(!placemap.GetArray(tmpplace, tmparrclasses, sizeof(tmparrclasses))) {
 		return MRES_Ignored;
 	}
 
@@ -776,14 +892,13 @@ MRESReturn SpawnCommonHelper(DHookReturn hReturn, DHookParam hParams, bool post)
 		return MRES_Ignored;
 	}
 
-	InfectedInfo info;
-	if(!GetInfectedByChance(info, arr, "spawn")) {
+	if(!GetInfectedByChance(tmpinfectinfo, arr, "spawn")) {
 		return MRES_Ignored;
 	}
 
-	Function spawn = GetFunc(info, func_common);
+	Function spawn = GetFunc(tmpinfectinfo, func_common);
 	if(spawn == INVALID_FUNCTION) {
-		PrintToServer("[MOREINFECTED] %s: spawn failed: function not provided", info.name);
+		PrintToServer("[MOREINFECTED] %s: spawn failed: function not provided", tmpinfectinfo.name);
 		return MRES_Ignored;
 	}
 
@@ -796,17 +911,18 @@ MRESReturn SpawnCommonHelper(DHookReturn hReturn, DHookParam hParams, bool post)
 		}
 	}
 
-	Call_StartFunction(info.hPlugin, spawn);
-	Call_PushCell(entity);
-	Call_PushCell(area);
-	Call_PushArray(pos, sizeof(pos));
-	Call_PushCell(directive);
-	moreinfected_data data;
-	strcopy(data.name, MI_MAX_NAME_LEN, info.name);
-	data.class_flags = info.class_flags;
-	data.directive_flags = info.directive_flags;
-	data.data = info.data;
-	Call_PushArray(data, sizeof(data));
+	Call_StartFunction(tmpinfectinfo.hPlugin, spawn);
+	tmpcommonparams.entity = entity;
+	tmpcommonparams.area = area;
+	strcopy(tmpcommonparams.place, MI_MAX_PLACE_LEN, tmpplace);
+	tmpcommonparams.pos = tmppos;
+	tmpcommonparams.directive = directive;
+	Call_PushArray(tmpcommonparams, sizeof(tmpcommonparams));
+	strcopy(tmpdata.name, MI_MAX_NAME_LEN, tmpinfectinfo.name);
+	tmpdata.class_flags = tmpinfectinfo.class_flags;
+	tmpdata.directive_flags = tmpinfectinfo.directive_flags;
+	tmpdata.kv = tmpinfectinfo.kv;
+	Call_PushArray(tmpdata, sizeof(tmpdata));
 	Call_Finish(entity);
 
 	if(post) {
@@ -847,6 +963,7 @@ MRESReturn SpawnWitchNavPre(Address pThis, DHookReturn hReturn, DHookParam hPara
 	return MRES_Ignored;
 }
 
+static mi_special_params tmpspecialparams;
 MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], ZombieClassType type, bool post, bool bride = false)
 {
 	if(arInfectedInfos == null) {
@@ -856,10 +973,9 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 
 	StringMap placemap = infectedMap[post ? 0 : 1][directive_special];
 
-	char place[MI_MAX_PLACE_LEN];
-	GetPlaceFromNav(g_LastArea, pos, place, sizeof(place));
+	GetPlaceFromNav(g_LastArea, pos, tmpplace, sizeof(tmpplace));
 
-	if(!placemap.GetArray(place, tmparrclasses, sizeof(tmparrclasses))) {
+	if(!placemap.GetArray(tmpplace, tmparrclasses, sizeof(tmparrclasses))) {
 		g_LastArea = Address_Null;
 		return MRES_Ignored;
 	}
@@ -892,15 +1008,14 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 		return MRES_Ignored;
 	}
 
-	InfectedInfo info;
-	if(!GetInfectedByChance(info, arr, "spawn")) {
+	if(!GetInfectedByChance(tmpinfectinfo, arr, "spawn")) {
 		g_LastArea = Address_Null;
 		return MRES_Ignored;
 	}
 
-	Function spawn = GetFunc(info, func_special);
+	Function spawn = GetFunc(tmpinfectinfo, func_special);
 	if(spawn == INVALID_FUNCTION) {
-		PrintToServer("[MOREINFECTED] %s: spawn failed: function not provided", info.name);
+		PrintToServer("[MOREINFECTED] %s: spawn failed: function not provided", tmpinfectinfo.name);
 		g_LastArea = Address_Null;
 		return MRES_Ignored;
 	}
@@ -915,18 +1030,20 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 		}
 	}
 
-	Call_StartFunction(info.hPlugin, spawn);
-	Call_PushCell(entity);
-	Call_PushCell(g_LastArea);
-	Call_PushArray(pos, sizeof(pos));
-	Call_PushArray(ang, sizeof(ang));
-	Call_PushCell(type);
-	moreinfected_data data;
-	strcopy(data.name, MI_MAX_NAME_LEN, info.name);
-	data.class_flags = info.class_flags;
-	data.directive_flags = info.directive_flags;
-	data.data = info.data;
-	Call_PushArray(data, sizeof(data));
+	Call_StartFunction(tmpinfectinfo.hPlugin, spawn);
+	tmpspecialparams.entity = entity;
+	tmpspecialparams.area = g_LastArea;
+	strcopy(tmpspecialparams.place, MI_MAX_PLACE_LEN, tmpplace);
+	tmpspecialparams.pos = pos;
+	tmpspecialparams.ang = ang;
+	tmpspecialparams.type = type;
+	tmpspecialparams.bride = bride;
+	Call_PushArray(tmpspecialparams, sizeof(tmpspecialparams));
+	strcopy(tmpdata.name, MI_MAX_NAME_LEN, tmpinfectinfo.name);
+	tmpdata.class_flags = tmpinfectinfo.class_flags;
+	tmpdata.directive_flags = tmpinfectinfo.directive_flags;
+	tmpdata.kv = tmpinfectinfo.kv;
+	Call_PushArray(tmpdata, sizeof(tmpdata));
 	Call_Finish(entity);
 
 	g_LastArea = Address_Null;
@@ -943,28 +1060,20 @@ MRESReturn SpawnSpecialHelper(DHookReturn hReturn, float pos[3], float ang[3], Z
 	}
 }
 
+static float tmpang[3];
 MRESReturn CallSpawnSpecialBossVec(DHookReturn hReturn, DHookParam hParams, ZombieClassType type, bool post, bool bride = false)
 {
-	float pos[3];
-	hParams.GetVector(1, pos);
-
-	float ang[3];
-	hParams.GetVector(2, ang);
-
-	return SpawnSpecialHelper(hReturn, pos, ang, type, post, bride);
+	hParams.GetVector(1, tmppos);
+	hParams.GetVector(2, tmpang);
+	return SpawnSpecialHelper(hReturn, tmppos, tmpang, type, post, bride);
 }
 
 MRESReturn CallSpawnSpecialVec(DHookReturn hReturn, DHookParam hParams, bool post, bool bride = false)
 {
 	ZombieClassType type = hParams.Get(1);
-
-	float pos[3];
-	hParams.GetVector(2, pos);
-
-	float ang[3];
-	hParams.GetVector(3, ang);
-
-	return SpawnSpecialHelper(hReturn, pos, ang, type, post, bride);
+	hParams.GetVector(2, tmppos);
+	hParams.GetVector(3, tmpang);
+	return SpawnSpecialHelper(hReturn, tmppos, tmpang, type, post, bride);
 }
 
 MRESReturn SpawnSpecialVecPre(Address pThis, DHookReturn hReturn, DHookParam hParams)
@@ -988,12 +1097,35 @@ MRESReturn SpawnTankVecPost(Address pThis, DHookReturn hReturn, DHookParam hPara
 { return CallSpawnSpecialBossVec(hReturn, hParams, ZombieClass_Tank, true); }
 
 static char tmpmodelbuff[MI_MAX_MODEL_LEN];
-HopscotchPair VariationsHopscotch;
+AliasRandom VariationsAliasRandom;
 ArrayList VariantionsIDs = null;
 
-public void infected_precache(moreinfected_data data)
+Action sm_mi_unload(int client, int args)
 {
-	KeyValues kv = data.data;
+	delete VariationsAliasRandom;
+	delete VariantionsIDs;
+
+	UnloadKVFile();
+
+	return Plugin_Handled;
+}
+
+Action sm_mi_reload(int client, int args)
+{
+	delete VariationsAliasRandom;
+	delete VariantionsIDs;
+
+	UnloadKVFile();
+	LoadKVFile();
+
+	OnAllPluginsLoaded();
+
+	return Plugin_Handled;
+}
+
+public void infected_precache(mi_data data)
+{
+	KeyValues kv = data.kv;
 
 	if(kv.JumpToKey("model")) {
 		kv.GetString(NULL_STRING, tmpmodelbuff, sizeof(tmpmodelbuff));
@@ -1003,10 +1135,9 @@ public void infected_precache(moreinfected_data data)
 
 	if(kv.JumpToKey("variations")) {
 		if(kv.GotoFirstSubKey()) {
-			VariationsHopscotch.weights = new ArrayList();
 			VariantionsIDs = new ArrayList();
 
-			char name[MI_MAX_NAME_LEN];
+			ArrayList weights = new ArrayList();
 
 			do {
 				kv.GetString("model", tmpmodelbuff, sizeof(tmpmodelbuff));
@@ -1016,19 +1147,19 @@ public void infected_precache(moreinfected_data data)
 
 				float weight = kv.GetFloat("weight", 0.0);
 				if(weight == 0.0) {
-					kv.GetSectionName(name, sizeof(name));
-					PrintToServer("[MOREINFECTED] %s: variation %s: ignoring due to weight being 0", data.name, name);
+					kv.GetSectionName(tmpname, sizeof(tmpname));
+					PrintToServer("[MOREINFECTED] %s: variation %s: ignoring due to weight being 0", data.name, tmpname);
 					continue;
 				}
 
 				int id = 0;
 				if(kv.GetSectionSymbol(id)) {
-					VariationsHopscotch.weights.Push(weight);
+					weights.Push(weight);
 					VariantionsIDs.Push(id);
 				}
 			} while(kv.GotoNextKey());
 
-			PrepareHopscotchRandom(VariationsHopscotch.weights, VariationsHopscotch.accum);
+			VariationsAliasRandom = new AliasRandom(weights);
 
 			kv.GoBack();
 		}
@@ -1066,17 +1197,17 @@ Action player_death(Event event, const char[] name, bool dontBroadcast)
 	return Plugin_Continue;
 }
 
+static char tmpclassname[16];
 public void OnEntityDestroyed(int entity)
 {
 	if(entity < MaxClients) {
 		return;
 	}
 
-	char classname[64];
-	GetEntityClassname(entity, classname, sizeof(classname));
+	GetEntityClassname(entity, tmpclassname, sizeof(tmpclassname));
 
-	if(StrEqual(classname, "infected") ||
-		StrEqual(classname, "infected_server"))
+	if(StrEqual(tmpclassname, "infected") ||
+		StrEqual(tmpclassname, "infected_server"))
 	{
 		int m_iHammerID = GetEntProp(entity, Prop_Data, "m_iHammerID");
 		if(m_iHammerID == 0) {
@@ -1090,6 +1221,7 @@ public void OnEntityDestroyed(int entity)
 	}
 }
 
+static float tmpvel[3];
 void InfectedDied(int entity)
 {
 	SetEntityRenderMode(entity, RENDER_NORMAL);
@@ -1100,8 +1232,6 @@ void InfectedDied(int entity)
 		return;
 	}
 
-	char model[MI_MAX_MODEL_LEN];
-
 	int effect = EntRefToEntIndex(m_iHammerID);
 	if(effect != -1) {
 		int effects = GetEntProp(effect, Prop_Send, "m_fEffects");
@@ -1111,14 +1241,11 @@ void InfectedDied(int entity)
 		AcceptEntityInput(effect, "ClearParent");
 		SetEntPropEnt(effect, Prop_Data, "m_hOwnerEntity", -1);
 
-		float pos[3];
-		GetEntPropVector(entity, Prop_Data, "m_vecAbsOrigin", pos);
-		float ang[3];
-		GetEntPropVector(entity, Prop_Data, "m_angAbsRotation", ang);
-		float vel[3];
-		GetEntPropVector(entity, Prop_Data, "m_vecAbsVelocity", vel);
+		GetEntPropVector(entity, Prop_Data, "m_vecAbsOrigin", tmppos);
+		GetEntPropVector(entity, Prop_Data, "m_angAbsRotation", tmpang);
+		GetEntPropVector(entity, Prop_Data, "m_vecAbsVelocity", tmpvel);
 
-		TeleportEntity(effect, pos, ang, vel);
+		TeleportEntity(effect, tmppos, tmpang, tmpvel);
 
 	/*#if defined animhelpers_included
 		if(g_bAnimhelpers) {
@@ -1134,15 +1261,15 @@ void InfectedDied(int entity)
 
 		SetEntityRenderFx(effect, RENDERFX_RAGDOLL);
 
-		GetEntPropString(effect, Prop_Data, "m_ModelName", model, sizeof(model));
+		GetEntPropString(effect, Prop_Data, "m_ModelName", tmpmodelbuff, sizeof(tmpmodelbuff));
 
 		RemoveEntity(effect);
 	}
 
 	SetEntProp(entity, Prop_Data, "m_iHammerID", 0);
 
-	if(model[0] != '\0') {
-		SetEntityModel(entity, model);
+	if(tmpmodelbuff[0] != '\0') {
+		SetEntityModel(entity, tmpmodelbuff);
 	}
 }
 
@@ -1153,30 +1280,21 @@ void InfectedThink(int entity)
 		return;
 	}
 
-	/*bool deathanim = true;
-
+/*
 #if defined animhelpers_included
-	BaseAnimating anim = BaseAnimating(entity);
-
 	if(g_bAnimhelpers) {
-		int seq = GetEntProp(entity, Prop_Send, "m_nSequence");
+		BaseAnimating anim = BaseAnimating(entity);
 
+		int seq = GetEntProp(entity, Prop_Send, "m_nSequence");
 		Activity act = anim.GetSequenceActivity(seq);
 		if(!(act >= ACT_TERROR_DIE_FROM_STAND &&
 			act <= ACT_TERROR_DIE_RIGHTWARD_FROM_SHOTGUN)) {
-			deathanim = false;
+			seq = anim.SelectWeightedSequence(ACT_TERROR_DIE_FROM_STAND);
+			anim.ResetSequence(seq);
 		}
 	}
 #endif
-
-	if(!deathanim) {
-	#if defined animhelpers_included
-		if(g_bAnimhelpers) {
-			int seq = anim.SelectWeightedSequence(ACT_TERROR_DIE_FROM_STAND);
-			anim.ResetSequence(seq);
-		}
-	#endif
-	}*/
+*/
 
 	if(!GetEntProp(entity, Prop_Data, "m_bSequenceFinished")) {
 		return;
@@ -1280,23 +1398,23 @@ void ParseKVBlock(KeyValues kv, kvblock_info info)
 	}
 }
 
+static kvblock_info tmpblockinfo;
 int infected_spawn_shared(int entity, KeyValues kv, float pos[3], bool common)
 {
 	tmpmodelbuff[0] = '\0';
-	kvblock_info info;
-	info.bonemerge = false;
-	info.server = false;
-	info.health = -1;
-	info.gender = -1;
+	tmpblockinfo.bonemerge = false;
+	tmpblockinfo.server = false;
+	tmpblockinfo.health = -1;
+	tmpblockinfo.gender = -1;
 
-	ParseKVBlock(kv, info);
+	ParseKVBlock(kv, tmpblockinfo);
 
 	if(kv.JumpToKey("variations")) {
-		int idx = HopscotchRandom(VariationsHopscotch.weights, VariationsHopscotch.accum);
+		int idx = VariationsAliasRandom.Get();
 		int id = VariantionsIDs.Get(idx);
 
 		if(kv.JumpToKeySymbol(id)) {
-			ParseKVBlock(kv, info);
+			ParseKVBlock(kv, tmpblockinfo);
 			kv.GoBack();
 		}
 
@@ -1304,7 +1422,8 @@ int infected_spawn_shared(int entity, KeyValues kv, float pos[3], bool common)
 	}
 
 #if defined datamaps_included
-	if(common && g_bDatamaps && info.server) {
+	bool server = tmpblockinfo.server;
+	if(common && g_bDatamaps && server) {
 		if(entity != -1) {
 			RemoveEntity(entity);
 		}
@@ -1320,17 +1439,20 @@ int infected_spawn_shared(int entity, KeyValues kv, float pos[3], bool common)
 		TeleportEntity(entity, pos);
 	}
 
-	if(info.health != -1) {
-		SetEntProp(entity, Prop_Data, "m_iHealth", info.health);
-		SetEntProp(entity, Prop_Data, "m_iMaxHealth", info.health);
+	int health = tmpblockinfo.health;
+	if(health != -1) {
+		SetEntProp(entity, Prop_Data, "m_iHealth", health);
+		SetEntProp(entity, Prop_Data, "m_iMaxHealth", health);
 	}
 
-	if(info.gender != -1) {
-		SetEntProp(entity, Prop_Send, "m_Gender", info.gender);
+	int gender = tmpblockinfo.gender;
+	if(gender != -1) {
+		SetEntProp(entity, Prop_Send, "m_Gender", gender);
 	}
 
 	if(tmpmodelbuff[0] != '\0') {
-		if(!info.bonemerge) {
+		bool bonemerge = tmpblockinfo.bonemerge;
+		if(!bonemerge) {
 			SetEntityModel(entity, tmpmodelbuff);
 		} else {
 			int prop = CreateEntityByName("commentary_dummy");
@@ -1351,26 +1473,24 @@ int infected_spawn_shared(int entity, KeyValues kv, float pos[3], bool common)
 
 			SetEntPropEnt(prop, Prop_Data, "m_hOwnerEntity", entity);
 			SetEntProp(entity, Prop_Data, "m_iHammerID", EntIndexToEntRef(prop));
-		}
-	}
 
-	if(info.bonemerge) {
-		if(entity > MaxClients) {
-			SDKHook(entity, SDKHook_Think, InfectedThink);
+			if(entity > MaxClients) {
+				SDKHook(entity, SDKHook_Think, InfectedThink);
+			}
 		}
 	}
 
 	return entity;
 }
 
-public int infected_spawn_common(int entity, Address area, float pos[3], InfectedSpawnDirective directive, moreinfected_data data)
+public int infected_spawn_common(mi_common_params params, mi_data data)
 {
-	KeyValues kv = data.data;
-	return infected_spawn_shared(entity, kv, pos, true);
+	KeyValues kv = data.kv;
+	return infected_spawn_shared(params.entity, kv, params.pos, true);
 }
 
-public int infected_spawn_special(int entity, Address area, float pos[3], float ang[3], ZombieClassType type, moreinfected_data data)
+public int infected_spawn_special(mi_special_params params, mi_data data)
 {
-	KeyValues kv = data.data;
-	return infected_spawn_shared(entity, kv, pos, false);
+	KeyValues kv = data.kv;
+	return infected_spawn_shared(params.entity, kv, params.pos, false);
 }
