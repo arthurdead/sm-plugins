@@ -62,12 +62,12 @@ void PrintHudNotifyCustom(int client, float duration, DataPack data)
 	data.Reset();
 
 	int textlen = data.ReadCell();
-	char[] text = new char[textlen];
-	data.ReadString(text, textlen);
+	char[] text = new char[textlen+1];
+	data.ReadString(text, textlen+1);
 
 	int iconlen = data.ReadCell();
-	char[] icon = new char[iconlen];
-	data.ReadString(icon, iconlen);
+	char[] icon = new char[iconlen+1];
+	data.ReadString(icon, iconlen+1);
 
 	int team = data.ReadCell();
 
