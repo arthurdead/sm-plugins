@@ -62,12 +62,12 @@ void PrintHudNotifyCustom(int client, float duration, DataPack data)
 	data.Reset();
 
 	int textlen = data.ReadCell();
-	char[] text = new char[textlen+1];
-	data.ReadString(text, textlen+1);
+	char[] text = new char[textlen];
+	data.ReadString(text, textlen);
 
 	int iconlen = data.ReadCell();
-	char[] icon = new char[iconlen+1];
-	data.ReadString(icon, iconlen+1);
+	char[] icon = new char[iconlen];
+	data.ReadString(icon, iconlen);
 
 	int team = data.ReadCell();
 
@@ -156,14 +156,14 @@ Action HudNotifyCustom(UserMsg msg_id, BfRead msg, const int[] players, int play
 		int len = hudnotifyfix_max_text.IntValue;
 
 		char[] text = new char[len];
-		len = msg.ReadString(text, len);
+		len = msg.ReadString(text, len)+1;
 		data.WriteCell(len);
 		data.WriteString(text);
 
 		len = hudnotifyfix_max_icon.IntValue;
 
 		char[] icon = new char[len];
-		len = msg.ReadString(icon, len);
+		len = msg.ReadString(icon, len)+1;
 		data.WriteCell(len);
 		data.WriteString(icon);
 

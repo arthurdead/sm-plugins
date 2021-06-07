@@ -40,11 +40,8 @@ enum PlayerModelType
 	PlayerModelBonemerge,
 };
 
-enum PlayerModelFlags
-{
-	PLAYERMODEL_NONE,
-	PLAYERMODEL_RESPAWN,
-};
+forward void Playermodel_OnApplied(int client);
+//forward void Playermodel_ClearVars(int client);
 
 native void Playermodel_Clear(int client, bool def=false);
 native void Playermodel_GetModel(int client, char[] model, int length, bool def=false);

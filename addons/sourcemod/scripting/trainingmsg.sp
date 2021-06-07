@@ -40,6 +40,8 @@ enum struct TraningMsgMenuInfo
 	int keys;
 }
 
+ConVar sm_rsay_time = null;
+
 public void OnPluginStart()
 {
 	TraningMsgMenus = new ArrayList(sizeof(TraningMsgMenuInfo));
@@ -60,6 +62,110 @@ public void OnPluginStart()
 
 	HookEvent("player_spawn", player_spawn);
 	HookEvent("teamplay_round_start", teamplay_round_start);
+
+	sm_rsay_time = CreateConVar("sm_rsay_time", "10.0");
+
+	RegAdminCmd("sm_rsay", sm_rsay, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_rbug", sm_rbug, ADMFLAG_GENERIC);
+	//RegAdminCmd("sm_rvote", sm_rvote, ADMFLAG_GENERIC);
+}
+
+Handle rsay_timer = null;
+
+Action sm_rbug(int client, int args)
+{
+	delete rsay_timer;
+
+	DisableAll();
+
+	return Plugin_Handled;
+}
+
+/*int currentvotes[4] = {0, ...};
+
+void VoteHandler(TrainingMsgMenuAction action, int client, int param1, any data)
+{
+	if(action == TrainingMsgMenuAction_Select) {
+		++currentvotes[param1];
+	} else if(action == TrainingMsgMenuAction_Cancel) {
+
+	}
+}
+
+Action sm_rvote(int client, int args)
+{
+	if(args < 2) {
+		ReplyToCommand(client, "[SM] sm_rvote <title> <option1> <option2> <option3> <option4>");
+		return Plugin_Handled;
+	}
+
+	if(args > 6) {
+		ReplyToCommand(client, "[SM] only 4 options allowed");
+		return Plugin_Handled;
+	}
+
+	char title[64];
+	GetCmdArg(1, title, sizeof(title));
+
+	TrainingMsgMenu menu = TrainingMsgMenu(VoteHandler);
+	menu.SetTitle(title);
+
+	GetCmdArg(2, title, sizeof(title));
+	menu.AddItem(title);
+
+	if(args >= 3) {
+		GetCmdArg(3, title, sizeof(title));
+		menu.AddItem(title);
+	}
+
+	if(args >= 4) {
+		GetCmdArg(3, title, sizeof(title));
+		menu.AddItem(title);
+	}
+
+	if(args >= 5) {
+		GetCmdArg(5, title, sizeof(title));
+		menu.AddItem(title);
+	}
+
+	menu.SendToClient(client, TRAININGMSGMENU_TIME_FOREVER);
+
+	return Plugin_Handled;
+}*/
+
+Action sm_rsay(int client, int args)
+{
+	if(args < 1) {
+		ReplyToCommand(client, "[SM] sm_rsay <msg>");
+		return Plugin_Handled;
+	}
+
+	char msg[64];
+	GetCmdArgString(msg, sizeof(msg));
+
+	ReplaceString(msg, sizeof(msg), "\\x2", "\x2");
+	ReplaceString(msg, sizeof(msg), "\\x1", "\x1");
+	ReplaceString(msg, sizeof(msg), "\\n", "\n");
+	ReplaceString(msg, sizeof(msg), "\\t", "\t");
+
+	char title[64];
+	Format(title, sizeof(title), "%N", client);
+
+	SendToAllImpl(title, msg);
+
+	delete rsay_timer;
+	rsay_timer = CreateTimer(sm_rsay_time.FloatValue, Timer_RemoveRsay, 0, TIMER_FLAG_NO_MAPCHANGE);
+
+	return Plugin_Handled;
+}
+
+Action Timer_RemoveRsay(Handle timer, any data)
+{
+	DisableAll();
+
+	rsay_timer = null;
+
+	return Plugin_Continue;
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -126,42 +232,46 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 			current_player_menu[param1] = -1;
 			DisableClient(param1, _, false);
 
-			TraningMsgMenuFunction func;
-			TraningMsgMenusFunctions.GetArray(index, func, sizeof(TraningMsgMenuFunction));
+			if(index != -1) {
+				TraningMsgMenuFunction func;
+				TraningMsgMenusFunctions.GetArray(index, func, sizeof(TraningMsgMenuFunction));
 
-			Call_StartFunction(func.plugin, func.func);
-			Call_PushCell(TrainingMsgMenuAction_Select);
-			Call_PushCell(param1);
-			Call_PushCell(param2);
-			Call_PushCell(0);
-			Call_Finish();
+				Call_StartFunction(func.plugin, func.func);
+				Call_PushCell(TrainingMsgMenuAction_Select);
+				Call_PushCell(param1);
+				Call_PushCell(param2);
+				Call_PushCell(0);
+				Call_Finish();
 
-			TraningMsgMenusFunctions.Erase(index);
+				TraningMsgMenusFunctions.Erase(index);
+			}
 		}
 		case MenuAction_Cancel: {
 			int index = current_player_menu[param1];
 			current_player_menu[param1] = -1;
 			DisableClient(param1, _, false);
 
-			TraningMsgMenuFunction func;
-			TraningMsgMenusFunctions.GetArray(index, func, sizeof(TraningMsgMenuFunction));
+			if(index != -1) {
+				TraningMsgMenuFunction func;
+				TraningMsgMenusFunctions.GetArray(index, func, sizeof(TraningMsgMenuFunction));
 
-			Call_StartFunction(func.plugin, func.func);
-			Call_PushCell(TrainingMsgMenuAction_Cancel);
-			Call_PushCell(param1);
+				Call_StartFunction(func.plugin, func.func);
+				Call_PushCell(TrainingMsgMenuAction_Cancel);
+				Call_PushCell(param1);
 
-			switch(param2) {
-				case MenuCancel_Disconnected: { Call_PushCell(TrainingMsgMenuCancel_Disconnected); }
-				case MenuCancel_Interrupted: { Call_PushCell(TrainingMsgMenuCancel_Interrupted); }
-				case MenuCancel_Exit: { Call_PushCell(TrainingMsgMenuCancel_Exit); }
-				case MenuCancel_Timeout: { Call_PushCell(TrainingMsgMenuCancel_Timeout); }
-				default: { Call_PushCell(-1); }
+				switch(param2) {
+					case MenuCancel_Disconnected: { Call_PushCell(TrainingMsgMenuCancel_Disconnected); }
+					case MenuCancel_Interrupted: { Call_PushCell(TrainingMsgMenuCancel_Interrupted); }
+					case MenuCancel_Exit: { Call_PushCell(TrainingMsgMenuCancel_Exit); }
+					case MenuCancel_Timeout: { Call_PushCell(TrainingMsgMenuCancel_Timeout); }
+					default: { Call_PushCell(-1); }
+				}
+
+				Call_PushCell(0);
+				Call_Finish();
+
+				TraningMsgMenusFunctions.Erase(index);
 			}
-
-			Call_PushCell(0);
-			Call_Finish();
-
-			TraningMsgMenusFunctions.Erase(index);
 		}
 	}
 	return 0;
@@ -383,6 +493,11 @@ int TrainingMsgMenuSetTitle(Handle plugin, int params)
 	return 0;
 }
 
+bool CheckPluginHandle(Handle hPlugin)
+{
+	return !(hPlugin == null || !IsValidHandle(hPlugin));
+}
+
 public void OnGameFrame()
 {
 	bool any_enabled = false;
@@ -397,11 +512,12 @@ public void OnGameFrame()
 	{
 		ChangeGameRulesState();
 
+		//TODO!!! refactor this using OnNotifyPluginUnloaded
 		/*for(int i = 0; i < TraningMsgMenusFunctions.Length; ++i) {
 			Handle plugin[1];
 			TraningMsgMenusFunctions.GetArray(i, plugin, 1);
 
-			if(GetPluginStatus(plugin[0]) != Plugin_Running) {
+			if(!CheckPluginHandle(plugin[0]) || GetPluginStatus(plugin[0]) != Plugin_Running) {
 				for(int j = 1; j <= MaxClients; ++j) {
 					if(current_player_menu[j] == i) {
 						DisableClient(j, _, false);
@@ -410,7 +526,7 @@ public void OnGameFrame()
 				}
 
 				TraningMsgMenusFunctions.Erase(i);
-				++i;
+				--i;
 			}
 		}*/
 	}
@@ -507,11 +623,10 @@ Action HookIsTraining(const char[] cPropName, int &iValue, const int iElement, c
 		} else {
 			iValue = 1;
 		}
-		return Plugin_Changed;
 	} else {
 		iValue = 0;
-		return Plugin_Changed;
 	}
+	return Plugin_Changed;
 }
 
 void Unhook(bool value)
@@ -525,16 +640,14 @@ void Unhook(bool value)
 	if(sm_trainingmsg_setprop.BoolValue) {
 		GameRules_SetProp("m_bIsInTraining", value);
 		GameRules_SetProp("m_bIsTrainingHUDVisible", value);
-		ChangeGameRulesState();
 	} else {
 		if(!value) {
 			GameRules_SetProp("m_bIsInTraining", 0);
 			GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
-			ChangeGameRulesState();
-		} else {
-			ChangeGameRulesState();
 		}
 	}
+
+	ChangeGameRulesState();
 }
 
 void Hook()
@@ -650,7 +763,7 @@ void SendToClientsHelper(int[] clients, int numClients, const char[] title, cons
 
 void SendToAllHelper(int[] clients, int numClients, const char[] title, const char[] msg)
 {
-	if(sm_trainingmsg_setprop.BoolValue) {
+	if(!sm_trainingmsg_setprop.BoolValue) {
 		Hook();
 	} else {
 		Unhook(true);
@@ -846,22 +959,8 @@ int SendToClients(Handle plugin, int params)
 	return 0;
 }
 
-int SendToAll(Handle plugin, int params)
+void SendToAllImpl(const char[] title, const char[] msg)
 {
-	int length = 0;
-	GetNativeStringLength(1, length);
-	length++;
-
-	char[] title = new char[length];
-	GetNativeString(1, title, length);
-
-	length = 0;
-	GetNativeStringLength(2, length);
-	length++;
-
-	char[] msg = new char[length];
-	GetNativeString(2, msg, length);
-
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
@@ -882,6 +981,25 @@ int SendToAll(Handle plugin, int params)
 	}
 
 	SendToAllHelper(clients, numClients, title, msg);
+}
+
+int SendToAll(Handle plugin, int params)
+{
+	int length = 0;
+	GetNativeStringLength(1, length);
+	length++;
+
+	char[] title = new char[length];
+	GetNativeString(1, title, length);
+
+	length = 0;
+	GetNativeStringLength(2, length);
+	length++;
+
+	char[] msg = new char[length];
+	GetNativeString(2, msg, length);
+
+	SendToAllImpl(title, msg);
 
 	return 0;
 }

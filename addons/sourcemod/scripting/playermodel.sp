@@ -39,6 +39,41 @@ Handle hEquipWearable = null;
 
 #define PlayerModelInvalid (view_as<PlayerModelType>(-1))
 
+GlobalForward OnApplied = null;
+
+#if defined GAME_TF2
+	#define OBS_MODE_IN_EYE 4
+#else
+	#error
+#endif
+
+Action OnPropTransmit(int entity, int client)
+{
+	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	if(client == owner) {
+	#if defined GAME_TF2
+		bool thirdperson = (
+			TF2_IsPlayerInCondition(client, TFCond_Taunting) ||
+			GetEntProp(owner, Prop_Send, "m_nForceTauntCam") == 1
+		);
+	#else
+		#error
+	#endif
+		if(!thirdperson) {
+			return Plugin_Handled;
+		}
+	} else {
+		bool firstperson = (
+			(GetEntPropEnt(client, Prop_Send, "m_hObserverTarget") == owner &&
+			GetEntProp(client, Prop_Send, "m_iObserverMode") == OBS_MODE_IN_EYE)
+		);
+		if(firstperson) {
+			return Plugin_Handled;
+		}
+	}
+	return Plugin_Continue;
+}
+
 enum struct PlayerModelInfo
 {
 	int entity;
@@ -313,6 +348,9 @@ enum struct PlayerModelInfo
 
 				if(this.type == PlayerModelCustomModel) {
 					this.SetCustomModel(this.model);
+
+					SetEntityRenderMode(this.owner, RENDER_TRANSCOLOR);
+					SetEntityRenderColor(this.owner, 255, 255, 255, 255);
 				}
 			}
 			case PlayerModelProp, PlayerModelBonemerge:
@@ -359,6 +397,9 @@ enum struct PlayerModelInfo
 					SetEntityRenderMode(this.owner, RENDER_TRANSCOLOR);
 					SetEntityRenderColor(this.owner, 255, 255, 255, 0);
 
+					SetEntityRenderMode(this.entity, RENDER_TRANSCOLOR);
+					SetEntityRenderColor(this.entity, 255, 255, 255, 255);
+
 				#if defined GAME_TF2
 					if(this.type != PlayerModelBonemerge) {
 						this.SetCustomModel(this.model);
@@ -381,12 +422,22 @@ enum struct PlayerModelInfo
 					}
 				#endif
 
+					SetEntPropEnt(this.entity, Prop_Send, "m_hOwnerEntity", this.owner);
+
+					if(this.type == PlayerModelProp) {
+						//SDKHook(this.entity, SDKHook_SetTransmit, OnPropTransmit);
+					}
+
 					SetEntityModel(this.entity, this.model);
 				}
 			}
 		}
 
 		this.__InternalSetSkin(prop);
+
+		Call_StartForward(OnApplied);
+		Call_PushCell(this.owner);
+		Call_Finish();
 	}
 
 	void CheckForDefault()
@@ -462,6 +513,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("PlayerModel_SetType", Native_SetType);
 	CreateNative("Playermodel_GetSkin", Native_GetSkin);
 	CreateNative("Playermodel_SetSkin", Native_SetSkin);
+	OnApplied = new GlobalForward("Playermodel_OnApplied", ET_Ignore, Param_Cell);
 	return APLRes_Success;
 }
 
@@ -617,6 +669,8 @@ public void OnPluginEnd()
 	}
 }
 
+int m_flInvisibilityOffset = -1;
+
 public void OnPluginStart()
 {
 	GameData hGameConf = new GameData("playermodel");
@@ -659,15 +713,73 @@ public void OnPluginStart()
 			OnClientPutInServer(i);
 		}
 	}
+
+	m_flInvisibilityOffset = FindSendPropInfo("CTFPlayer", "m_flInvisChangeCompleteTime");
+	m_flInvisibilityOffset -= 8;
+}
+
+void OnPlayerPostThink(int client)
+{
+	if(g_PlayersModelInfo[client].type == PlayerModelDefault) {
+		return;
+	}
+
+#if defined GAME_TF2
+	if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
+		float invis = GetEntDataFloat(client, m_flInvisibilityOffset);
+		invis = 1.0 - invis;
+		int alpha = RoundToFloor(255 * invis);
+		if(alpha < 0) {
+			alpha = 0;
+		}
+		if(alpha > 255) {
+			alpha = 255;
+		}
+		SetEntityRenderColor(g_PlayersModelInfo[client].entity, 255, 255, 255, alpha);
+	}
+#endif
 }
 
 #if defined GAME_TF2
+public void TF2_OnConditionAdded(int client, TFCond condition)
+{
+	if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
+		if(condition == TFCond_Disguised) {
+			g_PlayersModelInfo[client].SetCustomModel("");
+			SetEntityRenderColor(client, 255, 255, 255, 255);
+		}
+	} else if(g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
+		if(condition == TFCond_Disguised) {
+			SetEntityRenderColor(client, 255, 255, 255, 255);
+		}
+	}
+}
+
+public void TF2_OnConditionRemoved(int client, TFCond condition)
+{
+	if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
+		if(condition == TFCond_Disguised) {
+			g_PlayersModelInfo[client].SetCustomModel(g_PlayersModelInfo[client].model);
+		}
+	} else if(g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
+		if(condition == TFCond_Disguised) {
+			SetEntityRenderColor(client, 255, 255, 255, 0);
+		}
+	}
+}
+
+void FrameInventory(int client)
+{
+	g_PlayersModelInfo[client].Apply(client);
+}
+
 void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	
+
 	if(g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
-		g_PlayersModelInfo[client].Apply(client);
+		g_PlayersModelInfo[client].entity = -1;
+		RequestFrame(FrameInventory, client);
 	}
 }
 #endif
@@ -695,6 +807,7 @@ void player_death(Event event, const char[] name, bool dontBroadcast)
 public void OnClientPutInServer(int client)
 {
 	g_PlayersModelInfo[client].ClearDisconnect();
+	SDKHook(client, SDKHook_PostThink, OnPlayerPostThink);
 }
 
 public void OnClientDisconnect(int client)

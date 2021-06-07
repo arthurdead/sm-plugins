@@ -740,6 +740,7 @@ bool CheckPluginHandle(Handle hPlugin)
 	return !(hPlugin == null || !IsValidHandle(hPlugin));
 }
 
+//TODO!!! refactor this using OnNotifyPluginUnloaded
 bool IsPluginLoaded(InfectedInfo info, const char[] func)
 {
 	if(CheckPluginHandle(info.hPlugin)) {
