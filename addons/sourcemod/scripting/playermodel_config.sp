@@ -148,14 +148,6 @@ stock void ClassToClassname(TFClassType type, char[] name, int length)
 	}
 }
 
-Action ConCommand_TP(int client, int args)
-{
-	bool had = (GetEntProp(client, Prop_Send, "m_nForceTauntCam") == 1);
-	SetEntProp(client, Prop_Send, "m_nForceTauntCam", !had);
-
-	return Plugin_Handled;
-}
-
 void FrameInventoryWeapon(int client)
 {
 	TF2_RemoveAllWeapons(client);
@@ -190,16 +182,11 @@ void player_changeclass(Event event, const char[] name, bool dontBroadcast)
 
 public void OnPluginStart()
 {
-	//RegAdminCmd("sm_pm", ConCommand_PM, ADMFLAG_GENERIC);
-	RegConsoleCmd("sm_pm", ConCommand_PM);
-
-	RegConsoleCmd("sm_tp", ConCommand_TP);
+	RegAdminCmd("sm_pm", ConCommand_PM, ADMFLAG_GENERIC);
 
 	HookEvent("post_inventory_application", post_inventory_application);
 
 	HookEvent("player_changeclass", player_changeclass);
-
-	//player_changeclass
 
 	mapInfoIds = new StringMap();
 
