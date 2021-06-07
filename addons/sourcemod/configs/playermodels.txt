@@ -1,0 +1,79 @@
+"Playermodels"
+{
+	//"name"
+	//{
+	//	//bonemerge,prop,custom_model
+	//	"type" "custom_model"
+	//	
+	//	//set of animations for the model tf2,hl2
+	//	"animset" "tf2"
+	//
+	//	//class required to use the model
+	//	"class" "all"
+	//
+	//	//the class the model was originally made for
+	//	"original_class" "unknown"
+	//
+	//	//nohats,noweapons,nodmg
+	//	"flags" "nodmg"
+	//
+	//	//model
+	//	"model" ""
+	//
+	//	//model to steal animations from untested do not use
+	//	"animation" ""
+	//
+	//	//override required to use the model
+	//	"override" ""
+	//
+	//	//bodygroup to set on the model
+	//	"bodygroup" "0"
+	//}
+	//
+	// setting type to prop or setting animset to anything other than tf2
+	// already implies the flags nohats and noweapons
+	//
+
+	"gman"
+	{
+		"type" "prop"
+		"animset" "hl2"
+		"model" "models/gman.mdl"
+		"bodygroup" "1"
+	}
+
+	"spy"
+	{
+		"type" "bonemerge"
+		"original_class" "spy"
+		"model" "models/player/spy.mdl"
+	}
+
+	"heavy"
+	{
+		"type" "bonemerge"
+		"original_class" "heavy"
+		"model" "models/player/heavy.mdl"
+	}
+
+	"big smoke"
+	{
+		"type" "bonemerge"
+		"original_class" "heavy"
+		"model" "models/player/bigsmoke/smoke.mdl"
+	}
+
+	"goose"
+	{
+		"type" "bonemerge"
+		"original_class" "sniper"
+		"model" "models/dfs/thataveragejoe/goose/goose.mdl"
+	}
+
+	"hl1 sci"
+	{
+		"type" "bonemerge"
+		"original_class" "spy"
+		"model" "models/dfs/thataveragejoe/halflife/scientist.mdl"
+	}
+}
