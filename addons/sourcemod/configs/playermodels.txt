@@ -2,6 +2,9 @@
 {
 	//"name"
 	//{
+	//	//which group this model is from
+	//	"group" "all"
+	//
 	//	//bonemerge,prop,custom_model
 	//	"type" "custom_model"
 	//	
@@ -40,6 +43,7 @@
 		"animset" "hl2"
 		"model" "models/gman.mdl"
 		"bodygroup" "1"
+		"group" "hl2"
 	}
 
 	"spy"
@@ -47,6 +51,7 @@
 		"type" "bonemerge"
 		"original_class" "spy"
 		"model" "models/player/spy.mdl"
+		"group" "classmodel"
 	}
 
 	"heavy"
@@ -54,6 +59,7 @@
 		"type" "bonemerge"
 		"original_class" "heavy"
 		"model" "models/player/heavy.mdl"
+		"group" "classmodel"
 	}
 
 	"big smoke"
@@ -61,6 +67,7 @@
 		"type" "bonemerge"
 		"original_class" "heavy"
 		"model" "models/player/bigsmoke/smoke.mdl"
+		"group" "custom"
 	}
 
 	"goose"
@@ -68,6 +75,7 @@
 		"type" "bonemerge"
 		"original_class" "sniper"
 		"model" "models/dfs/thataveragejoe/goose/goose.mdl"
+		"group" "custom"
 	}
 
 	"hl1 sci"
@@ -75,5 +83,6 @@
 		"type" "bonemerge"
 		"original_class" "spy"
 		"model" "models/dfs/thataveragejoe/halflife/scientist.mdl"
+		"group" "half life 1"
 	}
 }

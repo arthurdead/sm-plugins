@@ -7,7 +7,7 @@
 #include <playermodel>
 
 ArrayList arrModelInfos = null;
-ArrayList mapClassModels[10] = {null, ...};
+StringMap mapGroup = null;
 StringMap mapInfoIds = null;
 
 #define MODEL_NAME_MAX 64
@@ -108,6 +108,7 @@ PlayerInfo playerinfo[33];
 ModelInfo tmpmodelinfo;
 char tmpstr1[64];
 char tmpstr2[PLATFORM_MAX_PATH];
+ArrayList tmpclassarr[10] = {null, ...};
 
 char tmpflagstrs[3][64];
 int FlagStrToFlags(const char[] str)
@@ -190,9 +191,10 @@ public void OnPluginStart()
 
 	mapInfoIds = new StringMap();
 
+	mapGroup = new StringMap();
+
 	arrModelInfos = new ArrayList(sizeof(ModelInfo));
 	for(int i = 1; i <= 9; ++i) {
-		mapClassModels[i] = new ArrayList();
 		ClassToClassname(view_as<TFClassType>(i), tmpstr1, sizeof(tmpstr1));
 		Format(tmpstr1, sizeof(tmpstr1), "playermodel_%s", tmpstr1);
 		ClassCookies[i] = RegClientCookie(tmpstr1, "", CookieAccess_Private);
@@ -268,12 +270,20 @@ public void OnPluginStart()
 
 				mapInfoIds.SetValue(tmpmodelinfo.name, idx);
 
+				kvModels.GetString("group", tmpstr1, sizeof(tmpstr1), "all");
+				if(!mapGroup.GetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr))) {
+					for(int i = 1; i <= 9; ++i) {
+						tmpclassarr[i] = new ArrayList();
+					}
+					mapGroup.SetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr));
+				}
+
 				if(tmpmodelinfo.class == TFClass_Any) {
 					for(int i = 1; i <= 9; ++i) {
-						mapClassModels[i].Push(idx);
+						tmpclassarr[i].Push(idx);
 					}
 				} else {
-					mapClassModels[tmpmodelinfo.class].Push(idx);
+					tmpclassarr[tmpmodelinfo.class].Push(idx);
 				}
 			} while(kvModels.GotoNextKey());
 
@@ -297,7 +307,7 @@ void LoadCookies(int client, TFClassType class)
 {
 	ClassCookies[class].Get(client, tmpstr1, sizeof(tmpstr1));
 
-	if(StrEqual(tmpstr1, "none")) {
+	if(tmpstr1[0] == '\0' || StrEqual(tmpstr1, "none")) {
 		ClearPlayerModel(client);
 	} else {
 		int idx = -1;
@@ -583,7 +593,7 @@ void ClearPlayerModel(int client)
 
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
 	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
-		SetEntProp(client, Prop_Send, "m_nForceTauntCam", 0);
+		//SetEntProp(client, Prop_Send, "m_nForceTauntCam", 0);
 	}
 #endif
 
@@ -643,7 +653,7 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
 	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
-		SetEntProp(client, Prop_Send, "m_nForceTauntCam", 0);
+		//SetEntProp(client, Prop_Send, "m_nForceTauntCam", 0);
 	}
 #endif
 
@@ -683,20 +693,23 @@ int MenuHandler_PlayerModel(Menu menu, MenuAction action, int param1, int param2
 		int idx = StringToInt(tmpstr1);
 
 		TFClassType class = TF2_GetPlayerClass(param1);
-
-		if(idx != -1) {
+		if(class != TFClass_Unknown) {
 			arrModelInfos.GetArray(idx, tmpmodelinfo, sizeof(tmpmodelinfo));
 
 			SetPlayerModel(param1, class, tmpmodelinfo, idx);
 
 			ClassCookies[class].Set(param1, tmpmodelinfo.name);
-		} else {
-			ClearPlayerModel(param1);
 
-			ClassCookies[class].Set(param1, "none");
+			menu.GetTitle(tmpstr1, sizeof(tmpstr1));
+
+			if(mapGroup.GetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr))) {
+				DisplayModelMenu(tmpstr1, tmpclassarr[class], class, param1, menu.Selection);
+			}
 		}
-
-		DisplayModelMenu(param1, menu.Selection);
+	} else if(action == MenuAction_Cancel) {
+		if(param2 == MenuCancel_ExitBack) {
+			DisplayGroupMenu(param1);
+		}
 	} else if(action == MenuAction_End) {
 		delete menu;
 	}
@@ -704,28 +717,50 @@ int MenuHandler_PlayerModel(Menu menu, MenuAction action, int param1, int param2
 	return 0;
 }
 
-void DisplayModelMenu(int client, int item = -1)
+int MenuHandler_ModelGroup(Menu menu, MenuAction action, int param1, int param2)
 {
-	TFClassType class = TF2_GetPlayerClass(client);
-	if(class == TFClass_Unknown) {
-		return;
-	}
+	if(action == MenuAction_Select) {
+		if(param2 == 0) {
+			ClearPlayerModel(param1);
 
+			TFClassType class = TF2_GetPlayerClass(param1);
+			if(class != TFClass_Unknown) {
+				ClassCookies[class].Set(param1, "none");
+			}
+
+			DisplayGroupMenu(param1);
+		} else {
+			menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
+
+			if(mapGroup.GetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr))) {
+				TFClassType class = TF2_GetPlayerClass(param1);
+				if(class != TFClass_Unknown) {
+					DisplayModelMenu(tmpstr1, tmpclassarr[class], class, param1);
+				}
+			} else {
+				DisplayGroupMenu(param1);
+			}
+		}
+	} else if(action == MenuAction_End) {
+		delete menu;
+	}
+	
+	return 0;
+}
+
+void DisplayModelMenu(const char[] group, ArrayList arr, TFClassType class, int client, int item = -1)
+{
 	Handle style = GetMenuStyleHandle(MenuStyle_Default);
 
 	Menu menu = CreateMenuEx(style, MenuHandler_PlayerModel, MENU_ACTIONS_DEFAULT);
-	menu.SetTitle("Playermodel");
-
-	menu.Pagination = 10;
-
-	ArrayList arr = mapClassModels[class];
+	menu.SetTitle(group);
 
 	int drawstyle = ITEMDRAW_DEFAULT;
 	if(playerinfo[client].id == -1) {
 		drawstyle = ITEMDRAW_DISABLED;
 	}
 
-	menu.AddItem("-1", "none", drawstyle);
+	menu.ExitBackButton = true;
 
 	GetModelForClass(class, tmpstr2, sizeof(tmpstr2));
 
@@ -763,9 +798,36 @@ void DisplayModelMenu(int client, int item = -1)
 	}
 }
 
+void DisplayGroupMenu(int client)
+{
+	TFClassType class = TF2_GetPlayerClass(client);
+	if(class == TFClass_Unknown) {
+		return;
+	}
+
+	Handle style = GetMenuStyleHandle(MenuStyle_Default);
+
+	Menu menu = CreateMenuEx(style, MenuHandler_ModelGroup, MENU_ACTIONS_DEFAULT);
+	menu.SetTitle("Playermodel");
+
+	menu.AddItem("-1", "none");
+
+	StringMapSnapshot snapshot = mapGroup.Snapshot();
+
+	for(int i = 0, len = snapshot.Length; i < len; ++i) {
+		snapshot.GetKey(i, tmpstr1, sizeof(tmpstr1));
+
+		menu.AddItem(tmpstr1, tmpstr1);
+	}
+
+	delete snapshot;
+
+	menu.Display(client, MENU_TIME_FOREVER);
+}
+
 Action ConCommand_PM(int client, int args)
 {
-	DisplayModelMenu(client);
+	DisplayGroupMenu(client);
 
 	return Plugin_Handled;
 }

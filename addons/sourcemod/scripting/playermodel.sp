@@ -724,6 +724,10 @@ void OnPlayerPostThink(int client)
 		return;
 	}
 
+	if(g_PlayersModelInfo[client].entity == -1) {
+		return;
+	}
+
 #if defined GAME_TF2
 	if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
 		float invis = GetEntDataFloat(client, m_flInvisibilityOffset);
