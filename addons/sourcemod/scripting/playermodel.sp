@@ -87,6 +87,8 @@ enum struct PlayerModelInfo
 	char animation_default[PLAYERMODELINFO_MODEL_LENGTH];
 	int skin;
 	int skin_default;
+	int body;
+	int body_default;
 
 	PlayerModelType tmp_type;
 
@@ -178,6 +180,7 @@ enum struct PlayerModelInfo
 		this.SetAnimation("", true);
 		this.type_default = PlayerModelDefault;
 		this.skin_default = -1;
+		this.body_default = -1;
 	}
 
 	void ClearDeath()
@@ -190,6 +193,7 @@ enum struct PlayerModelInfo
 		this.SetModel("");
 		this.SetAnimation("");
 		this.skin = -1;
+		this.body = -1;
 		this.type = PlayerModelDefault;
 
 		this.tmp_type = PlayerModelInvalid;
@@ -243,6 +247,11 @@ enum struct PlayerModelInfo
 		this.__InternalSetSkin(this.IsProp());
 	}
 
+	void SetBody()
+	{
+		this.__InternalSetBody(this.IsProp());
+	}
+
 	void __InternalSetSkin(bool prop)
 	{
 		this.CheckForDefault();
@@ -266,6 +275,17 @@ enum struct PlayerModelInfo
 			} else {
 				this.SetCustomSkin(-1);
 			}
+		}
+	}
+
+	void __InternalSetBody(bool prop)
+	{
+		this.CheckForDefault();
+
+		if(this.body != -1) {
+			SetEntProp(this.entity, Prop_Send, "m_nBody", this.body);
+		} else {
+			SetEntProp(this.entity, Prop_Send, "m_nBody", 0);
 		}
 	}
 
@@ -293,6 +313,8 @@ enum struct PlayerModelInfo
 
 			DispatchKeyValue(this.link, "model", tmp);
 			DispatchSpawn(this.link);
+
+			SetEntPropString(this.link, Prop_Data, "m_iClassname", "playermodel_link");
 
 			SetEntityModel(this.link, tmp);
 
@@ -379,6 +401,8 @@ enum struct PlayerModelInfo
 						DispatchSpawn(this.entity);
 					}
 
+					SetEntPropString(this.entity, Prop_Data, "m_iClassname", "playermodel");
+
 					SetEntPropFloat(this.entity, Prop_Send, "m_flPlaybackRate", 1.0);
 
 					int effects = GetEntProp(this.entity, Prop_Send, "m_fEffects");
@@ -434,6 +458,7 @@ enum struct PlayerModelInfo
 		}
 
 		this.__InternalSetSkin(prop);
+		this.__InternalSetBody(prop);
 
 		Call_StartForward(OnApplied);
 		Call_PushCell(this.owner);
@@ -448,6 +473,10 @@ enum struct PlayerModelInfo
 
 		if(this.skin == -1 && this.skin_default != -1) {
 			this.skin = this.skin_default;
+		}
+
+		if(this.body == -1 && this.body_default != -1) {
+			this.body = this.body_default;
 		}
 
 		if(StrEqual(this.model, "") && !StrEqual(this.model_default, "")) {
@@ -468,6 +497,19 @@ enum struct PlayerModelInfo
 				return this.skin_default;
 			} else {
 				return this.skin;
+			}
+		}
+	}
+
+	int GetBody(bool def=false)
+	{
+		if(!def && this.body == -1) {
+			return GetEntProp(this.entity, Prop_Send, "m_nBody");
+		} else {
+			if(def) {
+				return this.body_default;
+			} else {
+				return this.body;
 			}
 		}
 	}
@@ -513,8 +555,34 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("PlayerModel_SetType", Native_SetType);
 	CreateNative("Playermodel_GetSkin", Native_GetSkin);
 	CreateNative("Playermodel_SetSkin", Native_SetSkin);
+	CreateNative("Playermodel_GetBodygroup", Native_GetBodygroup);
+	CreateNative("Playermodel_SetBodygroup", Native_SetBodygroup);
 	OnApplied = new GlobalForward("Playermodel_OnApplied", ET_Ignore, Param_Cell);
 	return APLRes_Success;
+}
+
+int Native_GetBodygroup(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+	bool def = GetNativeCell(2);
+
+	return g_PlayersModelInfo[client].GetBody(def);
+}
+
+int Native_SetBodygroup(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+	int body = GetNativeCell(2);
+	bool def = GetNativeCell(3);
+
+	if(def) {
+		g_PlayersModelInfo[client].body_default = body;
+	} else {
+		g_PlayersModelInfo[client].body = body;
+	}
+	g_PlayersModelInfo[client].SetBody();
+
+	return 0;
 }
 
 int Native_GetSkin(Handle plugin, int params)
@@ -724,7 +792,8 @@ void OnPlayerPostThink(int client)
 		return;
 	}
 
-	if(g_PlayersModelInfo[client].entity == -1) {
+	if(g_PlayersModelInfo[client].entity == -1 ||
+		!IsValidEntity(g_PlayersModelInfo[client].entity)) {
 		return;
 	}
 

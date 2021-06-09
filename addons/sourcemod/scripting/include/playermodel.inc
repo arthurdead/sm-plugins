@@ -41,7 +41,6 @@ enum PlayerModelType
 };
 
 forward void Playermodel_OnApplied(int client);
-//forward void Playermodel_ClearVars(int client);
 
 native void Playermodel_Clear(int client, bool def=false);
 native void Playermodel_GetModel(int client, char[] model, int length, bool def=false);
@@ -53,6 +52,9 @@ native int PlayerModel_SetType(int client, const char[] model, PlayerModelType t
 
 native int Playermodel_GetSkin(int client, bool def=false);
 native void Playermodel_SetSkin(int client, int skin, bool def=false);
+
+native int Playermodel_GetBodygroup(int client, bool def=false);
+native void Playermodel_SetBodygroup(int client, int body, bool def=false);
 
 stock bool Playermodel_IsSet(int client, bool def=false)
 {

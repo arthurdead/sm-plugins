@@ -12,6 +12,7 @@ StringMap mapInfoIds = null;
 
 #define MODEL_NAME_MAX 64
 #define OVERRIDE_MAX 64
+#define STEAMID_MAX 64
 
 #define M_PI 3.14159265358979323846
 #define IN_ANYMOVEMENTKEY (IN_FORWARD|IN_BACK|IN_MOVELEFT|IN_MOVERIGHT)
@@ -27,10 +28,12 @@ enum AnimsetType
 #define PLAYERMODEL_TRANSMIT_BUGGED
 
 #define FLAG_NOWEAPONS (1 << 0)
-#define FLAG_NOHATS (1 << 1)
+#define FLAG_HIDEHATS (1 << 1)
 #define FLAG_NODMG (1 << 2)
+#define FLAG_HIDEWEAPONS (1 << 3)
+#define FLAG_ALWAYSBONEMERGE (1 << 4)
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
-#define FLAG_HACKTHIRDPERSON (1 << 3)
+#define FLAG_HACKTHIRDPERSON (1 << 5)
 #endif
 
 enum struct ConfigModelInfo
@@ -39,6 +42,7 @@ enum struct ConfigModelInfo
 	char model[PLATFORM_MAX_PATH];
 	char anim[PLATFORM_MAX_PATH];
 	char override[OVERRIDE_MAX];
+	char steamid[STEAMID_MAX];
 	AnimsetType animset;
 	TFClassType orig_class;
 	TFClassType class;
@@ -47,9 +51,17 @@ enum struct ConfigModelInfo
 	StringMap sequences;
 	StringMap poseparameters;
 	int bodygroup;
+	int skin;
 }
 
 #define ModelInfo ConfigModelInfo
+
+enum struct GroupInfo
+{
+	char override[OVERRIDE_MAX];
+	char steamid[STEAMID_MAX];
+	ArrayList classarr[10];
+}
 
 enum struct AnimInfo
 {
@@ -106,9 +118,9 @@ AnimInfo playeranim[33];
 PlayerInfo playerinfo[33];
 
 ModelInfo tmpmodelinfo;
+GroupInfo tmpgroupinfo;
 char tmpstr1[64];
 char tmpstr2[PLATFORM_MAX_PATH];
-ArrayList tmpclassarr[10] = {null, ...};
 
 char tmpflagstrs[3][64];
 int FlagStrToFlags(const char[] str)
@@ -118,12 +130,16 @@ int FlagStrToFlags(const char[] str)
 	int flags = 0;
 
 	for(int i = 0; i < num; ++i) {
-		if(StrEqual(tmpflagstrs[i], "nohats")) {
-			flags |= FLAG_NOHATS;
+		if(StrEqual(tmpflagstrs[i], "hidehats")) {
+			flags |= FLAG_HIDEHATS;
 		} else if(StrEqual(tmpflagstrs[i], "noweapons")) {
 			flags |= FLAG_NOWEAPONS;
 		} else if(StrEqual(tmpflagstrs[i], "nodmg")) {
 			flags |= FLAG_NODMG;
+		} else if(StrEqual(tmpflagstrs[i], "hideweapons")) {
+			flags |= FLAG_HIDEWEAPONS;
+		} else if(StrEqual(tmpflagstrs[i], "alwaysmerge")) {
+			flags |= FLAG_ALWAYSBONEMERGE;
 		}
 	}
 
@@ -149,14 +165,19 @@ stock void ClassToClassname(TFClassType type, char[] name, int length)
 	}
 }
 
-void FrameInventoryWeapon(int client)
+void FrameInventoryRemoveWeapon(int client)
 {
 	TF2_RemoveAllWeapons(client);
 }
 
+void FrameInventoryHideWeapon(int client)
+{
+	TF2_HideAllWeapons(client, true);
+}
+
 void FrameInventoryHats(int client)
 {
-	TF2_RemoveAllWearables(client);
+	TF2_HideAllWearables(client, true);
 }
 
 void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
@@ -164,10 +185,12 @@ void post_inventory_application(Event event, const char[] name, bool dontBroadca
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
 	if(playerinfo[client].flags & FLAG_NOWEAPONS) {
-		RequestFrame(FrameInventoryWeapon, client);
+		RequestFrame(FrameInventoryRemoveWeapon, client);
+	} else if(playerinfo[client].flags & FLAG_HIDEWEAPONS) {
+		RequestFrame(FrameInventoryHideWeapon, client);
 	}
 
-	if(playerinfo[client].flags & FLAG_NOHATS) {
+	if(playerinfo[client].flags & FLAG_HIDEHATS) {
 		RequestFrame(FrameInventoryHats, client);
 	}
 }
@@ -179,6 +202,16 @@ void player_changeclass(Event event, const char[] name, bool dontBroadcast)
 	int class = event.GetInt("class");
 
 	LoadCookies(client, view_as<TFClassType>(class));
+}
+
+void GetGroupString(KeyValues kvGroups, const char[] group, const char[] name, char[] str, int len, const char[] def = "")
+{
+	if(kvGroups.JumpToKey(group)) {
+		kvGroups.GetString(name, str, len, def);
+		kvGroups.GoBack();
+	} else {
+		strcopy(str, len, def);
+	}
 }
 
 public void OnPluginStart()
@@ -206,11 +239,42 @@ public void OnPluginStart()
 		KeyValues kvModels = new KeyValues("Playermodels");
 		kvModels.ImportFromFile(tmpstr2);
 
+		BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels_groups.txt");
+		KeyValues kvGroups = new KeyValues("Playermodels_groups");
+		if(FileExists(tmpstr2)) {
+			kvGroups.ImportFromFile(tmpstr2);
+		}
+
+		if(kvGroups.GotoFirstSubKey()) {
+			do {
+				kvGroups.GetSectionName(tmpstr1, sizeof(tmpstr1));
+
+				kvGroups.GetString("override", tmpgroupinfo.override, OVERRIDE_MAX);
+				kvGroups.GetString("steamid", tmpgroupinfo.steamid, STEAMID_MAX);
+
+				for(int i = 1; i <= 9; ++i) {
+					tmpgroupinfo.classarr[i] = new ArrayList();
+				}
+
+				mapGroup.SetArray(tmpstr1, tmpgroupinfo, sizeof(tmpgroupinfo));
+			} while(kvGroups.GotoNextKey());
+
+			kvGroups.GoBack();
+		}
+
 		if(kvModels.GotoFirstSubKey()) {
+			char tmpgroup[64];
+
 			do {
 				kvModels.GetSectionName(tmpmodelinfo.name, MODEL_NAME_MAX);
 
-				kvModels.GetString("class", tmpstr1, sizeof(tmpstr1), "all");
+				kvModels.GetString("group", tmpgroup, sizeof(tmpgroup), "all");
+
+				kvModels.GetString("class", tmpstr1, sizeof(tmpstr1), "__unset");
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "class", tmpstr1, sizeof(tmpstr1), "all");
+				}
+
 				if(StrEqual(tmpstr1, "all")) {
 					tmpmodelinfo.class = TFClass_Any;
 				} else {
@@ -220,7 +284,11 @@ public void OnPluginStart()
 					}
 				}
 
-				kvModels.GetString("animset", tmpstr1, sizeof(tmpstr1), "tf2");
+				kvModels.GetString("animset", tmpstr1, sizeof(tmpstr1), "__unset");
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "animset", tmpstr1, sizeof(tmpstr1), "tf2");
+				}
+
 				if(StrEqual(tmpstr1, "hl2")) {
 					tmpmodelinfo.animset = animset_hl2;
 				} else if(StrEqual(tmpstr1, "tf2")) {
@@ -229,7 +297,11 @@ public void OnPluginStart()
 					continue;
 				}
 
-				kvModels.GetString("type", tmpstr1, sizeof(tmpstr1), "custom_model");
+				kvModels.GetString("type", tmpstr1, sizeof(tmpstr1), "__unset");
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "type", tmpstr1, sizeof(tmpstr1), "custom_model");
+				}
+
 				if(StrEqual(tmpstr1, "bonemerge")) {
 					tmpmodelinfo.type = PlayerModelBonemerge;
 				} else if(StrEqual(tmpstr1, "prop")) {
@@ -242,21 +314,49 @@ public void OnPluginStart()
 
 				kvModels.GetString("model", tmpmodelinfo.model, PLATFORM_MAX_PATH);
 				kvModels.GetString("animation", tmpmodelinfo.anim, PLATFORM_MAX_PATH);
-				kvModels.GetString("override", tmpmodelinfo.override, OVERRIDE_MAX);
 
-				kvModels.GetString("flags", tmpstr1, sizeof(tmpstr1), "nodmg");
+				kvModels.GetString("override", tmpstr1, sizeof(tmpstr1));
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "override", tmpstr1, sizeof(tmpstr1));
+				}
+
+				strcopy(tmpmodelinfo.override, OVERRIDE_MAX, tmpstr1);
+
+				kvModels.GetString("steamid", tmpstr1, sizeof(tmpstr1));
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "steamid", tmpstr1, sizeof(tmpstr1));
+				}
+
+				strcopy(tmpmodelinfo.steamid, STEAMID_MAX, tmpstr1);
+
+				kvModels.GetString("flags", tmpstr1, sizeof(tmpstr1), "__unset");
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "flags", tmpstr1, sizeof(tmpstr1), "nodmg");
+				}
+
 				tmpmodelinfo.flags = FlagStrToFlags(tmpstr1);
 
 				if(tmpmodelinfo.type == PlayerModelProp ||
 					tmpmodelinfo.animset != animset_tf2) {
-					tmpmodelinfo.flags |= FLAG_NOHATS|FLAG_NOWEAPONS;
+					tmpmodelinfo.flags |= FLAG_HIDEHATS|FLAG_NOWEAPONS;
 				#if defined PLAYERMODEL_TRANSMIT_BUGGED
 					tmpmodelinfo.flags |= FLAG_HACKTHIRDPERSON;
 				#endif
 				}
 
-				kvModels.GetString("bodygroup", tmpstr1, sizeof(tmpstr1), "0");
+				kvModels.GetString("bodygroup", tmpstr1, sizeof(tmpstr1), "__unset");
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "bodygroup", tmpstr1, sizeof(tmpstr1), "0");
+				}
+
 				tmpmodelinfo.bodygroup = StringToInt(tmpstr1);
+
+				kvModels.GetString("skin", tmpstr1, sizeof(tmpstr1), "__unset");
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "skin", tmpstr1, sizeof(tmpstr1), "-1");
+				}
+
+				tmpmodelinfo.skin = StringToInt(tmpstr1);
 
 				kvModels.GetString("original_class", tmpstr1, sizeof(tmpstr1), "unknown");
 				tmpmodelinfo.orig_class = TF2_GetClass(tmpstr1);
@@ -270,20 +370,19 @@ public void OnPluginStart()
 
 				mapInfoIds.SetValue(tmpmodelinfo.name, idx);
 
-				kvModels.GetString("group", tmpstr1, sizeof(tmpstr1), "all");
-				if(!mapGroup.GetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr))) {
+				if(!mapGroup.GetArray(tmpgroup, tmpgroupinfo, sizeof(tmpgroupinfo))) {
 					for(int i = 1; i <= 9; ++i) {
-						tmpclassarr[i] = new ArrayList();
+						tmpgroupinfo.classarr[i] = new ArrayList();
 					}
-					mapGroup.SetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr));
+					mapGroup.SetArray(tmpgroup, tmpgroupinfo, sizeof(tmpgroupinfo));
 				}
 
 				if(tmpmodelinfo.class == TFClass_Any) {
 					for(int i = 1; i <= 9; ++i) {
-						tmpclassarr[i].Push(idx);
+						tmpgroupinfo.classarr[i].Push(idx);
 					}
 				} else {
-					tmpclassarr[tmpmodelinfo.class].Push(idx);
+					tmpgroupinfo.classarr[tmpmodelinfo.class].Push(idx);
 				}
 			} while(kvModels.GotoNextKey());
 
@@ -291,6 +390,7 @@ public void OnPluginStart()
 		}
 
 		delete kvModels;
+		delete kvGroups;
 	}
 
 	for(int i = 1; i <= MaxClients; ++i) {
@@ -320,6 +420,15 @@ void LoadCookies(int client, TFClassType class)
 			if(tmpmodelinfo.override[0] != '\0') {
 				if(!CheckCommandAccess(client, tmpmodelinfo.override, ADMFLAG_GENERIC)) {
 					valid = false;
+				}
+			}
+
+			char tmpauth[STEAMID_MAX];
+			if(tmpmodelinfo.steamid[0] != '\0') {
+				if(GetClientAuthId(client, AuthId_SteamID64, tmpauth, sizeof(tmpauth))) {
+					if(!StrEqual(tmpauth, tmpmodelinfo.steamid)) {
+						valid = false;
+					}
 				}
 			}
 
@@ -587,9 +696,70 @@ void OnPlayerPostThink(int client)
 	}
 }
 
+public void OnPluginEnd()
+{
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
+			ClearPlayerModel(i);
+		}
+	}
+}
+
+void TF2_HideWeaponSlot(int client, int slot, bool hide)
+{
+	int entity = GetPlayerWeaponSlot(client, slot);
+	if(entity != -1) {
+		SetEntityRenderMode(entity, hide ? RENDER_TRANSCOLOR : RENDER_NORMAL);
+		SetEntityRenderColor(entity, 255, 255, 255, hide ? 0 : 255);
+	}
+}
+
+void TF2_HideAllWeapons(int client, bool hide)
+{
+	for(int i = 0; i <= 5; i++)
+	{
+		TF2_HideWeaponSlot(client, i, hide);
+	}
+}
+
+void TF2_HideAllWearables(int client, bool hide)
+{
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1)
+	{
+		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+		if(owner == client) {
+			SetEntityRenderMode(entity, hide ? RENDER_TRANSCOLOR : RENDER_NORMAL);
+			SetEntityRenderColor(entity, 255, 255, 255, hide ? 0 : 255);
+		}
+	}
+}
+
+public void Playermodel_OnApplied(int client)
+{
+	if(playerinfo[client].flags & FLAG_NOWEAPONS) {
+		TF2_RemoveAllWeapons(client);
+		SetEntProp(client, Prop_Data, "m_bDrawViewmodel", 0);
+	} else if(playerinfo[client].flags & FLAG_HIDEWEAPONS) {
+		TF2_HideAllWeapons(client, true);
+	}
+
+	if(playerinfo[client].flags & FLAG_HIDEHATS) {
+		TF2_HideAllWearables(client, true);
+	}
+
+#if defined PLAYERMODEL_TRANSMIT_BUGGED
+	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
+		SetEntProp(client, Prop_Send, "m_nForceTauntCam", 1);
+	}
+#endif
+}
+
 void ClearPlayerModel(int client)
 {
 	bool hadnoweapons = !!(playerinfo[client].flags & FLAG_NOWEAPONS);
+	bool hadhideweapons = !!(playerinfo[client].flags & FLAG_HIDEWEAPONS);
+	bool hadhidehats = !!(playerinfo[client].flags & FLAG_HIDEHATS);
 
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
 	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
@@ -605,51 +775,20 @@ void ClearPlayerModel(int client)
 	if(hadnoweapons) {
 		TF2_RespawnPlayer(client);
 		SetEntProp(client, Prop_Data, "m_bDrawViewmodel", 1);
-	}
-}
-
-public void OnPluginEnd()
-{
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			ClearPlayerModel(i);
-		}
-	}
-}
-
-void TF2_RemoveAllWearables(int client)
-{
-	int entity = -1;
-	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1)
-	{
-		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
-		if(owner == client) {
-			TF2_RemoveWearable(client, entity);
-		}
-	}
-}
-
-public void Playermodel_OnApplied(int client)
-{
-	if(playerinfo[client].flags & FLAG_NOWEAPONS) {
-		TF2_RemoveAllWeapons(client);
-		SetEntProp(client, Prop_Data, "m_bDrawViewmodel", 0);
+	} else if(hadhideweapons) {
+		TF2_HideAllWeapons(client, false);
 	}
 
-	if(playerinfo[client].flags & FLAG_NOHATS) {
-		TF2_RemoveAllWearables(client);
+	if(hadhidehats) {
+		TF2_HideAllWearables(client, false);
 	}
-
-#if defined PLAYERMODEL_TRANSMIT_BUGGED
-	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
-		SetEntProp(client, Prop_Send, "m_nForceTauntCam", 1);
-	}
-#endif
 }
 
 void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 {
 	bool hadnoweapons = !!(playerinfo[client].flags & FLAG_NOWEAPONS);
+	bool hadhideweapons = !!(playerinfo[client].flags & FLAG_HIDEWEAPONS);
+	bool hadhidehats = !!(playerinfo[client].flags & FLAG_HIDEHATS);
 
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
 	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
@@ -666,19 +805,27 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 	if(hadnoweapons) {
 		TF2_RespawnPlayer(client);
 		SetEntProp(client, Prop_Data, "m_bDrawViewmodel", 1);
+	} else if(hadhideweapons) {
+		TF2_HideAllWeapons(client, false);
+	}
+
+	if(hadhidehats) {
+		TF2_HideAllWearables(client, false);
 	}
 
 	Playermodel_Clear(client);
 
 	PlayerModelType type = info.type;
-	if(type == PlayerModelBonemerge && class == info.orig_class) {
-		type = PlayerModelCustomModel;
-		PrintToServer("setcustommodel");
+	if(!(info.flags & FLAG_ALWAYSBONEMERGE)) {
+		if(type == PlayerModelBonemerge && class == info.orig_class) {
+			type = PlayerModelCustomModel;
+		}
 	}
 
 	int entity = PlayerModel_SetType(client, info.model, type, true);
 
-	SetEntProp(entity, Prop_Send, "m_nBody", info.bodygroup);
+	Playermodel_SetSkin(client, info.skin, true);
+	Playermodel_SetBodygroup(client, info.bodygroup, true);
 
 	if(info.anim[0] != '\0') {
 		Playermodel_SetAnimation(client, info.anim, true);
@@ -702,8 +849,8 @@ int MenuHandler_PlayerModel(Menu menu, MenuAction action, int param1, int param2
 
 			menu.GetTitle(tmpstr1, sizeof(tmpstr1));
 
-			if(mapGroup.GetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr))) {
-				DisplayModelMenu(tmpstr1, tmpclassarr[class], class, param1, menu.Selection);
+			if(mapGroup.GetArray(tmpstr1, tmpgroupinfo, sizeof(tmpgroupinfo))) {
+				DisplayModelMenu(tmpstr1, tmpgroupinfo.classarr[class], class, param1, menu.Selection);
 			}
 		}
 	} else if(action == MenuAction_Cancel) {
@@ -732,10 +879,10 @@ int MenuHandler_ModelGroup(Menu menu, MenuAction action, int param1, int param2)
 		} else {
 			menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
 
-			if(mapGroup.GetArray(tmpstr1, tmpclassarr, sizeof(tmpclassarr))) {
+			if(mapGroup.GetArray(tmpstr1, tmpgroupinfo, sizeof(tmpgroupinfo))) {
 				TFClassType class = TF2_GetPlayerClass(param1);
 				if(class != TFClass_Unknown) {
-					DisplayModelMenu(tmpstr1, tmpclassarr[class], class, param1);
+					DisplayModelMenu(tmpstr1, tmpgroupinfo.classarr[class], class, param1);
 				}
 			} else {
 				DisplayGroupMenu(param1);
@@ -764,6 +911,8 @@ void DisplayModelMenu(const char[] group, ArrayList arr, TFClassType class, int 
 
 	GetModelForClass(class, tmpstr2, sizeof(tmpstr2));
 
+	char tmpauth[STEAMID_MAX];
+
 	for(int i, len = arr.Length; i < len; ++i) {
 		int idx = arr.Get(i);
 
@@ -772,6 +921,14 @@ void DisplayModelMenu(const char[] group, ArrayList arr, TFClassType class, int 
 		if(tmpmodelinfo.override[0] != '\0') {
 			if(!CheckCommandAccess(client, tmpmodelinfo.override, ADMFLAG_GENERIC)) {
 				continue;
+			}
+		}
+
+		if(tmpmodelinfo.steamid[0] != '\0') {
+			if(GetClientAuthId(client, AuthId_SteamID64, tmpauth, sizeof(tmpauth))) {
+				if(!StrEqual(tmpauth, tmpmodelinfo.steamid)) {
+					continue;
+				}
 			}
 		}
 
@@ -814,8 +971,26 @@ void DisplayGroupMenu(int client)
 
 	StringMapSnapshot snapshot = mapGroup.Snapshot();
 
+	char tmpauth[STEAMID_MAX];
+
 	for(int i = 0, len = snapshot.Length; i < len; ++i) {
 		snapshot.GetKey(i, tmpstr1, sizeof(tmpstr1));
+
+		mapGroup.GetArray(tmpstr1, tmpgroupinfo, sizeof(tmpgroupinfo));
+
+		if(tmpgroupinfo.override[0] != '\0') {
+			if(!CheckCommandAccess(client, tmpgroupinfo.override, ADMFLAG_GENERIC)) {
+				continue;
+			}
+		}
+
+		if(tmpgroupinfo.steamid[0] != '\0') {
+			if(GetClientAuthId(client, AuthId_SteamID64, tmpauth, sizeof(tmpauth))) {
+				if(!StrEqual(tmpauth, tmpgroupinfo.steamid)) {
+					continue;
+				}
+			}
+		}
 
 		menu.AddItem(tmpstr1, tmpstr1);
 	}

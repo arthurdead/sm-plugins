@@ -17,7 +17,7 @@
 	//	//the class the model was originally made for
 	//	"original_class" "unknown"
 	//
-	//	//nohats,noweapons,nodmg
+	//	//hidehats|noweapons|hideweapons|nodmg|alwaysmerge
 	//	"flags" "nodmg"
 	//
 	//	//model
@@ -26,15 +26,21 @@
 	//	//model to steal animations from untested do not use
 	//	"animation" ""
 	//
+	//	//steamid64 required to use the model
+	//	"steamid" ""
+	//
 	//	//override required to use the model
 	//	"override" ""
 	//
 	//	//bodygroup to set on the model
 	//	"bodygroup" "0"
+	//
+	//	//skin to set on the model
+	//	"skin" "-1"
 	//}
 	//
 	// setting type to prop or setting animset to anything other than tf2
-	// already implies the flags nohats and noweapons
+	// already implies the flags hidehats and noweapons
 	//
 
 	"gman"
