@@ -5,6 +5,7 @@
 #include <tf2_stocks>
 #include <animhelpers>
 #include <playermodel>
+#include <playermodel_config>
 
 ArrayList arrModelInfos = null;
 StringMap mapGroup = null;
@@ -19,18 +20,26 @@ StringMap mapInfoIds = null;
 
 #define TFClass_Any (view_as<TFClassType>(-1))
 
+//TODO!!!! make both of these kv files
 enum AnimsetType
 {
 	animset_tf2,
 	animset_hl2,
 };
 
+enum GestureType
+{
+	gestures_none,
+	gestures_hl2rebel_male,
+	gestures_hl2rebel_female,
+	gestures_hl2gman,
+	gestures_hl2breen,
+};
+
 #define PLAYERMODEL_TRANSMIT_BUGGED
 
 #define FLAG_NOWEAPONS (1 << 0)
-#define FLAG_HIDEHATS (1 << 1)
 #define FLAG_NODMG (1 << 2)
-#define FLAG_HIDEWEAPONS (1 << 3)
 #define FLAG_ALWAYSBONEMERGE (1 << 4)
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
 #define FLAG_HACKTHIRDPERSON (1 << 5)
@@ -44,6 +53,7 @@ enum struct ConfigModelInfo
 	char override[OVERRIDE_MAX];
 	char steamid[STEAMID_MAX];
 	AnimsetType animset;
+	GestureType gestures;
 	TFClassType orig_class;
 	TFClassType class;
 	int flags;
@@ -98,6 +108,7 @@ enum struct PlayerInfo
 	int flags;
 	int id;
 	AnimsetType animset;
+	GestureType gestures;
 
 	void Init()
 	{
@@ -111,6 +122,7 @@ enum struct PlayerInfo
 		this.flags = 0;
 		this.id = -1;
 		this.animset = animset_tf2;
+		this.gestures = gestures_none;
 	}
 }
 
@@ -131,13 +143,13 @@ int FlagStrToFlags(const char[] str)
 
 	for(int i = 0; i < num; ++i) {
 		if(StrEqual(tmpflagstrs[i], "hidehats")) {
-			flags |= FLAG_HIDEHATS;
+			flags |= playermodel_hidehats;
 		} else if(StrEqual(tmpflagstrs[i], "noweapons")) {
 			flags |= FLAG_NOWEAPONS;
 		} else if(StrEqual(tmpflagstrs[i], "nodmg")) {
 			flags |= FLAG_NODMG;
 		} else if(StrEqual(tmpflagstrs[i], "hideweapons")) {
-			flags |= FLAG_HIDEWEAPONS;
+			flags |= playermodel_hideweapons;
 		} else if(StrEqual(tmpflagstrs[i], "alwaysmerge")) {
 			flags |= FLAG_ALWAYSBONEMERGE;
 		}
@@ -180,17 +192,40 @@ void FrameInventoryHats(int client)
 	TF2_HideAllWearables(client, true);
 }
 
+void OnSpawnEndTouch(int entity, int other)
+{
+	if(other < 1 || other > MaxClients) {
+		return;
+	}
+
+	if(playerinfo[other].flags & playermodel_hideweapons) {
+		RequestFrame(FrameInventoryHideWeapon, other);
+	}
+
+	if(playerinfo[other].flags & playermodel_hidehats) {
+		RequestFrame(FrameInventoryHats, other);
+	}
+}
+
+public void OnEntityCreated(int entity, const char[] classname)
+{
+	if(StrEqual(classname, "func_respawnroom"))
+	{
+		SDKHook(entity, SDKHook_EndTouch, OnSpawnEndTouch);
+	}
+}
+
 void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
 	if(playerinfo[client].flags & FLAG_NOWEAPONS) {
 		RequestFrame(FrameInventoryRemoveWeapon, client);
-	} else if(playerinfo[client].flags & FLAG_HIDEWEAPONS) {
+	} else if(playerinfo[client].flags & playermodel_hideweapons) {
 		RequestFrame(FrameInventoryHideWeapon, client);
 	}
 
-	if(playerinfo[client].flags & FLAG_HIDEHATS) {
+	if(playerinfo[client].flags & playermodel_hidehats) {
 		RequestFrame(FrameInventoryHats, client);
 	}
 }
@@ -214,9 +249,24 @@ void GetGroupString(KeyValues kvGroups, const char[] group, const char[] name, c
 	}
 }
 
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	RegPluginLibrary("playermodel_config");
+	CreateNative("Playermodel_GetFlags", Native_GetFlags);
+	return APLRes_Success;
+}
+
+int Native_GetFlags(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	return playerinfo[client].flags;
+}
+
 public void OnPluginStart()
 {
 	RegAdminCmd("sm_pm", ConCommand_PM, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_gt", ConCommand_GT, ADMFLAG_GENERIC);
 
 	HookEvent("post_inventory_application", post_inventory_application);
 
@@ -227,19 +277,20 @@ public void OnPluginStart()
 	mapGroup = new StringMap();
 
 	arrModelInfos = new ArrayList(sizeof(ModelInfo));
+	char tmpclass[64];
 	for(int i = 1; i <= 9; ++i) {
-		ClassToClassname(view_as<TFClassType>(i), tmpstr1, sizeof(tmpstr1));
-		Format(tmpstr1, sizeof(tmpstr1), "playermodel_%s", tmpstr1);
+		ClassToClassname(view_as<TFClassType>(i), tmpclass, sizeof(tmpclass));
+		Format(tmpstr1, sizeof(tmpstr1), "playermodel_v3_%s", tmpclass);
 		ClassCookies[i] = RegClientCookie(tmpstr1, "", CookieAccess_Private);
 	}
 
-	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels.txt");
+	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/models.txt");
 
 	if(FileExists(tmpstr2)) {
 		KeyValues kvModels = new KeyValues("Playermodels");
 		kvModels.ImportFromFile(tmpstr2);
 
-		BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels_groups.txt");
+		BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/groups.txt");
 		KeyValues kvGroups = new KeyValues("Playermodels_groups");
 		if(FileExists(tmpstr2)) {
 			kvGroups.ImportFromFile(tmpstr2);
@@ -280,6 +331,7 @@ public void OnPluginStart()
 				} else {
 					tmpmodelinfo.class = TF2_GetClass(tmpstr1);
 					if(tmpmodelinfo.class == TFClass_Unknown) {
+						PrintToServer("model %s has unknown class: %s", tmpmodelinfo.name, tmpstr1);
 						continue;
 					}
 				}
@@ -294,6 +346,27 @@ public void OnPluginStart()
 				} else if(StrEqual(tmpstr1, "tf2")) {
 					tmpmodelinfo.animset = animset_tf2;
 				} else {
+					PrintToServer("model %s has unknown animset: %s", tmpmodelinfo.name, tmpstr1);
+					continue;
+				}
+
+				kvModels.GetString("gestures", tmpstr1, sizeof(tmpstr1), "__unset");
+				if(StrEqual(tmpstr1, "__unset")) {
+					GetGroupString(kvGroups, tmpgroup, "gestures", tmpstr1, sizeof(tmpstr1), "none");
+				}
+
+				if(StrEqual(tmpstr1, "hl2_gman")) {
+					tmpmodelinfo.gestures = gestures_hl2gman;
+				} else if(StrEqual(tmpstr1, "hl2_rebel_male")) {
+					tmpmodelinfo.gestures = gestures_hl2rebel_male;
+				} else if(StrEqual(tmpstr1, "hl2_rebel_female")) {
+					tmpmodelinfo.gestures = gestures_hl2rebel_female;
+				} else if(StrEqual(tmpstr1, "hl2_breen")) {
+					tmpmodelinfo.gestures = gestures_hl2breen;
+				} else if(StrEqual(tmpstr1, "none")) {
+					tmpmodelinfo.gestures = gestures_none;
+				} else {
+					PrintToServer("model %s has unknown gestures: %s", tmpmodelinfo.name, tmpstr1);
 					continue;
 				}
 
@@ -309,6 +382,7 @@ public void OnPluginStart()
 				} else if(StrEqual(tmpstr1, "custom_model")) {
 					tmpmodelinfo.type = PlayerModelCustomModel;
 				} else {
+					PrintToServer("model %s has unknown type: %s", tmpmodelinfo.name, tmpstr1);
 					continue;
 				}
 
@@ -336,13 +410,20 @@ public void OnPluginStart()
 
 				tmpmodelinfo.flags = FlagStrToFlags(tmpstr1);
 
+				if(tmpmodelinfo.animset != animset_tf2) {
+					tmpmodelinfo.type = PlayerModelProp;
+				}
+
 				if(tmpmodelinfo.type == PlayerModelProp ||
 					tmpmodelinfo.animset != animset_tf2) {
-					tmpmodelinfo.flags |= FLAG_HIDEHATS|FLAG_NOWEAPONS;
-				#if defined PLAYERMODEL_TRANSMIT_BUGGED
-					tmpmodelinfo.flags |= FLAG_HACKTHIRDPERSON;
-				#endif
+					tmpmodelinfo.flags |= playermodel_hidehats|FLAG_NOWEAPONS;
 				}
+
+			#if defined PLAYERMODEL_TRANSMIT_BUGGED
+				if(tmpmodelinfo.type == PlayerModelProp) {
+					tmpmodelinfo.flags |= FLAG_HACKTHIRDPERSON;
+				}
+			#endif
 
 				kvModels.GetString("bodygroup", tmpstr1, sizeof(tmpstr1), "__unset");
 				if(StrEqual(tmpstr1, "__unset")) {
@@ -429,6 +510,8 @@ void LoadCookies(int client, TFClassType class)
 					if(!StrEqual(tmpauth, tmpmodelinfo.steamid)) {
 						valid = false;
 					}
+				} else {
+					valid = false;
 				}
 			}
 
@@ -597,7 +680,10 @@ void do_hl2animset(int client, int entity, AnimInfo anim, StringMap seqmap, Stri
 		if(!anim.m_bDidJustLand) {
 			if(anim.m_bCanAnimate) {
 				if((buttons & IN_ANYMOVEMENTKEY) && moving) {
-					int sequence = LookupSequence(seqmap, entity, "run_all_panicked");
+					int sequence = LookupSequence(seqmap, entity, "run_all");
+					if(buttons & IN_SPEED) {
+						sequence = LookupSequence(seqmap, entity, "walk_all_Moderate");
+					}
 					if(m_bDucked) {
 						sequence = LookupSequence(seqmap, entity, "Crouch_walk_all");
 					}
@@ -740,11 +826,11 @@ public void Playermodel_OnApplied(int client)
 	if(playerinfo[client].flags & FLAG_NOWEAPONS) {
 		TF2_RemoveAllWeapons(client);
 		SetEntProp(client, Prop_Data, "m_bDrawViewmodel", 0);
-	} else if(playerinfo[client].flags & FLAG_HIDEWEAPONS) {
+	} else if(playerinfo[client].flags & playermodel_hideweapons) {
 		TF2_HideAllWeapons(client, true);
 	}
 
-	if(playerinfo[client].flags & FLAG_HIDEHATS) {
+	if(playerinfo[client].flags & playermodel_hidehats) {
 		TF2_HideAllWearables(client, true);
 	}
 
@@ -758,8 +844,8 @@ public void Playermodel_OnApplied(int client)
 void ClearPlayerModel(int client)
 {
 	bool hadnoweapons = !!(playerinfo[client].flags & FLAG_NOWEAPONS);
-	bool hadhideweapons = !!(playerinfo[client].flags & FLAG_HIDEWEAPONS);
-	bool hadhidehats = !!(playerinfo[client].flags & FLAG_HIDEHATS);
+	bool hadhideweapons = !!(playerinfo[client].flags & playermodel_hideweapons);
+	bool hadhidehats = !!(playerinfo[client].flags & playermodel_hidehats);
 
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
 	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
@@ -787,8 +873,8 @@ void ClearPlayerModel(int client)
 void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 {
 	bool hadnoweapons = !!(playerinfo[client].flags & FLAG_NOWEAPONS);
-	bool hadhideweapons = !!(playerinfo[client].flags & FLAG_HIDEWEAPONS);
-	bool hadhidehats = !!(playerinfo[client].flags & FLAG_HIDEHATS);
+	bool hadhideweapons = !!(playerinfo[client].flags & playermodel_hideweapons);
+	bool hadhidehats = !!(playerinfo[client].flags & playermodel_hidehats);
 
 #if defined PLAYERMODEL_TRANSMIT_BUGGED
 	if(playerinfo[client].flags & FLAG_HACKTHIRDPERSON) {
@@ -798,18 +884,19 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 
 	playerinfo[client].flags = info.flags;
 	playerinfo[client].animset = info.animset;
+	playerinfo[client].gestures = info.gestures;
 	playerinfo[client].seqmap = info.sequences;
 	playerinfo[client].posemap = info.poseparameters;
 	playerinfo[client].id = id;
 
-	if(hadnoweapons) {
+	if(!(info.flags & FLAG_NOWEAPONS) && hadnoweapons) {
 		TF2_RespawnPlayer(client);
 		SetEntProp(client, Prop_Data, "m_bDrawViewmodel", 1);
-	} else if(hadhideweapons) {
+	} else if(!(info.flags & playermodel_hideweapons) && hadhideweapons) {
 		TF2_HideAllWeapons(client, false);
 	}
 
-	if(hadhidehats) {
+	if(!(info.flags & playermodel_hidehats) && hadhidehats) {
 		TF2_HideAllWearables(client, false);
 	}
 
@@ -825,7 +912,10 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 	int entity = PlayerModel_SetType(client, info.model, type, true);
 
 	Playermodel_SetSkin(client, info.skin, true);
+	Playermodel_SetSkin(client, info.skin);
+
 	Playermodel_SetBodygroup(client, info.bodygroup, true);
+	Playermodel_SetBodygroup(client, info.bodygroup);
 
 	if(info.anim[0] != '\0') {
 		Playermodel_SetAnimation(client, info.anim, true);
@@ -955,7 +1045,7 @@ void DisplayModelMenu(const char[] group, ArrayList arr, TFClassType class, int 
 	}
 }
 
-void DisplayGroupMenu(int client)
+void DisplayGroupMenu(int client, int item = -1)
 {
 	TFClassType class = TF2_GetPlayerClass(client);
 	if(class == TFClass_Unknown) {
@@ -997,7 +1087,103 @@ void DisplayGroupMenu(int client)
 
 	delete snapshot;
 
-	menu.Display(client, MENU_TIME_FOREVER);
+	if(item == -1) {
+		menu.Display(client, MENU_TIME_FOREVER);
+	} else {
+		menu.DisplayAt(client, item, MENU_TIME_FOREVER);
+	}
+}
+
+int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int param2)
+{
+	if(action == MenuAction_Select) {
+		int entity = Playermodel_GetEntity(param1);
+
+		menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
+		
+		if(entity != -1 && IsValidEntity(entity)) {
+			int sequence = LookupSequence(playerinfo[param1].seqmap, entity, tmpstr1);
+			if(sequence != -1) {
+				view_as<BaseAnimatingOverlay>(entity).AddGestureSequence1(sequence);
+			}
+		}
+
+		DiplayGesturesMenu(param1, menu.Selection);
+	} else if(action == MenuAction_End) {
+		delete menu;
+	}
+	
+	return 0;
+}
+
+void DiplayGesturesMenu(int client, int item = -1)
+{
+	if(playerinfo[client].gestures == gestures_none) {
+		return;
+	}
+
+	Handle style = GetMenuStyleHandle(MenuStyle_Default);
+
+	Menu menu = CreateMenuEx(style, MenuHandler_ModelGestures, MENU_ACTIONS_DEFAULT);
+	menu.SetTitle("Gestures");
+
+	switch(playerinfo[client].gestures) {
+		case gestures_hl2rebel_male: {
+			menu.AddItem("g_clap", "Clap");
+			menu.AddItem("g_wave", "Wave");
+			menu.AddItem("g_salute", "Salute");
+			menu.AddItem("g_shrug", "Shrug");
+			menu.AddItem("g_thumbsup", "Thumbs Up");
+			menu.AddItem("g_antman_stayback", "Stay back");
+			menu.AddItem("g_frustrated_point", "Point");
+			menu.AddItem("g_armsup", "Arms Up");
+		}
+		case gestures_hl2rebel_female: {
+			menu.AddItem("g_wave", "Wave");
+			menu.AddItem("G_puncuate", "Puncuate");
+			menu.AddItem("g_arlene_postidle_headup", "Head Up");
+			menu.AddItem("g_arrest_clench", "Clench");
+			menu.AddItem("g_Clutch_Chainlink_HandtoChest", "Hand To Chest");
+			menu.AddItem("g_display_left", "Display Left");
+			menu.AddItem("g_left_openhand", "Open Hand Left");
+			menu.AddItem("g_right_openhand", "Open Right Left");
+			menu.AddItem("holdhands", "Hold Hands");
+			menu.AddItem("urgenthandsweep", "Sweep Lower");
+			menu.AddItem("urgenthandsweepcrouch", "Sweep Upper");
+		}
+		case gestures_hl2gman: {
+			menu.AddItem("G_tiefidget", "Tie Fidget");
+			menu.AddItem("G_lefthand_punct", "Puncuate");
+		}
+		case gestures_hl2breen: {
+			menu.AddItem("B_g_waveoff", "Wave Off");
+			menu.AddItem("B_g_wave", "Wave");
+			menu.AddItem("B_g_upshrug", "Up Shrug");
+			menu.AddItem("B_g_shrug", "Shrug");
+			menu.AddItem("B_g_pray", "Pray");
+			menu.AddItem("B_g_palmsout", "Palms Out");
+			menu.AddItem("B_g_palmsup", "Palms Up");
+			menu.AddItem("B_g_chopout", "Chop Out");
+			menu.AddItem("B_g_rthd_chopdwn", "Chop Down");
+			menu.AddItem("B_g_rthd_tohead", "To Head");
+			menu.AddItem("B_g_sweepout", "Sweep Out");
+			menu.AddItem("B_gesture01", "Hands Out");
+			menu.AddItem("B_gesture02", "Palm Point");
+		}
+	}
+
+	if(item == -1) {
+		menu.Display(client, MENU_TIME_FOREVER);
+	} else {
+		menu.DisplayAt(client, item, MENU_TIME_FOREVER);
+	}
+}
+
+Action ConCommand_GT(int client, int args)
+{
+	//DiplayGesturesMenu(client);
+
+	return Plugin_Handled;
 }
 
 Action ConCommand_PM(int client, int args)

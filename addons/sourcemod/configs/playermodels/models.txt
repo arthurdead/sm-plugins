@@ -36,25 +36,34 @@
 	//	"bodygroup" "0"
 	//
 	//	//skin to set on the model
+	//	//(TF2) if the type is bonemerge this actually sets the team number
 	//	"skin" "-1"
 	//}
 	//
+	// setting animset to anything other than tf2 implies type prop
 	// setting type to prop or setting animset to anything other than tf2
 	// already implies the flags hidehats and noweapons
 	//
 
 	"gman"
 	{
-		"type" "prop"
-		"animset" "hl2"
 		"model" "models/gman.mdl"
 		"bodygroup" "1"
 		"group" "hl2"
 	}
 
+	"merasmus"
+	{
+		"flags" "alwaysmerge|hidehats|hideweapons"
+		"original_class" "sniper"
+		"model" "models/bots/merasmus/merasmus.mdl"
+		"group" "classmodel"
+		"bodygroup" "8"
+		"skin" "2"
+	}
+
 	"spy"
 	{
-		"type" "bonemerge"
 		"original_class" "spy"
 		"model" "models/player/spy.mdl"
 		"group" "classmodel"
@@ -62,7 +71,6 @@
 
 	"heavy"
 	{
-		"type" "bonemerge"
 		"original_class" "heavy"
 		"model" "models/player/heavy.mdl"
 		"group" "classmodel"
@@ -70,7 +78,6 @@
 
 	"big smoke"
 	{
-		"type" "bonemerge"
 		"original_class" "heavy"
 		"model" "models/player/bigsmoke/smoke.mdl"
 		"group" "custom"
@@ -78,7 +85,6 @@
 
 	"goose"
 	{
-		"type" "bonemerge"
 		"original_class" "sniper"
 		"model" "models/dfs/thataveragejoe/goose/goose.mdl"
 		"group" "custom"
@@ -86,7 +92,6 @@
 
 	"hl1 sci"
 	{
-		"type" "bonemerge"
 		"original_class" "spy"
 		"model" "models/dfs/thataveragejoe/halflife/scientist.mdl"
 		"group" "half life 1"

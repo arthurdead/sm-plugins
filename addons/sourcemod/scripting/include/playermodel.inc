@@ -29,7 +29,8 @@
 	#define BODYGROUP_SNIPER_HAT (1 << 1)
 	#define BODYGROUP_SNIPER_BULLETS (1 << 2)
 	#define BODYGROUP_SPY_MASK (1 << 0)
-	#define BODYGROUP_MERASMUS_STAFF (1 << 1)
+	#define BODYGROUP_MERASMUS_BOOK (1 << 1)
+	#define BODYGROUP_MERASMUS_STAFF (1 << 3)
 #endif
 
 enum PlayerModelType
@@ -46,15 +47,21 @@ native void Playermodel_Clear(int client, bool def=false);
 native void Playermodel_GetModel(int client, char[] model, int length, bool def=false);
 native void Playermodel_GetAnimation(int client, char[] model, int length, bool def=false);
 native int Playermodel_GetEntity(int client);
+native int Playermodel_GetLink(int client);
 native int Playermodel_SetAnimation(int client, const char[] model, bool def=false);
 native PlayerModelType Playermodel_GetType(int client, bool def=false);
 native int PlayerModel_SetType(int client, const char[] model, PlayerModelType type, bool def=false);
 
 native int Playermodel_GetSkin(int client, bool def=false);
+//(TF2) if the type is bonemerge this actually sets the team number
 native void Playermodel_SetSkin(int client, int skin, bool def=false);
 
 native int Playermodel_GetBodygroup(int client, bool def=false);
 native void Playermodel_SetBodygroup(int client, int body, bool def=false);
+
+//r == 0, g == 1, b == 2, a == 3, all = 4
+native void Playermodel_RemoveColor(int client, int which);
+native void Playermodel_SetColor(int client, int r = -1, int g = -1, int b = -1, int a = -1);
 
 stock bool Playermodel_IsSet(int client, bool def=false)
 {

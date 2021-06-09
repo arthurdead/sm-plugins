@@ -148,6 +148,12 @@ Action sm_rsay(int client, int args)
 	ReplaceString(msg, sizeof(msg), "\\n", "\n");
 	ReplaceString(msg, sizeof(msg), "\\t", "\t");
 
+	//TODO!!! insert \n
+	/*int len = strlen(msg);
+	if(len > TRAINING_MSG_MAX_WIDTH) {
+		int num = RoundToCeil(float(len) / float(TRAINING_MSG_MAX_WIDTH));
+	}*/
+
 	char title[64];
 	Format(title, sizeof(title), "%N", client);
 

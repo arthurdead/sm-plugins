@@ -90,6 +90,11 @@ enum struct PlayerModelInfo
 	int body;
 	int body_default;
 
+	int r;
+	int g;
+	int b;
+	int a;
+
 	PlayerModelType tmp_type;
 
 #if !defined GAME_TF2
@@ -196,6 +201,11 @@ enum struct PlayerModelInfo
 		this.body = -1;
 		this.type = PlayerModelDefault;
 
+		this.r = -1;
+		this.g = -1;
+		this.b = -1;
+		this.a = -1;
+
 		this.tmp_type = PlayerModelInvalid;
 
 	#if !defined GAME_TF2
@@ -260,7 +270,7 @@ enum struct PlayerModelInfo
 			if(prop) {
 			#if defined GAME_TF2
 				if(this.type == PlayerModelBonemerge) {
-					SetEntProp(this.entity, Prop_Send, "m_nSkin", this.skin);
+					SetEntProp(this.entity, Prop_Send, "m_iTeamNum", this.skin);
 				} else
 			#endif
 				{
@@ -271,7 +281,14 @@ enum struct PlayerModelInfo
 			}
 		} else {
 			if(prop) {
-				SetEntProp(this.entity, Prop_Send, "m_nSkin", 0);
+			#if defined GAME_TF2
+				if(this.type == PlayerModelBonemerge) {
+					SetEntProp(this.entity, Prop_Send, "m_iTeamNum", GetClientTeam(this.owner));
+				} else
+			#endif
+				{
+					SetEntProp(this.entity, Prop_Send, "m_nSkin", 0);
+				}
 			} else {
 				this.SetCustomSkin(-1);
 			}
@@ -314,15 +331,12 @@ enum struct PlayerModelInfo
 			DispatchKeyValue(this.link, "model", tmp);
 			DispatchSpawn(this.link);
 
-			SetEntPropString(this.link, Prop_Data, "m_iClassname", "playermodel_link");
-
 			SetEntityModel(this.link, tmp);
 
 			SetVariantString("!activator");
 			AcceptEntityInput(this.link, "SetParent", this.owner);
 
-			//|EF_NOSHADOW|EF_NORECEIVESHADOW
-			SetEntProp(this.link, Prop_Send, "m_fEffects", EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+			SetEntProp(this.link, Prop_Send, "m_fEffects", EF_NOSHADOW|EF_NORECEIVESHADOW|EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
 		} else
 	#endif
 		{
@@ -389,7 +403,7 @@ enum struct PlayerModelInfo
 					#if defined GAME_L4D2
 						this.entity = CreateEntityByName("commentary_dummy");
 					#else
-						this.entity = CreateEntityByName("prop_dynamic_override");
+						this.entity = CreateEntityByName("funCBaseFlex");
 					#endif
 					}
 
@@ -401,7 +415,11 @@ enum struct PlayerModelInfo
 						DispatchSpawn(this.entity);
 					}
 
-					SetEntPropString(this.entity, Prop_Data, "m_iClassname", "playermodel");
+				#if defined GAME_TF2
+					if(this.type == PlayerModelBonemerge) {
+						SetEntPropString(this.entity, Prop_Data, "m_iClassname", "playermodel_wearable");
+					}
+				#endif
 
 					SetEntPropFloat(this.entity, Prop_Send, "m_flPlaybackRate", 1.0);
 
@@ -550,6 +568,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Playermodel_GetModel", Native_GetModel);
 	CreateNative("Playermodel_GetAnimation", Native_GetAnimation);
 	CreateNative("Playermodel_GetEntity", Native_GetEntity);
+	CreateNative("Playermodel_GetLink", Native_GetLink);
 	CreateNative("Playermodel_SetAnimation", Native_SetAnimation);
 	CreateNative("Playermodel_GetType", Native_GetType);
 	CreateNative("PlayerModel_SetType", Native_SetType);
@@ -557,8 +576,58 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Playermodel_SetSkin", Native_SetSkin);
 	CreateNative("Playermodel_GetBodygroup", Native_GetBodygroup);
 	CreateNative("Playermodel_SetBodygroup", Native_SetBodygroup);
+	CreateNative("Playermodel_RemoveColor", Native_RemoveColor);
+	CreateNative("Playermodel_SetColor", Native_SetColor);
 	OnApplied = new GlobalForward("Playermodel_OnApplied", ET_Ignore, Param_Cell);
 	return APLRes_Success;
+}
+
+int Native_RemoveColor(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	int which = GetNativeCell(2);
+	switch(which) {
+		case 0: { g_PlayersModelInfo[client].r = -1; }
+		case 1: { g_PlayersModelInfo[client].g = -1; }
+		case 2: { g_PlayersModelInfo[client].b = -1; }
+		case 3: { g_PlayersModelInfo[client].a = -1; }
+		case 4: {
+			g_PlayersModelInfo[client].r = -1;
+			g_PlayersModelInfo[client].g = -1;
+			g_PlayersModelInfo[client].b = -1;
+			g_PlayersModelInfo[client].a = -1;
+		}
+	}
+	
+	return 0;
+}
+
+int Native_SetColor(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+	
+	int r = GetNativeCell(2);
+	if(r != -1) {
+		g_PlayersModelInfo[client].r = r;
+	}
+
+	int g = GetNativeCell(3);
+	if(g != -1) {
+		g_PlayersModelInfo[client].g = g;
+	}
+
+	int b = GetNativeCell(4);
+	if(b != -1) {
+		g_PlayersModelInfo[client].b = b;
+	}
+
+	int a = GetNativeCell(5);
+	if(a != -1) {
+		g_PlayersModelInfo[client].a = a;
+	}
+
+	return 0;
 }
 
 int Native_GetBodygroup(Handle plugin, int params)
@@ -614,6 +683,13 @@ int Native_GetEntity(Handle plugin, int params)
 	int client = GetNativeCell(1);
 
 	return g_PlayersModelInfo[client].entity;
+}
+
+int Native_GetLink(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	return g_PlayersModelInfo[client].link;
 }
 
 int Native_GetAnimation(Handle plugin, int params)
@@ -797,20 +873,43 @@ void OnPlayerPostThink(int client)
 		return;
 	}
 
+	int a = g_PlayersModelInfo[client].a;
+	if(a == -1) {
+		a = 255;
+	}
+
 #if defined GAME_TF2
 	if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
 		float invis = GetEntDataFloat(client, m_flInvisibilityOffset);
-		invis = 1.0 - invis;
-		int alpha = RoundToFloor(255 * invis);
-		if(alpha < 0) {
-			alpha = 0;
+		if(invis > 0.0) {
+			invis = 1.0 - invis;
+			a = RoundToFloor(255 * invis);
+			if(a < 0) {
+				a = 0;
+			}
+			if(a > 255) {
+				a = 255;
+			}
 		}
-		if(alpha > 255) {
-			alpha = 255;
-		}
-		SetEntityRenderColor(g_PlayersModelInfo[client].entity, 255, 255, 255, alpha);
 	}
 #endif
+
+	int r = g_PlayersModelInfo[client].r;
+	if(r == -1) {
+		r = 255;
+	}
+
+	int g = g_PlayersModelInfo[client].g;
+	if(g == -1) {
+		g = 255;
+	}
+
+	int b = g_PlayersModelInfo[client].b;
+	if(b == -1) {
+		b = 255;
+	}
+
+	SetEntityRenderColor(g_PlayersModelInfo[client].entity, r, g, b, a);
 }
 
 #if defined GAME_TF2

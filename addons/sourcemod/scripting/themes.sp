@@ -29,7 +29,8 @@
 #include <morecolors>
 
 #undef REQUIRE_EXTENSIONS
-#include <system2>
+#tryinclude <system2>
+#tryinclude <bzip2>
 
 /* PREPROCESSOR ***************************************************************/
 #pragma semicolon 1
@@ -179,6 +180,7 @@ enum struct FishInfo
 ArrayList fishes = null;
 
 bool bSystem2 = false;
+bool bBZip2 = false;
 	
 /* PLUGIN *********************************************************************/
 public Plugin myinfo =
@@ -197,6 +199,11 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 		bSystem2 = true;
 	}
 
+	if(LibraryExists("bzip2") ||
+		GetExtensionFileStatus("smbz2.ext") == 1) {
+		bBZip2 = true;
+	}
+
 	return APLRes_Success;
 }
 
@@ -204,6 +211,8 @@ public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "system2")) {
 		bSystem2 = true;
+	} else if(StrEqual(name, "bzip2")) {
+		bBZip2 = true;
 	}
 }
 
@@ -211,6 +220,8 @@ public void OnLibraryRemoved(const char[] name)
 {
 	if(StrEqual(name, "system2")) {
 		bSystem2 = false;
+	} else if(StrEqual(name, "bzip2")) {
+		bBZip2 = false;
 	}
 }
 
@@ -225,6 +236,7 @@ ConVar cvUrl = null;
 ConVar cvEstimateMethod = null;
 ConVar cvDefaultThemeset = null;
 ConVar cvBZ2CopyFolder = null;
+ConVar cvParticleLimit = null;
 
 void ClampCompression(ConVar convar, const char[] oldValue, const char[] newValue)
 {
@@ -264,7 +276,7 @@ public void OnPluginStart()
 	cvNextTheme = 	 CreateConVar("sm_themes_next_theme", "", "Forces the next map to use the given theme");
 	cvAnnounce =     CreateConVar("sm_themes_announce", "1", "Whether or not to announce the current theme");
 	cvParticles =    CreateConVar("sm_themes_particles", "1", "Enables or disables custom particles for themes");
-	cvWind	    =    CreateConVar("sm_themes_wind", "0");
+	cvWind	    =    CreateConVar("sm_themes_wind", "1");
 	cvWindTimer	  =  CreateConVar("sm_themes_wind_timer", "0.2");
 
 	cvManifests = CreateConVar("sm_themes_create_manifests", "1");
@@ -278,6 +290,7 @@ public void OnPluginStart()
 	cvEstimateMethod = CreateConVar("sm_themes_region_method", "0", "0 == entities, 1 == m_WorldMaxs/Mins");
 	cvDefaultThemeset = CreateConVar("sm_themes_default_themeset", "standard");
 	cvBZ2CopyFolder = CreateConVar("sm_themes_bz2_folder", "");
+	cvParticleLimit = CreateConVar("sm_themes_particle_limit", "64");
 
 	RegAdminCmd("sm_themes_reload", ConCommand_ReloadTheme, ADMFLAG_GENERIC);
 
@@ -1095,6 +1108,7 @@ void UpdateDownloadsTable()
 	}
 }
 
+#if defined _system2_included
 void OnMapManifestFTP(bool success, const char[] error, System2FTPRequest request, System2FTPResponse response)
 {
 	if(success) {
@@ -1119,7 +1133,7 @@ void OnCopyMapBZ2(bool success, const char[] from, const char[] to)
 	}
 }
 
-void OnCompressMapParticles(bool success, const char[] command, System2ExecuteOutput output, DataPack data)
+void OnCompressMapParticles(DataPack data, bool success)
 {
 	data.Reset();
 
@@ -1161,6 +1175,20 @@ void OnCompressMapParticles(bool success, const char[] command, System2ExecuteOu
 	}
 }
 
+void OnCompressMapParticlesSystem2(bool success, const char[] command, System2ExecuteOutput output, DataPack data)
+{
+	OnCompressMapParticles(data, success);
+}
+
+#if defined _bzip2_included
+void OnCompressMapParticlesBZip2(BZ_Error iError, char[] inFile, char[] outFile, DataPack data)
+{
+	bool success = (iError == BZ_OK);
+
+	OnCompressMapParticles(data, success);
+}
+#endif
+
 void OnCopyMapTemplate(bool success, const char[] from, const char[] to)
 {
 	if(success) {
@@ -1185,14 +1213,21 @@ void OnCopyMapTemplate(bool success, const char[] from, const char[] to)
 			data.WriteCell(strlen(bz2)+1);
 			data.WriteString(bz2);
 
-			if(!System2_Compress(OnCompressMapParticles, to, bz2, ARCHIVE_BZIP2, compress, data)) {
-				LogMessage("Error: Could not compress particle manifest: %s", to);
+		#if defined _bzip2_included
+			if(!bBZip2 || !BZ2_CompressFile(to, bz2, view_as<int>(compress), OnCompressMapParticlesBZip2, data)) {
+		#endif
+				if(!System2_Compress(OnCompressMapParticlesSystem2, to, bz2, ARCHIVE_BZIP2, compress, data)) {
+					LogMessage("Error: Could not compress particle manifest: %s", to);
+				}
+		#if defined _bzip2_included
 			}
+		#endif
 		}
 	} else {
 		LogMessage("Error: Could not copy particle template to: %s", to);
 	}
 }
+#endif
 
 void HandleMapParticleManifest(const char[] mapname)
 {
@@ -1200,6 +1235,7 @@ void HandleMapParticleManifest(const char[] mapname)
 	Format(file, sizeof(file), "maps/%s_particles.txt", mapname);
 
 	if(!FileExists(file, true)) {
+	#if defined _system2_included
 		if(cvManifests.BoolValue && bSystem2) {
 			LogMessage("Warning: Particles file does not exist: %s, creating a new one", file);
 
@@ -1207,7 +1243,9 @@ void HandleMapParticleManifest(const char[] mapname)
 			BuildPath(Path_SM, template, sizeof(template), "data/themes/particles_template.txt");
 
 			System2_CopyFile(OnCopyMapTemplate, template, file);
-		} else {
+		} else
+	#endif
+		{
 			LogMessage("Error: Particles file does not exist: %s", file);
 		}
 	} else {
@@ -1681,6 +1719,9 @@ void CreateParticles()
 		ox = (((RoundToFloor(w/1024.0) + 1) * 1024.0) - w)/2;
 		oy = (((RoundToFloor(h/1024.0) + 1) * 1024.0) - h)/2;
 		
+		bool hit_limit = false;
+		int limit = cvParticleLimit.IntValue;
+
 		for (x = 0; x < nx; x++) {
 			for (y = 0; y < ny; y++) {
 				float pos[3];
@@ -1710,10 +1751,17 @@ void CreateParticles()
 				
 				num++;
 				
-				if (num > 64) {
-					LogMessage("Error: Too many particles!");
-					return;
+				if(limit != -1) {
+					if (num > limit) {
+						LogMessage("Error: Too many particles!");
+						hit_limit = true;
+						break;
+					}
 				}
+			}
+
+			if(hit_limit) {
+				break;
 			}
 		}
 		

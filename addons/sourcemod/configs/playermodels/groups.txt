@@ -1,0 +1,26 @@
+"Playermodels_groups"
+{
+	"hl2"
+	{
+		"flags" "noweapons|hidehats"
+		"animset" "hl2"
+		"steamid" "127391739812"
+	}
+
+	"classmodel"
+	{
+		"type" "bonemerge"
+	}
+
+	"custom"
+	{
+		"type" "bonemerge"
+		"override" "models_vip"
+	}
+
+	"half life 1"
+	{
+		"type" "bonemerge"
+		"override" "models_admin"
+	}
+}
