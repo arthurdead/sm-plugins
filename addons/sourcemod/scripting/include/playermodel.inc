@@ -46,10 +46,13 @@ forward void Playermodel_OnApplied(int client);
 native void Playermodel_Clear(int client, bool def=false);
 native void Playermodel_GetModel(int client, char[] model, int length, bool def=false);
 native void Playermodel_GetAnimation(int client, char[] model, int length, bool def=false);
+//returns entref
 native int Playermodel_GetEntity(int client);
+//returns entref
 native int Playermodel_GetLink(int client);
 native int Playermodel_SetAnimation(int client, const char[] model, bool def=false);
 native PlayerModelType Playermodel_GetType(int client, bool def=false);
+//returns entref
 native int PlayerModel_SetType(int client, const char[] model, PlayerModelType type, bool def=false);
 
 native int Playermodel_GetSkin(int client, bool def=false);

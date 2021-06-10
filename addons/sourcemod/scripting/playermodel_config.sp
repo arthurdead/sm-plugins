@@ -789,8 +789,9 @@ void OnPlayerPostThink(int client)
 		return;
 	}
 
-	int entity = Playermodel_GetEntity(client);
-	if(entity == -1) {
+	int ref = Playermodel_GetEntity(client);
+	int entity = EntRefToEntIndex(ref);
+	if(!IsValidEntity(entity)) {
 		return;
 	}
 
@@ -932,7 +933,7 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 		}
 	}
 
-	int entity = PlayerModel_SetType(client, info.model, type, true);
+	PlayerModel_SetType(client, info.model, type, true);
 
 	Playermodel_SetSkin(client, info.skin, true);
 	Playermodel_SetSkin(client, info.skin);
@@ -1120,7 +1121,8 @@ void DisplayGroupMenu(int client, int item = -1)
 int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
-		int entity = Playermodel_GetEntity(param1);
+		int ref = Playermodel_GetEntity(param1);
+		int entity = EntRefToEntIndex(ref);
 
 		menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
 		

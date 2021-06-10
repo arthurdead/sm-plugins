@@ -146,15 +146,17 @@ enum struct PlayerModelInfo
 
 	void __InternalDeleteEntity(bool prop)
 	{
+		int entity = EntRefToEntIndex(this.entity);
+
 		if(prop) {
-			if(IsValidEntity(this.entity)) {
+			if(IsValidEntity(entity)) {
 			#if defined GAME_TF2
 				if(this.type == PlayerModelBonemerge) {
-					TF2_RemoveWearable(this.owner, this.entity);
+					TF2_RemoveWearable(this.owner, entity);
 				} else
 			#endif
 				{
-					RemoveEntity(this.entity);
+					RemoveEntity(entity);
 				}
 			}
 			this.DeleteLink();
@@ -186,7 +188,6 @@ enum struct PlayerModelInfo
 	{
 		this.DeleteEntity();
 
-		this.owner = INVALID_ENT_REFERENCE;
 		this.link = INVALID_ENT_REFERENCE;
 		this.entity = INVALID_ENT_REFERENCE;
 		this.SetModel("");
@@ -203,10 +204,22 @@ enum struct PlayerModelInfo
 	#endif
 	}
 
-	void ClearDisconnect()
+	void __InternalClearAllVars()
 	{
 		this.ClearDefault();
 		this.ClearDeath();
+	}
+
+	void ClearDisconnect()
+	{
+		this.__InternalClearAllVars();
+		this.owner = INVALID_ENT_REFERENCE;
+	}
+
+	void Init(int client)
+	{
+		this.__InternalClearAllVars();
+		this.owner = client;
 	}
 
 	void DeleteEntity()
@@ -255,15 +268,17 @@ enum struct PlayerModelInfo
 	{
 		this.CheckForDefault();
 
+		int entity = EntRefToEntIndex(this.entity);
+
 		if(this.skin != -1) {
 			if(prop) {
 			#if defined GAME_TF2
 				if(this.type == PlayerModelBonemerge) {
-					SetEntProp(this.entity, Prop_Send, "m_iTeamNum", this.skin);
+					SetEntProp(entity, Prop_Send, "m_iTeamNum", this.skin);
 				} else
 			#endif
 				{
-					SetEntProp(this.entity, Prop_Send, "m_nSkin", this.skin);
+					SetEntProp(entity, Prop_Send, "m_nSkin", this.skin);
 				}
 			} else {
 				this.SetCustomSkin(this.skin);
@@ -272,11 +287,11 @@ enum struct PlayerModelInfo
 			if(prop) {
 			#if defined GAME_TF2
 				if(this.type == PlayerModelBonemerge) {
-					SetEntProp(this.entity, Prop_Send, "m_iTeamNum", GetClientTeam(this.owner));
+					SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(this.owner));
 				} else
 			#endif
 				{
-					SetEntProp(this.entity, Prop_Send, "m_nSkin", 0);
+					SetEntProp(entity, Prop_Send, "m_nSkin", 0);
 				}
 			} else {
 				this.SetCustomSkin(-1);
@@ -288,18 +303,21 @@ enum struct PlayerModelInfo
 	{
 		this.CheckForDefault();
 
+		int entity = EntRefToEntIndex(this.entity);
+
 		if(this.body != -1) {
-			SetEntProp(this.entity, Prop_Send, "m_nBody", this.body);
+			SetEntProp(entity, Prop_Send, "m_nBody", this.body);
 		} else {
-			SetEntProp(this.entity, Prop_Send, "m_nBody", 0);
+			SetEntProp(entity, Prop_Send, "m_nBody", 0);
 		}
 	}
 
 	void DeleteLink()
 	{
 	#if defined GAME_TF2
-		if(this.link != this.owner && IsValidEntity(this.link)) {
-			RemoveEntity(this.link);
+		int entity = EntRefToEntIndex(this.link);
+		if(entity != this.owner && IsValidEntity(entity)) {
+			RemoveEntity(entity);
 		}
 	#endif
 		this.link = INVALID_ENT_REFERENCE;
@@ -311,25 +329,28 @@ enum struct PlayerModelInfo
 		if(this.type == PlayerModelProp) {
 			this.DeleteLink();
 
-			this.link = CreateEntityByName("prop_dynamic_override");
+			int entity = CreateEntityByName("prop_dynamic_override");
 
 			char tmp[PLATFORM_MAX_PATH];
 			TFClassType class = TF2_GetPlayerClass(this.owner);
 			GetModelForClass(class, tmp, sizeof(tmp));
 
-			DispatchKeyValue(this.link, "model", tmp);
-			DispatchSpawn(this.link);
+			DispatchKeyValue(entity, "model", tmp);
+			DispatchSpawn(entity);
 
-			SetEntityModel(this.link, tmp);
+			SetEntityModel(entity, tmp);
 
 			SetVariantString("!activator");
-			AcceptEntityInput(this.link, "SetParent", this.owner);
+			AcceptEntityInput(entity, "SetParent", this.owner);
 
-			SetEntProp(this.link, Prop_Send, "m_fEffects", EF_NOSHADOW|EF_NORECEIVESHADOW|EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+			int flags = EF_NOSHADOW|EF_NORECEIVESHADOW|EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
+			SetEntProp(entity, Prop_Send, "m_fEffects", flags);
+
+			this.link = EntIndexToEntRef(entity);
 		} else
 	#endif
 		{
-			this.link = this.owner;
+			this.link = EntIndexToEntRef(this.owner);
 		}
 		return this.link;
 	}
@@ -347,7 +368,7 @@ enum struct PlayerModelInfo
 				GetModelForClass(TF2_GetPlayerClass(client), currmodel, sizeof(currmodel));
 			}
 		#else
-			GetEntPropString(entity, Prop_Data, "m_ModelName", currmodel, sizeof(currmodel));
+			GetEntPropString(client, Prop_Data, "m_ModelName", currmodel, sizeof(currmodel));
 		#endif
 
 			if(!StrEqual(this.animation, currmodel)) {
@@ -369,63 +390,67 @@ enum struct PlayerModelInfo
 		{
 			case PlayerModelCustomModel, PlayerModelDefault:
 			{
-				this.entity = this.owner;
+				this.entity = EntIndexToEntRef(this.owner);
 
 				if(this.type == PlayerModelCustomModel) {
 					this.SetCustomModel(this.model);
 				}
 
-				SetEntityRenderMode(this.owner, RENDER_NORMAL);
+				SetEntityRenderMode(client, RENDER_NORMAL);
 			}
 			case PlayerModelProp, PlayerModelBonemerge:
 			{
-				if((this.entity != this.owner) && IsValidEntity(this.entity)) {
-					SetEntityModel(this.entity, this.model);
+				int entity = EntRefToEntIndex(this.entity);
+
+				if((entity != client) && IsValidEntity(entity)) {
+					SetEntityModel(entity, this.model);
 				} else {
 				#if defined GAME_TF2
 					if(this.type == PlayerModelBonemerge) {
-						this.entity = TF2Items_GiveNamedItem(this.owner, hDummyItemView);
+						entity = TF2Items_GiveNamedItem(client, hDummyItemView);
 					} else
 				#endif
 					{
 					#if defined GAME_L4D2
-						this.entity = CreateEntityByName("commentary_dummy");
+						entity = CreateEntityByName("commentary_dummy");
 					#else
-						this.entity = CreateEntityByName("funCBaseFlex");
+						entity = CreateEntityByName("funCBaseFlex");
 					#endif
 					}
 
-					DispatchKeyValue(this.entity, "model", this.model);
+					DispatchKeyValue(entity, "model", this.model);
 				#if defined GAME_TF2
 					if(this.type != PlayerModelBonemerge)
 				#endif
 					{
-						DispatchSpawn(this.entity);
+						DispatchSpawn(entity);
 					}
 
 				#if defined GAME_TF2
 					if(this.type == PlayerModelBonemerge) {
-						SetEntPropString(this.entity, Prop_Data, "m_iClassname", "playermodel_wearable");
+						SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable");
 					}
 				#endif
 
-					SetEntPropFloat(this.entity, Prop_Send, "m_flPlaybackRate", 1.0);
+					SetEntPropFloat(entity, Prop_Send, "m_flPlaybackRate", 1.0);
 
-					int effects = GetEntProp(this.entity, Prop_Send, "m_fEffects");
+					int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
 					if(this.type == PlayerModelBonemerge) {
 						effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL;
 					}
 					effects |= EF_PARENT_ANIMATES;
 					effects &= ~(EF_NOSHADOW|EF_NORECEIVESHADOW);
-					SetEntProp(this.entity, Prop_Send, "m_fEffects", effects);
+					SetEntProp(entity, Prop_Send, "m_fEffects", effects);
 
 					this.CreateLink();
 
-					SetVariantString("!activator");
-					AcceptEntityInput(this.entity, "SetParent", this.link);
+					int link = EntRefToEntIndex(this.link);
 
-					SetEntityRenderMode(this.entity, RENDER_TRANSCOLOR);
-					SetEntityRenderColor(this.entity, 255, 255, 255, 255);
+					SetVariantString("!activator");
+					AcceptEntityInput(entity, "SetParent", link);
+
+					SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+					SetEntityRenderColor(entity, 255, 255, 255, 255);
 
 				#if defined GAME_TF2
 					if(this.type != PlayerModelBonemerge) {
@@ -435,27 +460,29 @@ enum struct PlayerModelInfo
 
 				#if defined GAME_TF2
 					if(this.type == PlayerModelBonemerge) {
-						SDKCall(hEquipWearable, this.owner, this.entity);
+						SDKCall(hEquipWearable, client, entity);
 					} else
 				#endif
 					{
-						SetEntProp(this.entity, Prop_Send, "m_bClientSideAnimation", 0);
-						SetEntProp(this.entity, Prop_Send, "m_bClientSideFrameReset", 0);
+						SetEntProp(entity, Prop_Send, "m_bClientSideAnimation", 0);
+						SetEntProp(entity, Prop_Send, "m_bClientSideFrameReset", 0);
 					}
 
 				#if defined GAME_TF2
 					if(this.type == PlayerModelBonemerge) {
-						SetEntProp(this.entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
+						SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
 					}
 				#endif
 
-					SetEntPropEnt(this.entity, Prop_Send, "m_hOwnerEntity", this.owner);
+					SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
 
 					if(this.type == PlayerModelProp) {
-						//SDKHook(this.entity, SDKHook_SetTransmit, OnPropTransmit);
+						//SDKHook(entity, SDKHook_SetTransmit, OnPropTransmit);
 					}
 
-					SetEntityModel(this.entity, this.model);
+					SetEntityModel(entity, this.model);
+
+					this.entity = EntIndexToEntRef(entity);
 				}
 			}
 		}
@@ -464,7 +491,7 @@ enum struct PlayerModelInfo
 		this.__InternalSetBody(prop);
 
 		Call_StartForward(OnApplied);
-		Call_PushCell(this.owner);
+		Call_PushCell(client);
 		Call_Finish();
 	}
 
@@ -494,7 +521,8 @@ enum struct PlayerModelInfo
 	int GetSkin(bool def=false)
 	{
 		if(!def && this.skin == -1) {
-			return GetEntProp(this.entity, Prop_Send, "m_nSkin");
+			int entity = EntRefToEntIndex(this.entity);
+			return GetEntProp(entity, Prop_Send, "m_nSkin");
 		} else {
 			if(def) {
 				return this.skin_default;
@@ -507,7 +535,8 @@ enum struct PlayerModelInfo
 	int GetBody(bool def=false)
 	{
 		if(!def && this.body == -1) {
-			return GetEntProp(this.entity, Prop_Send, "m_nBody");
+			int entity = EntRefToEntIndex(this.entity);
+			return GetEntProp(entity, Prop_Send, "m_nBody");
 		} else {
 			if(def) {
 				return this.body_default;
@@ -750,7 +779,7 @@ public void OnPluginEnd()
 
 #if defined GAME_TF2
 int m_flInvisibilityOffset = -1;
-int flLastSpyAlpha[33] = {255, ...};
+int iLastSpyAlpha[33] = {255, ...};
 #endif
 
 public void OnPluginStart()
@@ -803,23 +832,23 @@ public void OnPluginStart()
 }
 
 #if defined GAME_TF2
-int CalcSpyAlpha(int client, int a)
+int CalcSpyAlpha(int client)
 {
 	if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
 		float invis = GetEntDataFloat(client, m_flInvisibilityOffset);
 		if(invis > 0.0) {
 			invis = 1.0 - invis;
-			a = RoundToFloor(255 * invis);
+			int a = RoundToCeil(255 * invis);
 			if(a < 0) {
 				a = 0;
 			}
 			if(a > 255) {
 				a = 255;
 			}
+			return a;
 		}
 	}
-
-	return a;
+	return -1;
 }
 #endif
 
@@ -837,12 +866,12 @@ void OnPlayerPostThink(int client)
 {
 	if(g_PlayersModelInfo[client].type == PlayerModelProp ||
 		g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
-		if(g_PlayersModelInfo[client].entity == -1 ||
-			!IsValidEntity(g_PlayersModelInfo[client].entity)) {
+
+		int entity = EntRefToEntIndex(g_PlayersModelInfo[client].entity);
+		if(!IsValidEntity(entity)) {
 			return;
 		}
 
-
 		int r = 255;
 		int g = 255;
 		int b = 255;
@@ -850,25 +879,42 @@ void OnPlayerPostThink(int client)
 		GetEntityRenderColor(client, r, g, b, a);
 
 	#if defined GAME_TF2
-		a = CalcSpyAlpha(client, a);
+		int mod = CalcSpyAlpha(client);
+		if(mod != -1 && mod < a) {
+			a = mod;
+		}
 	#endif
 
 		SetEntityRenderMode(client, RENDER_NONE);
-		SetEntityRenderColor(g_PlayersModelInfo[client].entity, r, g, b, a);
-	} else if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
+		SetEntityRenderColor(entity, r, g, b, a);
+	}
+#if defined GAME_TF2
+	else if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
 		int r = 255;
 		int g = 255;
 		int b = 255;
 		int a = 255;
 		GetEntityRenderColor(client, r, g, b, a);
 
-	#if defined GAME_TF2
-		a = CalcSpyAlpha(client, a);
-	#endif
+		int mod = CalcSpyAlpha(client);
+		if(mod != -1) {
+			int limit = a;
+
+			if(iLastSpyAlpha[client] != -1) {
+				limit = iLastSpyAlpha[client];
+			}
+			
+			if(mod < limit) {
+				a = mod;
+			}
+		} else {
+			iLastSpyAlpha[client] = -1;
+		}
 
 		SetEntityRenderMode(client, RENDER_TRANSCOLOR);
 		SetEntityRenderColor(client, r, g, b, a);
 	}
+#endif
 }
 
 #if defined GAME_TF2
@@ -876,7 +922,7 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 {
 	if(condition == TFCond_Cloaked) {
 		if(g_PlayersModelInfo[client].type != PlayerModelDefault) {
-			flLastSpyAlpha[client] = GetEntityAlpha(client);
+			iLastSpyAlpha[client] = GetEntityAlpha(client)+1;
 		}
 	}
 
@@ -889,19 +935,6 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 
 public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
-	if(condition == TFCond_Cloaked) {
-		if(g_PlayersModelInfo[client].type != PlayerModelDefault) {
-			int r = 255;
-			int g = 255;
-			int b = 255;
-			int a = 255;
-			GetEntityRenderColor(client, r, g, b, a);
-			a = flLastSpyAlpha[client];
-			SetEntityRenderColor(g_PlayersModelInfo[client].entity, r, g, b, a);
-			flLastSpyAlpha[client] = -1;
-		}
-	}
-
 	if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
 		if(condition == TFCond_Disguised) {
 			g_PlayersModelInfo[client].SetCustomModel(g_PlayersModelInfo[client].model);
@@ -919,7 +952,6 @@ void post_inventory_application(Event event, const char[] name, bool dontBroadca
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
 	if(g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
-		g_PlayersModelInfo[client].entity = -1;
 		RequestFrame(FrameInventory, client);
 	}
 }
@@ -947,11 +979,14 @@ void player_death(Event event, const char[] name, bool dontBroadcast)
 
 public void OnClientPutInServer(int client)
 {
-	g_PlayersModelInfo[client].ClearDisconnect();
+	g_PlayersModelInfo[client].Init(client);
 	SDKHook(client, SDKHook_PostThink, OnPlayerPostThink);
 }
 
 public void OnClientDisconnect(int client)
 {
 	g_PlayersModelInfo[client].ClearDisconnect();
+#if defined GAME_TF2
+	iLastSpyAlpha[client] = -1;
+#endif
 }
