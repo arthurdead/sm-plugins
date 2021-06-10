@@ -758,8 +758,31 @@ void do_hl2animset(int client, int entity, AnimInfo anim, StringMap seqmap, Stri
 	view_as<BaseAnimating>(entity).StudioFrameAdvance();
 }
 
+public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
+{
+	AnimsetType animset = playerinfo[client].animset;
+
+	if(animset != animset_tf2) {
+		if(!playeranim[client].m_bCanAnimate) {
+			buttons &= ~IN_ANYMOVEMENTKEY;
+			buttons &= ~IN_JUMP;
+			return Plugin_Changed;
+		}
+	}
+	
+	return Plugin_Continue;
+}
+
 void OnPlayerPostThink(int client)
 {
+	if(playerinfo[client].flags & playermodel_hideweapons) {
+		TF2_HideAllWeapons(client, true);
+	}
+
+	if(playerinfo[client].flags & playermodel_hidehats) {
+		TF2_HideAllWearables(client, true);
+	}
+
 	AnimsetType animset = playerinfo[client].animset;
 
 	if(animset == animset_tf2) {

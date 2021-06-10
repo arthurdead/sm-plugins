@@ -90,11 +90,6 @@ enum struct PlayerModelInfo
 	int body;
 	int body_default;
 
-	int r;
-	int g;
-	int b;
-	int a;
-
 	PlayerModelType tmp_type;
 
 #if !defined GAME_TF2
@@ -163,8 +158,7 @@ enum struct PlayerModelInfo
 				}
 			}
 			this.DeleteLink();
-			SetEntityRenderMode(this.owner, RENDER_TRANSCOLOR);
-			SetEntityRenderColor(this.owner, 255, 255, 255, 255);
+			SetEntityRenderMode(this.owner, RENDER_NORMAL);
 		#if defined GAME_TF2
 			if(this.type != PlayerModelBonemerge) {
 				this.SetCustomModel("");
@@ -200,11 +194,6 @@ enum struct PlayerModelInfo
 		this.skin = -1;
 		this.body = -1;
 		this.type = PlayerModelDefault;
-
-		this.r = -1;
-		this.g = -1;
-		this.b = -1;
-		this.a = -1;
 
 		this.tmp_type = PlayerModelInvalid;
 
@@ -384,10 +373,9 @@ enum struct PlayerModelInfo
 
 				if(this.type == PlayerModelCustomModel) {
 					this.SetCustomModel(this.model);
-
-					SetEntityRenderMode(this.owner, RENDER_TRANSCOLOR);
-					SetEntityRenderColor(this.owner, 255, 255, 255, 255);
 				}
+
+				SetEntityRenderMode(this.owner, RENDER_NORMAL);
 			}
 			case PlayerModelProp, PlayerModelBonemerge:
 			{
@@ -435,9 +423,6 @@ enum struct PlayerModelInfo
 
 					SetVariantString("!activator");
 					AcceptEntityInput(this.entity, "SetParent", this.link);
-
-					SetEntityRenderMode(this.owner, RENDER_TRANSCOLOR);
-					SetEntityRenderColor(this.owner, 255, 255, 255, 0);
 
 					SetEntityRenderMode(this.entity, RENDER_TRANSCOLOR);
 					SetEntityRenderColor(this.entity, 255, 255, 255, 255);
@@ -576,58 +561,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Playermodel_SetSkin", Native_SetSkin);
 	CreateNative("Playermodel_GetBodygroup", Native_GetBodygroup);
 	CreateNative("Playermodel_SetBodygroup", Native_SetBodygroup);
-	CreateNative("Playermodel_RemoveColor", Native_RemoveColor);
-	CreateNative("Playermodel_SetColor", Native_SetColor);
 	OnApplied = new GlobalForward("Playermodel_OnApplied", ET_Ignore, Param_Cell);
 	return APLRes_Success;
-}
-
-int Native_RemoveColor(Handle plugin, int params)
-{
-	int client = GetNativeCell(1);
-
-	int which = GetNativeCell(2);
-	switch(which) {
-		case 0: { g_PlayersModelInfo[client].r = -1; }
-		case 1: { g_PlayersModelInfo[client].g = -1; }
-		case 2: { g_PlayersModelInfo[client].b = -1; }
-		case 3: { g_PlayersModelInfo[client].a = -1; }
-		case 4: {
-			g_PlayersModelInfo[client].r = -1;
-			g_PlayersModelInfo[client].g = -1;
-			g_PlayersModelInfo[client].b = -1;
-			g_PlayersModelInfo[client].a = -1;
-		}
-	}
-	
-	return 0;
-}
-
-int Native_SetColor(Handle plugin, int params)
-{
-	int client = GetNativeCell(1);
-	
-	int r = GetNativeCell(2);
-	if(r != -1) {
-		g_PlayersModelInfo[client].r = r;
-	}
-
-	int g = GetNativeCell(3);
-	if(g != -1) {
-		g_PlayersModelInfo[client].g = g;
-	}
-
-	int b = GetNativeCell(4);
-	if(b != -1) {
-		g_PlayersModelInfo[client].b = b;
-	}
-
-	int a = GetNativeCell(5);
-	if(a != -1) {
-		g_PlayersModelInfo[client].a = a;
-	}
-
-	return 0;
 }
 
 int Native_GetBodygroup(Handle plugin, int params)
@@ -763,7 +698,7 @@ int Native_SetType(Handle plugin, int params)
 	char[] model = new char[length];
 	GetNativeString(2, model, length);
 
-	bool def = GetNativeCell(3);
+	bool def = GetNativeCell(4);
 
 	if(def) {
 		g_PlayersModelInfo[client].type_default = type;
@@ -813,7 +748,10 @@ public void OnPluginEnd()
 	}
 }
 
+#if defined GAME_TF2
 int m_flInvisibilityOffset = -1;
+int flLastSpyAlpha[33] = {255, ...};
+#endif
 
 public void OnPluginStart()
 {
@@ -858,27 +796,15 @@ public void OnPluginStart()
 		}
 	}
 
+#if defined GAME_TF2
 	m_flInvisibilityOffset = FindSendPropInfo("CTFPlayer", "m_flInvisChangeCompleteTime");
 	m_flInvisibilityOffset -= 8;
+#endif
 }
 
-void OnPlayerPostThink(int client)
-{
-	if(g_PlayersModelInfo[client].type == PlayerModelDefault) {
-		return;
-	}
-
-	if(g_PlayersModelInfo[client].entity == -1 ||
-		!IsValidEntity(g_PlayersModelInfo[client].entity)) {
-		return;
-	}
-
-	int a = g_PlayersModelInfo[client].a;
-	if(a == -1) {
-		a = 255;
-	}
-
 #if defined GAME_TF2
+int CalcSpyAlpha(int client, int a)
+{
 	if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
 		float invis = GetEntDataFloat(client, m_flInvisibilityOffset);
 		if(invis > 0.0) {
@@ -892,50 +818,93 @@ void OnPlayerPostThink(int client)
 			}
 		}
 	}
+
+	return a;
+}
 #endif
 
-	int r = g_PlayersModelInfo[client].r;
-	if(r == -1) {
-		r = 255;
-	}
+int GetEntityAlpha(int entity)
+{
+	int r = 255;
+	int g = 255;
+	int b = 255;
+	int a = 255;
+	GetEntityRenderColor(entity, r, g, b, a);
+	return a;
+}
 
-	int g = g_PlayersModelInfo[client].g;
-	if(g == -1) {
-		g = 255;
-	}
+void OnPlayerPostThink(int client)
+{
+	if(g_PlayersModelInfo[client].type == PlayerModelProp ||
+		g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
+		if(g_PlayersModelInfo[client].entity == -1 ||
+			!IsValidEntity(g_PlayersModelInfo[client].entity)) {
+			return;
+		}
 
-	int b = g_PlayersModelInfo[client].b;
-	if(b == -1) {
-		b = 255;
-	}
 
-	SetEntityRenderColor(g_PlayersModelInfo[client].entity, r, g, b, a);
+		int r = 255;
+		int g = 255;
+		int b = 255;
+		int a = 255;
+		GetEntityRenderColor(client, r, g, b, a);
+
+	#if defined GAME_TF2
+		a = CalcSpyAlpha(client, a);
+	#endif
+
+		SetEntityRenderMode(client, RENDER_NONE);
+		SetEntityRenderColor(g_PlayersModelInfo[client].entity, r, g, b, a);
+	} else if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
+		int r = 255;
+		int g = 255;
+		int b = 255;
+		int a = 255;
+		GetEntityRenderColor(client, r, g, b, a);
+
+	#if defined GAME_TF2
+		a = CalcSpyAlpha(client, a);
+	#endif
+
+		SetEntityRenderMode(client, RENDER_TRANSCOLOR);
+		SetEntityRenderColor(client, r, g, b, a);
+	}
 }
 
 #if defined GAME_TF2
 public void TF2_OnConditionAdded(int client, TFCond condition)
 {
+	if(condition == TFCond_Cloaked) {
+		if(g_PlayersModelInfo[client].type != PlayerModelDefault) {
+			flLastSpyAlpha[client] = GetEntityAlpha(client);
+		}
+	}
+
 	if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
 		if(condition == TFCond_Disguised) {
 			g_PlayersModelInfo[client].SetCustomModel("");
-			SetEntityRenderColor(client, 255, 255, 255, 255);
-		}
-	} else if(g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
-		if(condition == TFCond_Disguised) {
-			SetEntityRenderColor(client, 255, 255, 255, 255);
 		}
 	}
 }
 
 public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
+	if(condition == TFCond_Cloaked) {
+		if(g_PlayersModelInfo[client].type != PlayerModelDefault) {
+			int r = 255;
+			int g = 255;
+			int b = 255;
+			int a = 255;
+			GetEntityRenderColor(client, r, g, b, a);
+			a = flLastSpyAlpha[client];
+			SetEntityRenderColor(g_PlayersModelInfo[client].entity, r, g, b, a);
+			flLastSpyAlpha[client] = -1;
+		}
+	}
+
 	if(g_PlayersModelInfo[client].type == PlayerModelCustomModel) {
 		if(condition == TFCond_Disguised) {
 			g_PlayersModelInfo[client].SetCustomModel(g_PlayersModelInfo[client].model);
-		}
-	} else if(g_PlayersModelInfo[client].type == PlayerModelBonemerge) {
-		if(condition == TFCond_Disguised) {
-			SetEntityRenderColor(client, 255, 255, 255, 0);
 		}
 	}
 }

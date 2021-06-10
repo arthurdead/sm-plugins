@@ -59,11 +59,6 @@ native void Playermodel_SetSkin(int client, int skin, bool def=false);
 native int Playermodel_GetBodygroup(int client, bool def=false);
 native void Playermodel_SetBodygroup(int client, int body, bool def=false);
 
-//r == 0, g == 1, b == 2, a == 3, all = 4
-native void Playermodel_RemoveColor(int client, int which);
-//-1 == use color that is already set
-native void Playermodel_SetColor(int client, int r = -1, int g = -1, int b = -1, int a = -1);
-
 stock bool Playermodel_IsSet(int client, bool def=false)
 {
 	return (Playermodel_GetType(client, def) != PlayerModelDefault);
