@@ -3,14 +3,23 @@
 #endif
 #define _playermodel_config_included_
 
+#if defined GAME_TF2
+	#include <tf2>
+#endif
+
 enum
 {
 	playermodel_noflags = 0,
 	playermodel_hidehats = (1 << 1),
 	playermodel_hideweapons = (1 << 3),
+	playermodel_customanims = (1 << 6),
 };
 
 native int Playermodel_GetFlags(int client);
+
+#if defined GAME_TF2
+native TFClassType Playermodel_GetOriginalClass(int client);
+#endif
 
 public SharedPlugin __pl_playermodel_config = 
 {

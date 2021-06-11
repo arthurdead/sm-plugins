@@ -42,8 +42,13 @@ enum PlayerModelType
 };
 
 forward void Playermodel_OnApplied(int client);
+//0 == disconnect, 1 == death, 2 == native
+forward void Playermodel_OnCleared(int client, int type);
 
-native void Playermodel_Clear(int client, bool def=false);
+native void Playermodel_Clear(int client, bool def=false, bool reapply=false);
+//returns entref
+native int Playermodel_Reapply(int client);
+native void Playermodel_SetModel(int client, const char[] model, bool def=false);
 native void Playermodel_GetModel(int client, char[] model, int length, bool def=false);
 native void Playermodel_GetAnimation(int client, char[] model, int length, bool def=false);
 //returns entref

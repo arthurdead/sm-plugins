@@ -7,6 +7,10 @@
 #include <playermodel>
 #include <playermodel_config>
 
+#undef REQUIRE_PLUGIN
+#define NO_SHAPESHIFT_NATIVES
+#include <shapeshift_funcs>
+
 ArrayList arrModelInfos = null;
 StringMap mapGroup = null;
 StringMap mapInfoIds = null;
@@ -109,10 +113,11 @@ enum struct PlayerInfo
 	int id;
 	AnimsetType animset;
 	GestureType gestures;
+	TFClassType orig_class;
 
 	void Init()
 	{
-		this.id = -1;
+		this.Clear();
 	}
 
 	void Clear()
@@ -121,6 +126,7 @@ enum struct PlayerInfo
 		this.posemap = null;
 		this.flags = 0;
 		this.id = -1;
+		this.orig_class = TFClass_Unknown;
 		this.animset = animset_tf2;
 		this.gestures = gestures_none;
 	}
@@ -152,6 +158,8 @@ int FlagStrToFlags(const char[] str)
 			flags |= playermodel_hideweapons;
 		} else if(StrEqual(tmpflagstrs[i], "alwaysmerge")) {
 			flags |= FLAG_ALWAYSBONEMERGE;
+		} else if(StrEqual(tmpflagstrs[i], "customanims")) {
+			flags |= playermodel_customanims;
 		}
 	}
 
@@ -230,6 +238,12 @@ void post_inventory_application(Event event, const char[] name, bool dontBroadca
 	}
 }
 
+public Action OnShapeShift(int client, int currentClass, int &targetClass)
+{
+	LoadCookies(client, view_as<TFClassType>(targetClass));
+	return Plugin_Continue;
+}
+
 void player_changeclass(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
@@ -253,8 +267,20 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 {
 	RegPluginLibrary("playermodel_config");
 	CreateNative("Playermodel_GetFlags", Native_GetFlags);
+#if defined GAME_TF2
+	CreateNative("Playermodel_GetOriginalClass", Native_GetOrigClass);
+#endif
 	return APLRes_Success;
 }
+
+#if defined GAME_TF2
+int Native_GetOrigClass(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	return playerinfo[client].orig_class;
+}
+#endif
 
 int Native_GetFlags(Handle plugin, int params)
 {
@@ -650,14 +676,6 @@ void do_hl2animset(int client, int entity, AnimInfo anim, StringMap seqmap, Stri
 	int GroundEntity = GetEntPropEnt(client, Prop_Send, "m_hGroundEntity");
 	bool m_bSequenceFinished = view_as<bool>(GetEntProp(entity, Prop_Data, "m_bSequenceFinished"));
 
-	float localorigin[3];
-	if(m_bDucked || m_bDucking) {
-		localorigin[2] = -30.0;
-	} else {
-		localorigin[2] = -40.0;
-	}
-	SetEntPropVector(entity, Prop_Send, "m_vecOrigin", localorigin);
-
 	float eye[3];
 	//GetEntPropVector(client, Prop_Data, "m_angAbsRotation", eye);
 	GetClientEyeAngles(client, eye);
@@ -912,6 +930,7 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 	playerinfo[client].seqmap = info.sequences;
 	playerinfo[client].posemap = info.poseparameters;
 	playerinfo[client].id = id;
+	playerinfo[client].orig_class = info.orig_class;
 
 	if(!(info.flags & FLAG_NOWEAPONS) && hadnoweapons) {
 		TF2_RespawnPlayer(client);
