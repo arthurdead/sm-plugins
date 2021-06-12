@@ -279,10 +279,10 @@ enum struct PlayerModelInfo
 		if(this.body != -1) {
 			SetEntProp(entity, Prop_Send, "m_nBody", this.body);
 		} else {
-			if(this.type  == PlayerModelBonemerge) {
+			if(this.type == PlayerModelBonemerge) {
 				int body = GetEntProp(this.owner, Prop_Send, "m_nBody");
 				SetEntProp(entity, Prop_Send, "m_nBody", body);
-			} else {
+			} else if(this.type != PlayerModelDefault) {
 				SetEntProp(entity, Prop_Send, "m_nBody", 0);
 			}
 		}
