@@ -6,14 +6,20 @@
 #include <animhelpers>
 #include <playermodel>
 #include <playermodel_config>
+#include <tf2attributes>
 
 #undef REQUIRE_PLUGIN
 #define NO_SHAPESHIFT_NATIVES
 #include <shapeshift_funcs>
+#include <tauntmanager>
 
 ArrayList arrModelInfos = null;
+ArrayList arrAnimInfos = null;
 StringMap mapGroup = null;
-StringMap mapInfoIds = null;
+StringMap mapModelInfoIds = null;
+StringMap mapAnimInfoIds = null;
+StringMap mapGestures = null;
+StringMap mapTaunts = null;
 
 #define MODEL_NAME_MAX 64
 #define OVERRIDE_MAX 64
@@ -24,20 +30,17 @@ StringMap mapInfoIds = null;
 
 #define TFClass_Any (view_as<TFClassType>(-1))
 
-//TODO!!!! make both of these kv files
-enum AnimsetType
+enum AnimCodeType
 {
-	animset_tf2,
-	animset_hl2,
+	animcode_default,
+	animcode_simple,
 };
 
-enum GestureType
+enum LegType
 {
-	gestures_none,
-	gestures_hl2rebel_male,
-	gestures_hl2rebel_female,
-	gestures_hl2gman,
-	gestures_hl2breen,
+	leg_8yaw,
+	leg_9way,
+	leg_ignore,
 };
 
 #define PLAYERMODEL_TRANSMIT_BUGGED
@@ -49,6 +52,16 @@ enum GestureType
 #define FLAG_HACKTHIRDPERSON (1 << 5)
 #endif
 
+enum struct AnimSetInfo
+{
+	char name[MODEL_NAME_MAX];
+	AnimCodeType animcode;
+	LegType legtype;
+	StringMap animnames;
+	StringMap seq_cache;
+	StringMap pose_cache;
+}
+
 enum struct ConfigModelInfo
 {
 	char name[MODEL_NAME_MAX];
@@ -56,16 +69,15 @@ enum struct ConfigModelInfo
 	char anim[PLATFORM_MAX_PATH];
 	char override[OVERRIDE_MAX];
 	char steamid[STEAMID_MAX];
-	AnimsetType animset;
-	GestureType gestures;
+	StringMap gestures;
+	StringMap taunts;
 	TFClassType orig_class;
 	TFClassType class;
 	int flags;
 	PlayerModelType type;
-	StringMap sequences;
-	StringMap poseparameters;
 	int bodygroup;
 	int skin;
+	int animsetid;
 }
 
 #define ModelInfo ConfigModelInfo
@@ -107,13 +119,17 @@ enum struct AnimInfo
 
 enum struct PlayerInfo
 {
-	StringMap seqmap;
-	StringMap posemap;
 	int flags;
-	int id;
-	AnimsetType animset;
-	GestureType gestures;
+	int modelid;
+	int animid;
 	TFClassType orig_class;
+	AnimCodeType animcode;
+	StringMap seq_cache;
+	StringMap pose_cache;
+	StringMap animnames;
+	LegType legtype;
+	StringMap gestures;
+	StringMap taunts;
 
 	void Init()
 	{
@@ -122,28 +138,35 @@ enum struct PlayerInfo
 
 	void Clear()
 	{
-		this.seqmap = null;
-		this.posemap = null;
 		this.flags = 0;
-		this.id = -1;
+		this.modelid = -1;
+		this.animid = -1;
 		this.orig_class = TFClass_Unknown;
-		this.animset = animset_tf2;
-		this.gestures = gestures_none;
+		this.animcode = animcode_default;
+		this.seq_cache = null;
+		this.pose_cache = null;
+		this.animnames = null;
+		this.legtype = leg_ignore;
+		this.gestures = null;
+		this.taunts = null;
 	}
 }
 
 AnimInfo playeranim[33];
 PlayerInfo playerinfo[33];
 
+#include "playermodel/animcode_simple.sp"
+
 ModelInfo tmpmodelinfo;
 GroupInfo tmpgroupinfo;
+AnimSetInfo tmpanimsetinfo;
 char tmpstr1[64];
 char tmpstr2[PLATFORM_MAX_PATH];
 
-char tmpflagstrs[3][64];
+char tmpflagstrs[7][13];
 int FlagStrToFlags(const char[] str)
 {
-	int num = ExplodeString(str, "|", tmpflagstrs, 3, 64);
+	int num = ExplodeString(str, "|", tmpflagstrs, 7, 13);
 
 	int flags = 0;
 
@@ -172,7 +195,7 @@ stock void ClassToClassname(TFClassType type, char[] name, int length)
 {
 	switch(type)
 	{
-		case TFClass_Unknown: { strcopy(name, length, "none"); }
+		case TFClass_Unknown: { strcopy(name, length, "unknown"); }
 		case TFClass_Scout: { strcopy(name, length, "scout"); }
 		case TFClass_Soldier: { strcopy(name, length, "soldier"); }
 		case TFClass_Sniper: { strcopy(name, length, "sniper"); }
@@ -253,16 +276,6 @@ void player_changeclass(Event event, const char[] name, bool dontBroadcast)
 	LoadCookies(client, view_as<TFClassType>(class));
 }
 
-void GetGroupString(KeyValues kvGroups, const char[] group, const char[] name, char[] str, int len, const char[] def = "")
-{
-	if(kvGroups.JumpToKey(group)) {
-		kvGroups.GetString(name, str, len, def);
-		kvGroups.GoBack();
-	} else {
-		strcopy(str, len, def);
-	}
-}
-
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("playermodel_config");
@@ -278,7 +291,7 @@ int Native_GetOrigClass(Handle plugin, int params)
 {
 	int client = GetNativeCell(1);
 
-	return playerinfo[client].orig_class;
+	return view_as<int>(playerinfo[client].orig_class);
 }
 #endif
 
@@ -289,38 +302,351 @@ int Native_GetFlags(Handle plugin, int params)
 	return playerinfo[client].flags;
 }
 
+void GetGroupString(KeyValues kvGroups, const char[] group, const char[] name, char[] str, int len, const char[] def, bool seek)
+{
+	if(seek) {
+		if(kvGroups.JumpToKey(group)) {
+			kvGroups.GetString(name, str, len, def);
+			kvGroups.GoBack();
+		} else {
+			strcopy(str, len, def);
+		}
+	} else {
+		kvGroups.GetString(name, str, len, def);
+	}
+}
+
+void ParseModelsKV(KeyValues kvGroups, const char[] path, const char[] group, bool inside)
+{
+	KeyValues kvModels = new KeyValues("Playermodels");
+	kvModels.ImportFromFile(path);
+
+	if(kvModels.GotoFirstSubKey()) {
+		char tmpgroup[64];
+		strcopy(tmpgroup, sizeof(tmpgroup), group);
+
+		do {
+			kvModels.GetSectionName(tmpmodelinfo.name, MODEL_NAME_MAX);
+
+			kvModels.GetString("group", tmpgroup, sizeof(tmpgroup), tmpgroup);
+
+			kvModels.GetString("class", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "class", tmpstr1, sizeof(tmpstr1), "all", !inside);
+			}
+
+			if(StrEqual(tmpstr1, "all")) {
+				tmpmodelinfo.class = TFClass_Any;
+			} else {
+				tmpmodelinfo.class = TF2_GetClass(tmpstr1);
+				if(tmpmodelinfo.class == TFClass_Unknown) {
+					PrintToServer("%s: model %s has unknown class: %s", tmpgroup, tmpmodelinfo.name, tmpstr1);
+					continue;
+				}
+			}
+
+			kvModels.GetString("animset", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "animset", tmpstr1, sizeof(tmpstr1), "default", !inside);
+			}
+
+			int animid = -1;
+			if(!StrEqual(tmpstr1, "default")) {
+				if(!mapAnimInfoIds.GetValue(tmpstr1, animid)) {
+					PrintToServer("%s: model %s has unknown animset: %s", tmpgroup, tmpmodelinfo.name, tmpstr1);
+					continue;
+				}
+			}
+			tmpmodelinfo.animsetid = animid;
+
+			kvModels.GetString("gestures", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "gestures", tmpstr1, sizeof(tmpstr1), "none", !inside);
+			}
+
+			StringMap animmap = null;
+			if(tmpstr1[0] != '\0' && !StrEqual(tmpstr1, "none")) {
+				if(!mapGestures.GetValue(tmpstr1, animmap)) {
+					PrintToServer("%s: model %s has unknown gestures: %s", tmpgroup, tmpmodelinfo.name, tmpstr1);
+					continue;
+				}
+			}
+			tmpmodelinfo.gestures = animmap;
+
+			kvModels.GetString("taunts", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "gestures", tmpstr1, sizeof(tmpstr1), "none", !inside);
+			}
+
+			animmap = null;
+			if(tmpstr1[0] != '\0' && !StrEqual(tmpstr1, "none")) {
+				if(!mapTaunts.GetValue(tmpstr1, animmap)) {
+					PrintToServer("%s: model %s has unknown taunts: %s", tmpgroup, tmpmodelinfo.name, tmpstr1);
+					continue;
+				}
+			}
+			tmpmodelinfo.taunts = animmap;
+
+			kvModels.GetString("type", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "type", tmpstr1, sizeof(tmpstr1), "custom_model", !inside);
+			}
+
+			if(StrEqual(tmpstr1, "bonemerge")) {
+				tmpmodelinfo.type = PlayerModelBonemerge;
+			} else if(StrEqual(tmpstr1, "prop")) {
+				tmpmodelinfo.type = PlayerModelProp;
+			} else if(StrEqual(tmpstr1, "custom_model")) {
+				tmpmodelinfo.type = PlayerModelCustomModel;
+			} else {
+				PrintToServer("%s: model %s has unknown type: %s", tmpgroup, tmpmodelinfo.name, tmpstr1);
+				continue;
+			}
+
+			kvModels.GetString("model", tmpmodelinfo.model, PLATFORM_MAX_PATH);
+			kvModels.GetString("animation", tmpmodelinfo.anim, PLATFORM_MAX_PATH);
+
+			kvModels.GetString("override", tmpstr1, sizeof(tmpstr1));
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "override", tmpstr1, sizeof(tmpstr1), "", !inside);
+			}
+
+			strcopy(tmpmodelinfo.override, OVERRIDE_MAX, tmpstr1);
+
+			kvModels.GetString("steamid", tmpstr1, sizeof(tmpstr1));
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "steamid", tmpstr1, sizeof(tmpstr1), "", !inside);
+			}
+
+			strcopy(tmpmodelinfo.steamid, STEAMID_MAX, tmpstr1);
+
+			kvModels.GetString("flags", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "flags", tmpstr1, sizeof(tmpstr1), "nodmg", !inside);
+			}
+
+			tmpmodelinfo.flags = FlagStrToFlags(tmpstr1);
+
+			if(animid != -1) {
+				tmpmodelinfo.type = PlayerModelProp;
+			}
+
+			if(tmpmodelinfo.type == PlayerModelProp ||
+				animid != -1) {
+				tmpmodelinfo.flags |= playermodel_hidehats|FLAG_NOWEAPONS;
+			}
+
+		#if defined PLAYERMODEL_TRANSMIT_BUGGED
+			if(tmpmodelinfo.type == PlayerModelProp) {
+				tmpmodelinfo.flags |= FLAG_HACKTHIRDPERSON;
+			}
+		#endif
+
+			kvModels.GetString("bodygroup", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "bodygroup", tmpstr1, sizeof(tmpstr1), "0", !inside);
+			}
+
+			tmpmodelinfo.bodygroup = StringToInt(tmpstr1);
+
+			kvModels.GetString("skin", tmpstr1, sizeof(tmpstr1), "__unset");
+			if(StrEqual(tmpstr1, "__unset")) {
+				GetGroupString(kvGroups, tmpgroup, "skin", tmpstr1, sizeof(tmpstr1), "-1", !inside);
+			}
+
+			tmpmodelinfo.skin = StringToInt(tmpstr1);
+
+			kvModels.GetString("original_class", tmpstr1, sizeof(tmpstr1), "unknown");
+			tmpmodelinfo.orig_class = TF2_GetClass(tmpstr1);
+
+			int idx = arrModelInfos.Length;
+
+			arrModelInfos.PushArray(tmpmodelinfo, sizeof(tmpmodelinfo));
+
+			mapModelInfoIds.SetValue(tmpmodelinfo.name, idx);
+
+			if(!mapGroup.GetArray(tmpgroup, tmpgroupinfo, sizeof(tmpgroupinfo))) {
+				for(int i = 1; i <= 9; ++i) {
+					tmpgroupinfo.classarr[i] = new ArrayList();
+				}
+				mapGroup.SetArray(tmpgroup, tmpgroupinfo, sizeof(tmpgroupinfo));
+			}
+
+			if(tmpmodelinfo.class == TFClass_Any) {
+				for(int i = 1; i <= 9; ++i) {
+					tmpgroupinfo.classarr[i].Push(idx);
+				}
+			} else {
+				tmpgroupinfo.classarr[tmpmodelinfo.class].Push(idx);
+			}
+		} while(kvModels.GotoNextKey());
+
+		kvModels.GoBack();
+	}
+
+	delete kvModels;
+}
+
 public void OnPluginStart()
 {
 	RegAdminCmd("sm_pm", ConCommand_PM, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_gt", ConCommand_GT, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_pt", ConCommand_PT, ADMFLAG_GENERIC);
 
 	HookEvent("post_inventory_application", post_inventory_application);
 
 	HookEvent("player_changeclass", player_changeclass);
 
-	mapInfoIds = new StringMap();
-
+	mapModelInfoIds = new StringMap();
 	mapGroup = new StringMap();
+	mapGestures = new StringMap();
+	mapTaunts = new StringMap();
+	mapAnimInfoIds = new StringMap();
 
 	arrModelInfos = new ArrayList(sizeof(ModelInfo));
+	arrAnimInfos = new ArrayList(sizeof(AnimSetInfo));
+
 	char tmpclass[64];
 	for(int i = 1; i <= 9; ++i) {
 		ClassToClassname(view_as<TFClassType>(i), tmpclass, sizeof(tmpclass));
 		Format(tmpstr1, sizeof(tmpstr1), "playermodel_v3_%s", tmpclass);
-		ClassCookies[i] = RegClientCookie(tmpstr1, "", CookieAccess_Private);
+		ClassCookies[i] = new Cookie(tmpstr1, "", CookieAccess_Private);
 	}
 
-	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/models.txt");
-
+	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/gestures.txt");
+	KeyValues KvTemp = new KeyValues("Playermodels_gestures");
 	if(FileExists(tmpstr2)) {
-		KeyValues kvModels = new KeyValues("Playermodels");
-		kvModels.ImportFromFile(tmpstr2);
+		KvTemp.ImportFromFile(tmpstr2);
 
-		BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/groups.txt");
-		KeyValues kvGroups = new KeyValues("Playermodels_groups");
-		if(FileExists(tmpstr2)) {
-			kvGroups.ImportFromFile(tmpstr2);
+		if(KvTemp.GotoFirstSubKey()) {
+			char tmpstr3[64];
+
+			do {
+				KvTemp.GetSectionName(tmpstr1, sizeof(tmpstr1));
+
+				StringMap animmap = new StringMap();
+				mapGestures.SetValue(tmpstr1, animmap);
+
+				if(KvTemp.GotoFirstSubKey(false)) {
+					do {
+						KvTemp.GetSectionName(tmpstr1, sizeof(tmpstr1));
+						KvTemp.GetString(NULL_STRING, tmpstr3, sizeof(tmpstr3));
+
+						animmap.SetString(tmpstr1, tmpstr3);
+					} while(KvTemp.GotoNextKey(false));
+
+					KvTemp.GoBack();
+				}
+			} while(KvTemp.GotoNextKey());
+
+			KvTemp.GoBack();
 		}
+	}
+	delete KvTemp;
+
+	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/taunts.txt");
+	KvTemp = new KeyValues("Playermodels_taunts");
+	if(FileExists(tmpstr2)) {
+		KvTemp.ImportFromFile(tmpstr2);
+
+		if(KvTemp.GotoFirstSubKey()) {
+			char tmpstr3[64];
+
+			do {
+				KvTemp.GetSectionName(tmpstr1, sizeof(tmpstr1));
+
+				StringMap animmap = new StringMap();
+				mapTaunts.SetValue(tmpstr1, animmap);
+
+				if(KvTemp.GotoFirstSubKey(false)) {
+					do {
+						KvTemp.GetSectionName(tmpstr1, sizeof(tmpstr1));
+						KvTemp.GetString(NULL_STRING, tmpstr3, sizeof(tmpstr3));
+
+						animmap.SetString(tmpstr1, tmpstr3);
+					} while(KvTemp.GotoNextKey(false));
+
+					KvTemp.GoBack();
+				}
+			} while(KvTemp.GotoNextKey());
+
+			KvTemp.GoBack();
+		}
+	}
+	delete KvTemp;
+
+	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/animsets.txt");
+	KvTemp = new KeyValues("Playermodels_animsets");
+	if(FileExists(tmpstr2)) {
+		KvTemp.ImportFromFile(tmpstr2);
+
+		if(KvTemp.GotoFirstSubKey()) {
+			char tmpstr3[64];
+
+			do {
+				KvTemp.GetSectionName(tmpanimsetinfo.name, sizeof(tmpanimsetinfo.name));
+
+				if(KvTemp.JumpToKey("animations")) {
+					if(KvTemp.GotoFirstSubKey(false)) {
+						tmpanimsetinfo.animnames = new StringMap();
+
+						do {
+							KvTemp.GetSectionName(tmpstr1, sizeof(tmpstr1));
+							KvTemp.GetString(NULL_STRING, tmpstr3, sizeof(tmpstr3));
+
+							tmpanimsetinfo.animnames.SetString(tmpstr1, tmpstr3);
+						} while(KvTemp.GotoNextKey(false));
+
+						KvTemp.GoBack();
+					}
+
+					KvTemp.GoBack();
+				}
+
+				if(tmpanimsetinfo.animnames == null) {
+					PrintToServer("%s animset missing animation names", tmpanimsetinfo.name);
+					continue;
+				}
+
+				KvTemp.GetString("leg_type", tmpstr1, sizeof(tmpstr1), "9way");
+				if(StrEqual(tmpstr1, "9way")) {
+					tmpanimsetinfo.legtype = leg_9way;
+				} else if(StrEqual(tmpstr1, "8way")) {
+					tmpanimsetinfo.legtype = leg_8yaw;
+				} else if(StrEqual(tmpstr1, "ignore")) {
+					tmpanimsetinfo.legtype = leg_ignore;
+				} else {
+					PrintToServer("%s unknown leg type %s", tmpanimsetinfo.name, tmpstr1);
+					continue;
+				}
+
+				KvTemp.GetString("code_path", tmpstr1, sizeof(tmpstr1), "simple");
+				if(StrEqual(tmpstr1, "simple")) {
+					tmpanimsetinfo.animcode = animcode_simple;
+				} else {
+					PrintToServer("%s unknown code path %s", tmpanimsetinfo.name, tmpstr1);
+					continue;
+				}
+
+				tmpanimsetinfo.seq_cache = new StringMap();
+				tmpanimsetinfo.pose_cache = new StringMap();
+
+				int idx = arrAnimInfos.Length;
+
+				arrAnimInfos.PushArray(tmpanimsetinfo, sizeof(tmpanimsetinfo));
+
+				mapAnimInfoIds.SetValue(tmpanimsetinfo.name, idx);
+			} while(KvTemp.GotoNextKey());
+
+			KvTemp.GoBack();
+		}
+	}
+	delete KvTemp;
+
+	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/groups.txt");
+	KeyValues kvGroups = new KeyValues("Playermodels_groups");
+	if(FileExists(tmpstr2)) {
+		kvGroups.ImportFromFile(tmpstr2);
 
 		if(kvGroups.GotoFirstSubKey()) {
 			do {
@@ -334,171 +660,23 @@ public void OnPluginStart()
 				}
 
 				mapGroup.SetArray(tmpstr1, tmpgroupinfo, sizeof(tmpgroupinfo));
+
+				BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/%s.txt", tmpstr1);
+				if(FileExists(tmpstr2)) {
+					ParseModelsKV(kvGroups, tmpstr2, tmpstr1, true);
+				}
 			} while(kvGroups.GotoNextKey());
 
 			kvGroups.GoBack();
 		}
-
-		if(kvModels.GotoFirstSubKey()) {
-			char tmpgroup[64];
-
-			do {
-				kvModels.GetSectionName(tmpmodelinfo.name, MODEL_NAME_MAX);
-
-				kvModels.GetString("group", tmpgroup, sizeof(tmpgroup), "all");
-
-				kvModels.GetString("class", tmpstr1, sizeof(tmpstr1), "__unset");
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "class", tmpstr1, sizeof(tmpstr1), "all");
-				}
-
-				if(StrEqual(tmpstr1, "all")) {
-					tmpmodelinfo.class = TFClass_Any;
-				} else {
-					tmpmodelinfo.class = TF2_GetClass(tmpstr1);
-					if(tmpmodelinfo.class == TFClass_Unknown) {
-						PrintToServer("model %s has unknown class: %s", tmpmodelinfo.name, tmpstr1);
-						continue;
-					}
-				}
-
-				kvModels.GetString("animset", tmpstr1, sizeof(tmpstr1), "__unset");
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "animset", tmpstr1, sizeof(tmpstr1), "tf2");
-				}
-
-				if(StrEqual(tmpstr1, "hl2")) {
-					tmpmodelinfo.animset = animset_hl2;
-				} else if(StrEqual(tmpstr1, "tf2")) {
-					tmpmodelinfo.animset = animset_tf2;
-				} else {
-					PrintToServer("model %s has unknown animset: %s", tmpmodelinfo.name, tmpstr1);
-					continue;
-				}
-
-				kvModels.GetString("gestures", tmpstr1, sizeof(tmpstr1), "__unset");
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "gestures", tmpstr1, sizeof(tmpstr1), "none");
-				}
-
-				if(StrEqual(tmpstr1, "hl2_gman")) {
-					tmpmodelinfo.gestures = gestures_hl2gman;
-				} else if(StrEqual(tmpstr1, "hl2_rebel_male")) {
-					tmpmodelinfo.gestures = gestures_hl2rebel_male;
-				} else if(StrEqual(tmpstr1, "hl2_rebel_female")) {
-					tmpmodelinfo.gestures = gestures_hl2rebel_female;
-				} else if(StrEqual(tmpstr1, "hl2_breen")) {
-					tmpmodelinfo.gestures = gestures_hl2breen;
-				} else if(StrEqual(tmpstr1, "none")) {
-					tmpmodelinfo.gestures = gestures_none;
-				} else {
-					PrintToServer("model %s has unknown gestures: %s", tmpmodelinfo.name, tmpstr1);
-					continue;
-				}
-
-				kvModels.GetString("type", tmpstr1, sizeof(tmpstr1), "__unset");
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "type", tmpstr1, sizeof(tmpstr1), "custom_model");
-				}
-
-				if(StrEqual(tmpstr1, "bonemerge")) {
-					tmpmodelinfo.type = PlayerModelBonemerge;
-				} else if(StrEqual(tmpstr1, "prop")) {
-					tmpmodelinfo.type = PlayerModelProp;
-				} else if(StrEqual(tmpstr1, "custom_model")) {
-					tmpmodelinfo.type = PlayerModelCustomModel;
-				} else {
-					PrintToServer("model %s has unknown type: %s", tmpmodelinfo.name, tmpstr1);
-					continue;
-				}
-
-				kvModels.GetString("model", tmpmodelinfo.model, PLATFORM_MAX_PATH);
-				kvModels.GetString("animation", tmpmodelinfo.anim, PLATFORM_MAX_PATH);
-
-				kvModels.GetString("override", tmpstr1, sizeof(tmpstr1));
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "override", tmpstr1, sizeof(tmpstr1));
-				}
-
-				strcopy(tmpmodelinfo.override, OVERRIDE_MAX, tmpstr1);
-
-				kvModels.GetString("steamid", tmpstr1, sizeof(tmpstr1));
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "steamid", tmpstr1, sizeof(tmpstr1));
-				}
-
-				strcopy(tmpmodelinfo.steamid, STEAMID_MAX, tmpstr1);
-
-				kvModels.GetString("flags", tmpstr1, sizeof(tmpstr1), "__unset");
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "flags", tmpstr1, sizeof(tmpstr1), "nodmg");
-				}
-
-				tmpmodelinfo.flags = FlagStrToFlags(tmpstr1);
-
-				if(tmpmodelinfo.animset != animset_tf2) {
-					tmpmodelinfo.type = PlayerModelProp;
-				}
-
-				if(tmpmodelinfo.type == PlayerModelProp ||
-					tmpmodelinfo.animset != animset_tf2) {
-					tmpmodelinfo.flags |= playermodel_hidehats|FLAG_NOWEAPONS;
-				}
-
-			#if defined PLAYERMODEL_TRANSMIT_BUGGED
-				if(tmpmodelinfo.type == PlayerModelProp) {
-					tmpmodelinfo.flags |= FLAG_HACKTHIRDPERSON;
-				}
-			#endif
-
-				kvModels.GetString("bodygroup", tmpstr1, sizeof(tmpstr1), "__unset");
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "bodygroup", tmpstr1, sizeof(tmpstr1), "0");
-				}
-
-				tmpmodelinfo.bodygroup = StringToInt(tmpstr1);
-
-				kvModels.GetString("skin", tmpstr1, sizeof(tmpstr1), "__unset");
-				if(StrEqual(tmpstr1, "__unset")) {
-					GetGroupString(kvGroups, tmpgroup, "skin", tmpstr1, sizeof(tmpstr1), "-1");
-				}
-
-				tmpmodelinfo.skin = StringToInt(tmpstr1);
-
-				kvModels.GetString("original_class", tmpstr1, sizeof(tmpstr1), "unknown");
-				tmpmodelinfo.orig_class = TF2_GetClass(tmpstr1);
-
-				int idx = arrModelInfos.Length;
-
-				tmpmodelinfo.sequences = new StringMap();
-				tmpmodelinfo.poseparameters = new StringMap();
-
-				arrModelInfos.PushArray(tmpmodelinfo, sizeof(tmpmodelinfo));
-
-				mapInfoIds.SetValue(tmpmodelinfo.name, idx);
-
-				if(!mapGroup.GetArray(tmpgroup, tmpgroupinfo, sizeof(tmpgroupinfo))) {
-					for(int i = 1; i <= 9; ++i) {
-						tmpgroupinfo.classarr[i] = new ArrayList();
-					}
-					mapGroup.SetArray(tmpgroup, tmpgroupinfo, sizeof(tmpgroupinfo));
-				}
-
-				if(tmpmodelinfo.class == TFClass_Any) {
-					for(int i = 1; i <= 9; ++i) {
-						tmpgroupinfo.classarr[i].Push(idx);
-					}
-				} else {
-					tmpgroupinfo.classarr[tmpmodelinfo.class].Push(idx);
-				}
-			} while(kvModels.GotoNextKey());
-
-			kvModels.GoBack();
-		}
-
-		delete kvModels;
-		delete kvGroups;
 	}
+
+	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/models.txt");
+	if(FileExists(tmpstr2)) {
+		ParseModelsKV(kvGroups, tmpstr2, "all", false);
+	}
+
+	delete kvGroups;
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
@@ -521,7 +699,7 @@ void LoadCookies(int client, TFClassType class)
 
 		bool valid = true;
 
-		if(mapInfoIds.GetValue(tmpstr1, idx)) {
+		if(mapModelInfoIds.GetValue(tmpstr1, idx)) {
 			arrModelInfos.GetArray(idx, tmpmodelinfo, sizeof(tmpmodelinfo));
 
 			if(tmpmodelinfo.override[0] != '\0') {
@@ -543,6 +721,7 @@ void LoadCookies(int client, TFClassType class)
 
 			if(valid) {
 				SetPlayerModel(client, class, tmpmodelinfo, idx);
+				PrintToChat(client, "[SM] The model \"%s\" was applied on you", tmpstr1);
 			}
 		}
 
@@ -641,19 +820,24 @@ float GetVectorLength2D(float vec[3])
 	return GetVectorLength(tmp);
 }
 
-int LookupSequence(StringMap map, int entity, const char[] name)
+int LookupSequenceCached(StringMap map, int entity, const char[] name, StringMap remap = null)
 {
+	if(remap != null) {
+		remap.GetString(name, tmpstr1, sizeof(tmpstr1));
+	} else {
+		strcopy(tmpstr1, sizeof(tmpstr1), name);
+	}
 	int sequence = -1;
-	if(map.GetValue(name, sequence)) {
+	if(map.GetValue(tmpstr1, sequence)) {
 		return sequence;
 	} else {
-		sequence = view_as<BaseAnimating>(entity).LookupSequence(name);
-		map.SetValue(name, sequence, true);
+		sequence = view_as<BaseAnimating>(entity).LookupSequence(tmpstr1);
+		map.SetValue(tmpstr1, sequence, true);
 	}
 	return sequence;
 }
 
-int LookupPoseParameter(StringMap map, int entity, const char[] name)
+int LookupPoseParameterCached(StringMap map, int entity, const char[] name)
 {
 	int sequence = -1;
 	if(map.GetValue(name, sequence)) {
@@ -665,122 +849,10 @@ int LookupPoseParameter(StringMap map, int entity, const char[] name)
 	return sequence;
 }
 
-void do_hl2animset(int client, int entity, AnimInfo anim, StringMap seqmap, StringMap posemap)
-{
-	float vel[3];
-	GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", vel);
-
-	int buttons = GetEntProp(client, Prop_Data, "m_nButtons");
-	bool m_bDucked = view_as<bool>(GetEntProp(client, Prop_Send, "m_bDucked"));
-	bool m_bDucking = view_as<bool>(GetEntProp(client, Prop_Send, "m_bDucking")) || (buttons & IN_DUCK);
-	int GroundEntity = GetEntPropEnt(client, Prop_Send, "m_hGroundEntity");
-	bool m_bSequenceFinished = view_as<bool>(GetEntProp(entity, Prop_Data, "m_bSequenceFinished"));
-
-	float eye[3];
-	//GetEntPropVector(client, Prop_Data, "m_angAbsRotation", eye);
-	GetClientEyeAngles(client, eye);
-
-	float xaxis[3];
-	float zaxis[3];
-	GetAngleVectors(eye, xaxis, zaxis, NULL_VECTOR);
-
-	float x = GetVectorDotProduct(xaxis, vel);
-	float z = GetVectorDotProduct(zaxis, vel);
-
-	float yaw = (ArcTangent2(-z, x) * 180.0 / M_PI);
-
-	int move_yaw = LookupPoseParameter(posemap, entity, "move_yaw");
-	view_as<BaseAnimating>(entity).SetPoseParameter(move_yaw, yaw);
-
-	bool moving = (GetVectorLength2D(vel) > 3.0);
-
-	if(GroundEntity != -1 && anim.m_hOldGroundEntity == GroundEntity) {
-		if(!anim.m_bDidJustLand) {
-			if(anim.m_bCanAnimate) {
-				if((buttons & IN_ANYMOVEMENTKEY) && moving) {
-					int sequence = LookupSequence(seqmap, entity, "run_all");
-					if(buttons & IN_SPEED) {
-						sequence = LookupSequence(seqmap, entity, "walk_all_Moderate");
-					}
-					if(m_bDucked) {
-						sequence = LookupSequence(seqmap, entity, "Crouch_walk_all");
-					}
-					view_as<BaseAnimating>(entity).ResetSequence(sequence);
-				} else {
-					int sequence = LookupSequence(seqmap, entity, "idle_subtle");
-					if(m_bDucked) {
-						sequence = LookupSequence(seqmap, entity, "crouchidlehide");
-					}
-					view_as<BaseAnimating>(entity).ResetSequence(sequence);
-				}
-			}
-		} else {
-			if(anim.m_bWillHardLand) {
-				anim.m_bCanAnimate = true;
-				anim.m_bWillHardLand = false;
-				anim.m_bDidJustLand = false;
-			} else {
-				anim.m_bDidJustLand = false;
-			}
-		}
-	}
-
-	if(GroundEntity == -1 && anim.m_hOldGroundEntity != -1) {
-		bool m_bJumping = view_as<bool>(GetEntProp(client, Prop_Send, "m_bJumping"));
-		if(m_bJumping) {
-			anim.m_bDidJustJump = true;
-		}
-	}
-
-	if(GroundEntity == -1) {
-		if(anim.m_bDidJustJump) {
-			int sequence = LookupSequence(seqmap, entity, "jump_holding_jump");
-			view_as<BaseAnimating>(entity).ResetSequence(sequence);
-			if(m_bSequenceFinished) {
-				anim.m_bDidJustJump = false;
-			}
-		} else {
-			int sequence = LookupSequence(seqmap, entity, "jump_holding_glide");
-			view_as<BaseAnimating>(entity).ResetSequence(sequence);
-		}
-	}
-
-	float m_flFallVelocity = GetEntPropFloat(client, Prop_Send, "m_flFallVelocity");
-	if(m_flFallVelocity >= 500.0) {
-		anim.m_bWillHardLand = true;
-	}
-
-	if(GroundEntity != -1 && anim.m_hOldGroundEntity == -1) {
-		anim.m_bDidJustLand = true;
-	}
-
-	anim.m_hOldGroundEntity = GroundEntity;
-	anim.m_nOldButtons = buttons;
-	anim.m_bWasDucked = m_bDucked;
-
-	float speed = 0.1;
-	if(anim.m_bCanAnimate) {
-		speed = GetEntPropFloat(entity, Prop_Data, "m_flGroundSpeed");
-		if(speed <= 0.0) {
-			/*int sequence = GetEntProp(entity, Prop_Send, "m_nSequence");
-			speed = GetSpeedForSequence(sequence);
-			*/
-		}
-		if(m_bDucked) {
-			speed *= 3.00000003;
-		}
-	}
-	SetEntPropFloat(client, Prop_Send, "m_flMaxspeed", speed);
-
-	SetEntProp(entity, Prop_Data, "m_bSequenceLoops", 1);
-	view_as<BaseAnimating>(entity).StudioFrameAdvance();
-}
-
 public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
 {
-	AnimsetType animset = playerinfo[client].animset;
-
-	if(animset != animset_tf2) {
+	AnimCodeType animcode = playerinfo[client].animcode;
+	if(animcode != animcode_default) {
 		if(!playeranim[client].m_bCanAnimate) {
 			buttons &= ~IN_ANYMOVEMENTKEY;
 			buttons &= ~IN_JUMP;
@@ -801,13 +873,12 @@ void OnPlayerPostThink(int client)
 		TF2_HideAllWearables(client, true);
 	}
 
-	AnimsetType animset = playerinfo[client].animset;
-
-	if(animset == animset_tf2) {
+	AnimCodeType animcode = playerinfo[client].animcode;
+	if(animcode == animcode_default) {
 		return;
 	}
 
-	int ref = Playermodel_GetEntity(client);
+	int ref = Playermodel_GetAnimEnt(client);
 	int entity = EntRefToEntIndex(ref);
 	if(!IsValidEntity(entity)) {
 		return;
@@ -819,10 +890,62 @@ void OnPlayerPostThink(int client)
 	}
 #endif
 
-	if(animset == animset_hl2) {
-		do_hl2animset(client, entity, playeranim[client], playerinfo[client].seqmap, playerinfo[client].posemap);
+	switch(animcode) {
+		case animcode_simple: {
+			do_simpleanimcode(
+				client, entity,
+				playeranim[client],
+				playerinfo[client].seq_cache, playerinfo[client].pose_cache,
+				playerinfo[client].legtype, playerinfo[client].animnames
+			);
+		}
+	}
+
+	bool m_bDucked = view_as<bool>(GetEntProp(client, Prop_Send, "m_bDucked"));
+
+#if defined GAME_TF2
+	float playback = GetEntPropFloat(entity, Prop_Send, "m_flPlaybackRate");
+	playback = TF2Attrib_HookValueFloat(1.0, "mult_gesture_time", client);
+	SetEntPropFloat(entity, Prop_Send, "m_flPlaybackRate", playback);
+#endif
+
+	float speed = 0.1;
+	if(playeranim[client].m_bCanAnimate) {
+		speed = GetEntPropFloat(entity, Prop_Data, "m_flGroundSpeed");
+		if(m_bDucked) {
+			speed *= 3.00000003;
+		}
+	#if defined GAME_TF2
+		speed = TF2Attrib_HookValueFloat(speed, "mult_gesture_time", client);
+	#endif
+	}
+	if(speed == 0.0) {
+		speed = 4.0;
+	}
+	SetEntPropFloat(client, Prop_Send, "m_flMaxspeed", speed);
+
+	SetEntProp(entity, Prop_Data, "m_bSequenceLoops", 1);
+}
+
+#if defined GAME_TF2
+public void TF2_OnConditionAdded(int client, TFCond condition)
+{
+	if(playerinfo[client].animcode != animcode_default) {
+		if(condition == TFCond_Taunting) {
+			playeranim[client].m_bCanAnimate = false;
+		}
 	}
 }
+
+public void TF2_OnConditionRemoved(int client, TFCond condition)
+{
+	if(playerinfo[client].animcode != animcode_default) {
+		if(condition == TFCond_Taunting) {
+			playeranim[client].m_bCanAnimate = true;
+		}
+	}
+}
+#endif
 
 public void OnPluginEnd()
 {
@@ -925,12 +1048,21 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 #endif
 
 	playerinfo[client].flags = info.flags;
-	playerinfo[client].animset = info.animset;
-	playerinfo[client].gestures = info.gestures;
-	playerinfo[client].seqmap = info.sequences;
-	playerinfo[client].posemap = info.poseparameters;
-	playerinfo[client].id = id;
+	playerinfo[client].modelid = id;
+	playerinfo[client].animid = info.animsetid;
 	playerinfo[client].orig_class = info.orig_class;
+	playerinfo[client].gestures = info.gestures;
+	playerinfo[client].taunts = info.taunts;
+
+	if(info.animsetid != -1) {
+		arrAnimInfos.GetArray(info.animsetid, tmpanimsetinfo, sizeof(tmpanimsetinfo));
+
+		playerinfo[client].animcode = tmpanimsetinfo.animcode;
+		playerinfo[client].seq_cache = tmpanimsetinfo.seq_cache;
+		playerinfo[client].pose_cache = tmpanimsetinfo.pose_cache;
+		playerinfo[client].animnames = tmpanimsetinfo.animnames;
+		playerinfo[client].legtype = tmpanimsetinfo.legtype;
+	}
 
 	if(!(info.flags & FLAG_NOWEAPONS) && hadnoweapons) {
 		TF2_RespawnPlayer(client);
@@ -943,8 +1075,6 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 		TF2_HideAllWearables(client, false);
 	}
 
-	Playermodel_Clear(client);
-
 	PlayerModelType type = info.type;
 	if(!(info.flags & FLAG_ALWAYSBONEMERGE)) {
 		if(type == PlayerModelBonemerge && class == info.orig_class) {
@@ -953,38 +1083,44 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 	}
 
 	PlayerModel_SetType(client, info.model, type, true);
-
 	Playermodel_SetSkin(client, info.skin, true);
-	Playermodel_SetSkin(client, info.skin);
-
 	Playermodel_SetBodygroup(client, info.bodygroup, true);
-	Playermodel_SetBodygroup(client, info.bodygroup);
 
 	if(info.anim[0] != '\0') {
 		Playermodel_SetAnimation(client, info.anim, true);
 	}
+
+	Playermodel_Clear(client, false, true);
 }
 
 int MenuHandler_PlayerModel(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
-		menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
+		if(!TF2_IsPlayerInCondition(param1, TFCond_Taunting)) {
+			menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
 
-		int idx = StringToInt(tmpstr1);
+			int idx = StringToInt(tmpstr1);
 
-		TFClassType class = TF2_GetPlayerClass(param1);
-		if(class != TFClass_Unknown) {
-			arrModelInfos.GetArray(idx, tmpmodelinfo, sizeof(tmpmodelinfo));
+			TFClassType class = TF2_GetPlayerClass(param1);
+			if(class != TFClass_Unknown) {
+				arrModelInfos.GetArray(idx, tmpmodelinfo, sizeof(tmpmodelinfo));
 
-			SetPlayerModel(param1, class, tmpmodelinfo, idx);
+				SetPlayerModel(param1, class, tmpmodelinfo, idx);
 
-			ClassCookies[class].Set(param1, tmpmodelinfo.name);
+				if(tmpmodelinfo.flags & FLAG_NODMG) {
+					PrintToChat(param1, "[SM] You cannot do damage with the \"%s\" model", tmpmodelinfo.name);
+				}
 
-			menu.GetTitle(tmpstr1, sizeof(tmpstr1));
+				ClassCookies[class].Set(param1, tmpmodelinfo.name);
 
-			if(mapGroup.GetArray(tmpstr1, tmpgroupinfo, sizeof(tmpgroupinfo))) {
-				DisplayModelMenu(tmpstr1, tmpgroupinfo.classarr[class], class, param1, menu.Selection);
+				menu.GetTitle(tmpstr1, sizeof(tmpstr1));
+
+				if(mapGroup.GetArray(tmpstr1, tmpgroupinfo, sizeof(tmpgroupinfo))) {
+					DisplayModelMenu(tmpstr1, tmpgroupinfo.classarr[class], class, param1, menu.Selection);
+				}
 			}
+		} else {
+			PrintToChat(param1, "[SM] can't change model mid taunt");
 		}
 	} else if(action == MenuAction_Cancel) {
 		if(param2 == MenuCancel_ExitBack) {
@@ -1001,11 +1137,15 @@ int MenuHandler_ModelGroup(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
 		if(param2 == 0) {
-			ClearPlayerModel(param1);
+			if(!TF2_IsPlayerInCondition(param1, TFCond_Taunting)) {
+				ClearPlayerModel(param1);
 
-			TFClassType class = TF2_GetPlayerClass(param1);
-			if(class != TFClass_Unknown) {
-				ClassCookies[class].Set(param1, "none");
+				TFClassType class = TF2_GetPlayerClass(param1);
+				if(class != TFClass_Unknown) {
+					ClassCookies[class].Set(param1, "none");
+				}
+			} else {
+				PrintToChat(param1, "[SM] can't change model mid taunt");
 			}
 
 			DisplayGroupMenu(param1);
@@ -1036,7 +1176,7 @@ void DisplayModelMenu(const char[] group, ArrayList arr, TFClassType class, int 
 	menu.SetTitle(group);
 
 	int drawstyle = ITEMDRAW_DEFAULT;
-	if(playerinfo[client].id == -1) {
+	if(playerinfo[client].modelid == -1) {
 		drawstyle = ITEMDRAW_DISABLED;
 	}
 
@@ -1074,7 +1214,7 @@ void DisplayModelMenu(const char[] group, ArrayList arr, TFClassType class, int 
 		IntToString(idx, tmpstr1, sizeof(tmpstr1));
 
 		drawstyle = ITEMDRAW_DEFAULT;
-		if(playerinfo[client].id == idx) {
+		if(playerinfo[client].modelid == idx) {
 			drawstyle = ITEMDRAW_DISABLED;
 		}
 
@@ -1145,8 +1285,8 @@ int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int para
 
 		menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
 		
-		if(entity != -1 && IsValidEntity(entity)) {
-			int sequence = LookupSequence(playerinfo[param1].seqmap, entity, tmpstr1);
+		if(IsValidEntity(entity)) {
+			int sequence = LookupSequenceCached(playerinfo[param1].seq_cache, entity, tmpstr1);
 			if(sequence != -1) {
 				view_as<BaseAnimatingOverlay>(entity).AddGestureSequence1(sequence);
 			}
@@ -1162,59 +1302,26 @@ int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int para
 
 void DiplayGesturesMenu(int client, int item = -1)
 {
-	if(playerinfo[client].gestures == gestures_none) {
-		return;
-	}
+	StringMap gestures = playerinfo[client].gestures;
 
 	Handle style = GetMenuStyleHandle(MenuStyle_Default);
 
 	Menu menu = CreateMenuEx(style, MenuHandler_ModelGestures, MENU_ACTIONS_DEFAULT);
 	menu.SetTitle("Gestures");
 
-	switch(playerinfo[client].gestures) {
-		case gestures_hl2rebel_male: {
-			menu.AddItem("g_clap", "Clap");
-			menu.AddItem("g_wave", "Wave");
-			menu.AddItem("g_salute", "Salute");
-			menu.AddItem("g_shrug", "Shrug");
-			menu.AddItem("g_thumbsup", "Thumbs Up");
-			menu.AddItem("g_antman_stayback", "Stay back");
-			menu.AddItem("g_frustrated_point", "Point");
-			menu.AddItem("g_armsup", "Arms Up");
-		}
-		case gestures_hl2rebel_female: {
-			menu.AddItem("g_wave", "Wave");
-			menu.AddItem("G_puncuate", "Puncuate");
-			menu.AddItem("g_arlene_postidle_headup", "Head Up");
-			menu.AddItem("g_arrest_clench", "Clench");
-			menu.AddItem("g_Clutch_Chainlink_HandtoChest", "Hand To Chest");
-			menu.AddItem("g_display_left", "Display Left");
-			menu.AddItem("g_left_openhand", "Open Hand Left");
-			menu.AddItem("g_right_openhand", "Open Right Left");
-			menu.AddItem("holdhands", "Hold Hands");
-			menu.AddItem("urgenthandsweep", "Sweep Lower");
-			menu.AddItem("urgenthandsweepcrouch", "Sweep Upper");
-		}
-		case gestures_hl2gman: {
-			menu.AddItem("G_tiefidget", "Tie Fidget");
-			menu.AddItem("G_lefthand_punct", "Puncuate");
-		}
-		case gestures_hl2breen: {
-			menu.AddItem("B_g_waveoff", "Wave Off");
-			menu.AddItem("B_g_wave", "Wave");
-			menu.AddItem("B_g_upshrug", "Up Shrug");
-			menu.AddItem("B_g_shrug", "Shrug");
-			menu.AddItem("B_g_pray", "Pray");
-			menu.AddItem("B_g_palmsout", "Palms Out");
-			menu.AddItem("B_g_palmsup", "Palms Up");
-			menu.AddItem("B_g_chopout", "Chop Out");
-			menu.AddItem("B_g_rthd_chopdwn", "Chop Down");
-			menu.AddItem("B_g_rthd_tohead", "To Head");
-			menu.AddItem("B_g_sweepout", "Sweep Out");
-			menu.AddItem("B_gesture01", "Hands Out");
-			menu.AddItem("B_gesture02", "Palm Point");
-		}
+	StringMapSnapshot snapshot = gestures.Snapshot();
+
+	char tmpstr3[64];
+
+	for(int i = 0, len = snapshot.Length; i < len; ++i) {
+		snapshot.GetKey(i, tmpstr1, sizeof(tmpstr1));
+
+		gestures.GetString(tmpstr1, tmpstr3, sizeof(tmpstr3));
+
+		menu.AddItem(tmpstr1, tmpstr3);
 	}
+
+	delete snapshot;
 
 	if(item == -1) {
 		menu.Display(client, MENU_TIME_FOREVER);
@@ -1225,7 +1332,81 @@ void DiplayGesturesMenu(int client, int item = -1)
 
 Action ConCommand_GT(int client, int args)
 {
+	StringMap gestures = playerinfo[client].gestures;
+	if(gestures == null) {
+		ReplyToCommand(client, "[SM] This model has no gestures configured");
+		return Plugin_Handled;
+	}
+
 	//DiplayGesturesMenu(client);
+
+	return Plugin_Handled;
+}
+
+int MenuHandler_ModelTaunt(Menu menu, MenuAction action, int param1, int param2)
+{
+	if(action == MenuAction_Select) {
+		int ref = Playermodel_GetAnimEnt(param1);
+		int entity = EntRefToEntIndex(ref);
+
+		menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
+		
+		if(IsValidEntity(entity)) {
+			int sequence = LookupSequenceCached(playerinfo[param1].seq_cache, entity, tmpstr1);
+			if(sequence != -1) {
+				if(TauntManager_DoTauntAnim(param1, entity, sequence, true, false)) {
+					playeranim[param1].m_bCanAnimate = false;
+				}
+			}
+		}
+
+		DiplayTauntMenu(param1, menu.Selection);
+	} else if(action == MenuAction_End) {
+		delete menu;
+	}
+	
+	return 0;
+}
+
+void DiplayTauntMenu(int client, int item = -1)
+{
+	StringMap taunts = playerinfo[client].taunts;
+
+	Handle style = GetMenuStyleHandle(MenuStyle_Default);
+
+	Menu menu = CreateMenuEx(style, MenuHandler_ModelTaunt, MENU_ACTIONS_DEFAULT);
+	menu.SetTitle("Taunt");
+
+	StringMapSnapshot snapshot = taunts.Snapshot();
+
+	char tmpstr3[64];
+
+	for(int i = 0, len = snapshot.Length; i < len; ++i) {
+		snapshot.GetKey(i, tmpstr1, sizeof(tmpstr1));
+
+		taunts.GetString(tmpstr1, tmpstr3, sizeof(tmpstr3));
+
+		menu.AddItem(tmpstr1, tmpstr3);
+	}
+
+	delete snapshot;
+
+	if(item == -1) {
+		menu.Display(client, MENU_TIME_FOREVER);
+	} else {
+		menu.DisplayAt(client, item, MENU_TIME_FOREVER);
+	}
+}
+
+Action ConCommand_PT(int client, int args)
+{
+	StringMap taunts = playerinfo[client].taunts;
+	if(taunts == null) {
+		ReplyToCommand(client, "[SM] This model has no taunts configured");
+		return Plugin_Handled;
+	}
+
+	DiplayTauntMenu(client);
 
 	return Plugin_Handled;
 }

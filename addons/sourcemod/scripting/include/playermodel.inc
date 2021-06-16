@@ -55,6 +55,10 @@ native void Playermodel_GetAnimation(int client, char[] model, int length, bool 
 native int Playermodel_GetEntity(int client);
 //returns entref
 native int Playermodel_GetLink(int client);
+//returns entref
+native int Playermodel_CreateLink(int client);
+//returns entref
+native int Playermodel_GetAnimEnt(int client);
 native int Playermodel_SetAnimation(int client, const char[] model, bool def=false);
 native PlayerModelType Playermodel_GetType(int client, bool def=false);
 //returns entref

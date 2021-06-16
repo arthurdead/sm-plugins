@@ -158,21 +158,30 @@ TFClassType GetWeaponClass(int weapon, int item, TFClassType class)
 #endif
 }
 
+char tmpanim[PLATFORM_MAX_PATH];
+
 void OnWeaponSwitch(int client, int weapon)
 {
-	int m_iItemDefinitionIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
-	TFClassType class = TF2_GetPlayerClass(client);
-	int slot = TF2Econ_GetItemLoadoutSlot(m_iItemDefinitionIndex, class);
-	int wepinslot = GetPlayerWeaponSlot(client, slot);
-
-	if(slot == -1 || wepinslot != weapon) {
-		class = GetWeaponClass(weapon, m_iItemDefinitionIndex, class);
+	if(TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
+		return;
 	}
 
-	if(class != TFClass_Unknown) {
-		char anim[64];
-		GetModelForClass(class, anim, sizeof(anim));
-		Playermodel_SetAnimation(client, anim);
+	TFClassType class = TFClass_Unknown;
+
+	if(IsValidEntity(weapon)) {
+		int m_iItemDefinitionIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
+		TFClassType class = TF2_GetPlayerClass(client);
+		int slot = TF2Econ_GetItemLoadoutSlot(m_iItemDefinitionIndex, class);
+		int wepinslot = GetPlayerWeaponSlot(client, slot);
+
+		if(slot == -1 || wepinslot != weapon) {
+			class = GetWeaponClass(weapon, m_iItemDefinitionIndex, class);
+		}
+	}
+
+	if(class != TFClass_Unknown && class != TF2_GetPlayerClass(client)) {
+		GetModelForClass(class, tmpanim, sizeof(tmpanim));
+		Playermodel_SetAnimation(client, tmpanim);
 	} else {
 		Playermodel_SetAnimation(client, "");
 	}

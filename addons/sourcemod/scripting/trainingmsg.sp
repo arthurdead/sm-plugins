@@ -29,6 +29,7 @@ enum struct TraningMsgMenuFunction
 {
 	Handle plugin;
 	Function func;
+	any data;
 }
 
 enum struct TraningMsgMenuInfo
@@ -74,64 +75,89 @@ Handle rsay_timer = null;
 
 Action sm_rbug(int client, int args)
 {
-	delete rsay_timer;
+	if(rsay_timer != null) {
+		KillTimer(rsay_timer);
+	}
+
+	rsay_timer = null;
 
 	DisableAll();
 
 	return Plugin_Handled;
 }
 
-/*int currentvotes[4] = {0, ...};
-
-void VoteHandler(TrainingMsgMenuAction action, int client, int param1, any data)
+/*void VoteHandler(TrainingMsgMenuAction action, int client, int param1, any menu_data, any item_data)
 {
 	if(action == TrainingMsgMenuAction_Select) {
-		++currentvotes[param1];
-	} else if(action == TrainingMsgMenuAction_Cancel) {
+		ArrayList result = view_as<ArrayList>(menu_data);
+		int idx = param1-1;
+		int curr = result.Get(idx);
+		++curr;
+		result.Set(idx, curr);
+	}
+}
+
+Action Timer_ShowVoteResult(Handle timer, any data)
+{
+	ArrayList result = view_as<ArrayList>(data);
+	for(int i = 0, len = result.Length; i < len; ++i) {
 
 	}
+	delete result;
+	return Plugin_Handled;
 }
 
 Action sm_rvote(int client, int args)
 {
 	if(args < 2) {
-		ReplyToCommand(client, "[SM] sm_rvote <title> <option1> <option2> <option3> <option4>");
+		ReplyToCommand(client, "[SM] sm_rvote <title> <option1> <option2> etc...");
 		return Plugin_Handled;
 	}
 
-	if(args > 6) {
-		ReplyToCommand(client, "[SM] only 4 options allowed");
+	if(args >= (TRAINING_MSG_MAX_HEIGHT+2)) {
+		ReplyToCommand(client, "[SM] only %i options allowed", TRAINING_MSG_MAX_HEIGHT);
 		return Plugin_Handled;
 	}
 
-	char title[64];
+	char title[TRAINING_MSG_MAX_WIDTH];
 	GetCmdArg(1, title, sizeof(title));
 
-	TrainingMsgMenu menu = TrainingMsgMenu(VoteHandler);
+	ArrayList result = new ArrayList();
+
+	TrainingMsgMenu menu = TrainingMsgMenu(VoteHandler, result);
 	menu.SetTitle(title);
 
-	GetCmdArg(2, title, sizeof(title));
-	menu.AddItem(title);
-
-	if(args >= 3) {
-		GetCmdArg(3, title, sizeof(title));
-		menu.AddItem(title);
-	}
-
-	if(args >= 4) {
-		GetCmdArg(3, title, sizeof(title));
-		menu.AddItem(title);
-	}
-
-	if(args >= 5) {
-		GetCmdArg(5, title, sizeof(title));
-		menu.AddItem(title);
+	for(int i = 0; i < TRAINING_MSG_MAX_HEIGHT; ++i) {
+		int idx = i+2;
+		if(args >= idx) {
+			GetCmdArg(idx, title, sizeof(title));
+			menu.AddItem(title);
+			result.Set(i, 0);
+		} else {
+			break;
+		}
 	}
 
 	menu.SendToClient(client, TRAININGMSGMENU_TIME_FOREVER);
 
+	CreateTimer(2.0, Timer_ShowVoteResult, result);
+
 	return Plugin_Handled;
 }*/
+
+void WarpText(char[] dst, char[] src, int len)
+{
+	for(int i = 0, j = 0; j <= len; ++j) {
+		if(j > 1) {
+			int mod = (j % TRAINING_MSG_MAX_WIDTH);
+			if(mod == 0) {
+				dst[i++] = '\n';
+			}
+		}
+
+		dst[i++] = src[j];
+	}
+}
 
 Action sm_rsay(int client, int args)
 {
@@ -140,7 +166,7 @@ Action sm_rsay(int client, int args)
 		return Plugin_Handled;
 	}
 
-	char msg[64];
+	char msg[TRAINING_MSG_MAX_LEN];
 	GetCmdArgString(msg, sizeof(msg));
 
 	ReplaceString(msg, sizeof(msg), "\\x2", "\x2");
@@ -148,18 +174,18 @@ Action sm_rsay(int client, int args)
 	ReplaceString(msg, sizeof(msg), "\\n", "\n");
 	ReplaceString(msg, sizeof(msg), "\\t", "\t");
 
-	//TODO!!! insert \n
-	/*int len = strlen(msg);
-	if(len > TRAINING_MSG_MAX_WIDTH) {
-		int num = RoundToCeil(float(len) / float(TRAINING_MSG_MAX_WIDTH));
-	}*/
+	char msg_newline[TRAINING_MSG_MAX_LEN];
+	int len = strlen(msg);
+	WarpText(msg_newline, msg, len);
 
-	char title[64];
+	char title[TRAINING_MSG_MAX_WIDTH];
 	Format(title, sizeof(title), "%N", client);
 
-	SendToAllImpl(title, msg);
+	SendToAllImpl(title, msg_newline);
 
-	delete rsay_timer;
+	if(rsay_timer != null) {
+		KillTimer(rsay_timer);
+	}
 	rsay_timer = CreateTimer(sm_rsay_time.FloatValue, Timer_RemoveRsay, 0, TIMER_FLAG_NO_MAPCHANGE);
 
 	return Plugin_Handled;
@@ -217,6 +243,8 @@ bool CancelTrainingMsgMenu(int client)
 		Call_PushCell(TrainingMsgMenuAction_Cancel);
 		Call_PushCell(client);
 		Call_PushCell(TrainingMsgMenuCancel_Interrupted);
+		Call_PushCell(func.data);
+		Call_PushCell(0);
 		Call_Finish();
 
 		TraningMsgMenusFunctions.Erase(index);
@@ -246,6 +274,7 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 				Call_PushCell(TrainingMsgMenuAction_Select);
 				Call_PushCell(param1);
 				Call_PushCell(param2);
+				Call_PushCell(func.data);
 				Call_PushCell(0);
 				Call_Finish();
 
@@ -273,6 +302,7 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 					default: { Call_PushCell(-1); }
 				}
 
+				Call_PushCell(func.data);
 				Call_PushCell(0);
 				Call_Finish();
 
@@ -295,16 +325,17 @@ int TrainingMsgMenuCtor(Handle plugin, int params)
 	TraningMsgMenuFunction func;
 	func.func = GetNativeFunction(1);
 	func.plugin = plugin;
+	func.data = GetNativeCell(2);
 
 	TraningMsgMenusFunctions.PushArray(func, sizeof(TraningMsgMenuFunction));
 
 	return TraningMsgMenus.PushArray(info, sizeof(TraningMsgMenuInfo));
 }
 
-void AddItemToString(ArrayList items, int keys, int i, int block, char[] msg, int len, bool newline, bool pipe)
+void AddItemToString(ArrayList items, int keys, int i, int maxlen, char[] msg, int len, bool newline, bool pipe)
 {
-	char[] item = new char[block];
-	items.GetString(i, item, block);
+	char[] item = new char[maxlen];
+	items.GetString(i, item, maxlen);
 
 	if(keys & (1 << i)) {
 		char num[2];
@@ -366,7 +397,7 @@ int TrainingMsgMenuSendToClient(Handle plugin, int params)
 		}
 
 		for(int i = 0; i < itemnum; ++i) {
-			AddItemToString(info.items, info.keys, i, block, msg, len, true, false);
+			AddItemToString(info.items, info.keys, i, TRAINING_MSG_MAX_WIDTH, msg, len, true, false);
 		}
 
 		SendToClientsHelper(clients, sizeof(clients), info.title, msg);

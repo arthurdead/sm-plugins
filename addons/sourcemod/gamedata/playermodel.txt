@@ -10,5 +10,12 @@
 				"linux" "431"
 			}
 		}
+		"Signatures"
+		{
+			"CTFPlayerShared::RecalculatePlayerBodygroups"
+			{
+				"linux" "@_ZN15CTFPlayerShared27RecalculatePlayerBodygroupsEv"
+			}
+		}
 	}
 }

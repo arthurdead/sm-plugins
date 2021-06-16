@@ -3,8 +3,9 @@
 #endif
 #define trainingmsg_inc
 
-#define TRAINING_MSG_MAX_WIDTH 43
+#define TRAINING_MSG_MAX_WIDTH 46
 #define TRAINING_MSG_MAX_HEIGHT 4
+#define TRAINING_MSG_MAX_LEN (TRAINING_MSG_MAX_WIDTH * TRAINING_MSG_MAX_HEIGHT)
 
 enum TrainingMsgMenuAction
 {
@@ -20,13 +21,13 @@ enum
 	TrainingMsgMenuCancel_Timeout,
 };
 
-typedef TrainingMsgMenuHandler = function void (TrainingMsgMenuAction action, int client, int param1, any data);
+typedef TrainingMsgMenuHandler = function void (TrainingMsgMenuAction action, int client, int param1, any menu_data, any item_data);
 
 #define TRAININGMSGMENU_TIME_FOREVER 0
 
 methodmap TrainingMsgMenu
 {
-	public native TrainingMsgMenu(TrainingMsgMenuHandler handler);
+	public native TrainingMsgMenu(TrainingMsgMenuHandler handler, any data = 0);
 
 	public native void SetTitle(const char[] str);
 

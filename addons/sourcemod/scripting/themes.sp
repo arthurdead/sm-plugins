@@ -46,7 +46,7 @@
 #define PLUGIN_URL		"http://j-factor.com/"
 
 // Debug -----------------------------------------------------------------------
-// #define DEBUG		1 
+#define DEBUG		1 
 
 // Configs ---------------------------------------------------------------------
 #define CONFIG_MAPS 		"configs/themes/maps.cfg"
@@ -58,7 +58,6 @@
 								// can't redownload the particle manifests
 
 // General ---------------------------------------------------------------------
-#define MAX_STAGES		8  // Maximum number of stages in a given map
 #define MAX_THEMES		32 // Maximum number of themes in a given map
 
 #define TEAM_RED		2
@@ -135,13 +134,22 @@ bool mapBigSun;
 bool mapWind;
 bool mapNoParticles;
 bool mapIndoors;
+bool mapStageless;
 char mapOverlay[32];
 
 // Map Region
 bool mapEstimateRegion;
-float mapX1[MAX_STAGES], mapX2[MAX_STAGES],
-	mapY1[MAX_STAGES], mapY2[MAX_STAGES],
-	mapZ[MAX_STAGES];
+
+enum struct MapCoordInfo
+{
+	float X1;
+	float Y1;
+	float X2;
+	float Y2;
+	float Z;
+}
+
+ArrayList mapCoordenates = null;
 	
 // Extra
 int mapCCEntity1;
@@ -236,7 +244,8 @@ ConVar cvUrl = null;
 ConVar cvEstimateMethod = null;
 ConVar cvDefaultThemeset = null;
 ConVar cvBZ2CopyFolder = null;
-ConVar cvParticleLimit = null;
+ConVar cvGlobalParticleLimit = null;
+ConVar cvStageParticleLimit = null;
 
 void ClampCompression(ConVar convar, const char[] oldValue, const char[] newValue)
 {
@@ -287,10 +296,21 @@ public void OnPluginStart()
 	cvPass = CreateConVar("sm_themes_ftp_pass", "");
 	cvDeleteBZ2 = CreateConVar("sm_themes_delete_bz2", "1");
 	cvUrl = CreateConVar("sm_themes_ftp_url", "");
-	cvEstimateMethod = CreateConVar("sm_themes_region_method", "0", "0 == entities, 1 == m_WorldMaxs/Mins");
+	cvEstimateMethod = CreateConVar("sm_themes_region_method", "1", "0 == entities, 1 == m_WorldMaxs/Mins");
+#if defined DEBUG
 	cvDefaultThemeset = CreateConVar("sm_themes_default_themeset", "standard");
+#else
+	cvDefaultThemeset = CreateConVar("sm_themes_default_themeset", "");
+#endif
 	cvBZ2CopyFolder = CreateConVar("sm_themes_bz2_folder", "");
-	cvParticleLimit = CreateConVar("sm_themes_particle_limit", "64");
+
+#if !defined DEBUG
+	cvGlobalParticleLimit = CreateConVar("sm_themes_global_particle_limit", "64");
+	cvStageParticleLimit = CreateConVar("sm_themes_stage_particle_limit", "64");
+#else
+	cvGlobalParticleLimit = CreateConVar("sm_themes_global_particle_limit", "-1");
+	cvStageParticleLimit = CreateConVar("sm_themes_stage_particle_limit", "-1");
+#endif
 
 	RegAdminCmd("sm_themes_reload", ConCommand_ReloadTheme, ADMFLAG_GENERIC);
 
@@ -312,7 +332,9 @@ public void OnPluginStart()
 	LoadTranslations("themes.phrases");
 
 	// Execute main config
+#if !defined DEBUG
 	AutoExecConfig(true, "themes");
+#endif
 
 	// Initialize
 	windEnabled = cvWind.BoolValue;
@@ -578,19 +600,24 @@ void InitConfig()
 	mapWind   = false;
 	mapNoParticles = false;
 	mapIndoors = false;
+	mapStageless = false;
 	mapOverlay[0] = '\0';
 	
 	// Region
 	numStages = 0;
 	mapEstimateRegion = true;
 	
-	for (int i = 0; i < MAX_STAGES; i++) {
-		mapX1[i] = 0.0;
-		mapX2[i] = 0.0;
-		mapY1[i] = 0.0;
-		mapY2[i] = 0.0;
-		mapZ[i] = 0.0;
-	}
+	delete mapCoordenates;
+	mapCoordenates = new ArrayList(sizeof(MapCoordInfo));
+
+	MapCoordInfo tmpinfo;
+	tmpinfo.X1 = 0.0;
+	tmpinfo.Y1 = 0.0;
+	tmpinfo.X2 = 0.0;
+	tmpinfo.Y2 = 0.0;
+	tmpinfo.Z = 0.0;
+	mapCoordenates.Resize(1);
+	mapCoordenates.SetArray(0, tmpinfo, sizeof(tmpinfo));
 	
 	// Reset etc
 	numThemes = 0;
@@ -634,6 +661,8 @@ bool LoadConfig()
 			// Treat map config as ThemeSet and read all themes
 			ReadThemeSet(kvMaps);
 		}
+
+		mapStageless = (kvMaps.GetNum("stageless", 0) == 1);
 		
 		// Read Map Region
 		ReadMapRegion(kvMaps);
@@ -883,7 +912,7 @@ void ReadMapRegion(KeyValues kv)
 		mapEstimateRegion = false;
 	
 		// Read the region for each stage of the map
-		for (int i = 0; i < MAX_STAGES; i++) {
+		for (int i = 0; ; i++) {
 			char stage[8];
 			Format(stage, sizeof(stage), "stage%i", i + 1);
 			
@@ -892,31 +921,38 @@ void ReadMapRegion(KeyValues kv)
 				
 				n1 = kv.GetFloat("x1", 0.0);
 				n2 = kv.GetFloat("x2", 0.0);
+
+				MapCoordInfo tmpinfo;
 				
 				if (n1 > n2) {
-					mapX1[i] = n2;
-					mapX2[i] = n1;
+					tmpinfo.X1 = n2;
+					tmpinfo.X2 = n1;
 				} else {
-					mapX1[i] = n1;
-					mapX2[i] = n2;
+					tmpinfo.X1 = n1;
+					tmpinfo.X2 = n2;
 				}
 				
 				n1 = kv.GetFloat("y1", 0.0);
 				n2 = kv.GetFloat("y2", 0.0);
 				
 				if (n1 > n2) {
-					mapY1[i] = n2;
-					mapY2[i] = n1;
+					tmpinfo.Y1 = n2;
+					tmpinfo.Y2 = n1;
 				} else {
-					mapY1[i] = n1;
-					mapY2[i] = n2;
+					tmpinfo.Y1 = n1;
+					tmpinfo.Y2 = n2;
 				}
 				
-				mapZ[i] = kv.GetFloat("z", 0.0);
+				tmpinfo.Z = kv.GetFloat("z", 0.0);
+
+				mapCoordenates.Resize(mapCoordenates.Length+1);
+				mapCoordenates.SetArray(i, tmpinfo, sizeof(MapCoordInfo));
 				
 				numStages++;
 				
 				kv.GoBack();
+			} else {
+				break;
 			}
 		}
 		
@@ -1411,7 +1447,7 @@ void ApplyConfigMap()
 	
 	// Estimate Map Region
 	if (mapEstimateRegion) {
-		EstimateMapRegion();
+		EstimateMapRegion(cvEstimateMethod.IntValue);
 	}
 	
 	// Init Color Correction
@@ -1536,8 +1572,26 @@ void ApplyConfigRound()
 	}
 	
 	// Apply Particles
-	if (cvParticles.BoolValue) {
-		CreateParticles();
+	if (cvParticles.BoolValue && mapParticle[0] != '\0') {
+		if(mapStageless) {
+			int num_global = 0;
+			bool hit_limit = false;
+			for(int i = 0; i < numStages; ++i) {
+				int num_stage = CreateParticles(currentStage, num_global, hit_limit);
+				if(hit_limit) {
+					break;
+				}
+				LogMessage("Stage %i created %i particles of type %s", i, num_stage, mapParticle);
+			}
+			LogMessage("Created %i particles in total of type %s", num_global, mapParticle);
+		} else {
+			int num = 0;
+			bool hit_limit = false;
+			CreateParticles(currentStage, num, hit_limit);
+
+			LogMessage("Current stage: %i", currentStage);
+			LogMessage("Created %i particles of type %s", num, mapParticle);
+		}
 	}
 	
 	// Apply Bloom
@@ -1680,12 +1734,16 @@ void ApplyConfigRound()
 **
 ** Creates particles around the map.
 ** -------------------------------------------------------------------------- */
-void CreateParticles()
+int CreateParticles(int stage, int &num_global, bool &hit_global_limit)
 {
+	if(hit_global_limit) {
+		return 0;
+	}
+
 	if (!StrEqual(mapParticle, "")) {
 		// Remove old particles
 		int ent = -1;
-		int num = 0;
+		int num_stage = 0;
 		
 		while ((ent = FindEntityByClassname(ent, "info_particle_system")) != -1) {
 			if (IsValidEntity(ent)) {
@@ -1709,9 +1767,12 @@ void CreateParticles()
 		
 		int x, y, nx, ny;
 		float w, h, ox, oy;
+
+		MapCoordInfo tmpinfo;
+		mapCoordenates.GetArray(stage, tmpinfo, sizeof(MapCoordInfo));
 		
-		w = mapX2[currentStage] - mapX1[currentStage];
-		h = mapY2[currentStage] - mapY1[currentStage];
+		w = tmpinfo.X2 - tmpinfo.X1;
+		h = tmpinfo.Y2 - tmpinfo.Y1;
 		
 		nx = RoundToFloor(w/1024.0) + 1;
 		ny = RoundToFloor(h/1024.0) + 1;
@@ -1719,15 +1780,17 @@ void CreateParticles()
 		ox = (((RoundToFloor(w/1024.0) + 1) * 1024.0) - w)/2;
 		oy = (((RoundToFloor(h/1024.0) + 1) * 1024.0) - h)/2;
 		
-		bool hit_limit = false;
-		int limit = cvParticleLimit.IntValue;
+		int limit_global = cvGlobalParticleLimit.IntValue;
+		int limit_stage = cvStageParticleLimit.IntValue;
+
+		bool hit_stage_limit = false;
 
 		for (x = 0; x < nx; x++) {
 			for (y = 0; y < ny; y++) {
 				float pos[3];
-				pos[0] = mapX1[currentStage] + x*1024.0 + 512.0 - ox;
-				pos[1] = mapY1[currentStage] + y*1024.0 + 512.0 - oy;
-				pos[2] = mapParticleHeight + mapZ[currentStage];
+				pos[0] = tmpinfo.X1 + x*1024.0 + 512.0 - ox;
+				pos[1] = tmpinfo.Y1 + y*1024.0 + 512.0 - oy;
+				pos[2] = mapParticleHeight + tmpinfo.Z;
 
 				int particle = CreateEntityByName("info_particle_system");
 
@@ -1749,25 +1812,35 @@ void CreateParticles()
 					ActivateEntity(ent);*/
 				}
 				
-				num++;
+				num_global++;
+				num_stage++;
 				
-				if(limit != -1) {
-					if (num > limit) {
-						LogMessage("Error: Too many particles!");
-						hit_limit = true;
+				if(limit_global != -1) {
+					if (num_global >= limit_global) {
+						LogMessage("Warning: Hit global particle limit!");
+						hit_global_limit = true;
+						break;
+					}
+				}
+
+				if(limit_stage != -1) {
+					if (num_stage >= limit_stage) {
+						LogMessage("Warning: Stage %i hit particle limit!", stage);
+						hit_stage_limit = true;
 						break;
 					}
 				}
 			}
 
-			if(hit_limit) {
+			if(hit_stage_limit || hit_global_limit) {
 				break;
 			}
 		}
-		
-		LogMessage("Current stage: %i", currentStage);
-		LogMessage("Created %i particles of type %s", num, mapParticle);
+
+		return num_stage;
 	}
+
+	return 0;
 }
 
 /* EstimateMapRegion()
@@ -1775,11 +1848,12 @@ void CreateParticles()
 ** Estimates the region of the map by finding the minimum and maximum position
 ** of entities. Only used for particles.
 ** -------------------------------------------------------------------------- */
-void EstimateMapRegion()
+void EstimateMapRegion(int method)
 {
 	if (!StrEqual(mapParticle, "")) {
+		MapCoordInfo tmpinfo;
 
-		if(cvEstimateMethod.IntValue == 0) {
+		if(method == 0) {
 			int maxEnts = GetMaxEntities();
 			
 			for (int i = MaxClients + 1; i <= maxEnts; i++) {
@@ -1792,23 +1866,23 @@ void EstimateMapRegion()
 					float pos[3];
 					GetEntPropVector(i, Prop_Send, "m_vecOrigin", pos);
 					
-					if (pos[0] < mapX1[0]) {
-						mapX1[0] = pos[0];
+					if (pos[0] < tmpinfo.X1) {
+						tmpinfo.X1 = pos[0];
 					}
-					if (pos[0] > mapX2[0]) {
-						mapX2[0] = pos[0];
+					if (pos[0] > tmpinfo.X2) {
+						tmpinfo.X2 = pos[0];
 					}
 					
-					if (pos[1] < mapY1[0]) {
-						mapY1[0] = pos[1];
+					if (pos[1] < tmpinfo.Y1) {
+						tmpinfo.Y1 = pos[1];
 					}
-					if (pos[1] > mapY2[0]) {
-						mapY2[0] = pos[1];
+					if (pos[1] > tmpinfo.Y2) {
+						tmpinfo.Y2 = pos[1];
 					}
 				}
 			}
 
-			mapZ[0] = 0.0;
+			tmpinfo.Z = 0.0;
 		} else {
 			float m_WorldMins[3];
 			GetEntPropVector(0, Prop_Send, "m_WorldMins", m_WorldMins);
@@ -1816,23 +1890,17 @@ void EstimateMapRegion()
 			float m_WorldMaxs[3];
 			GetEntPropVector(0, Prop_Send, "m_WorldMaxs", m_WorldMaxs);
 
-			mapX1[0] = m_WorldMins[0];
-			mapX2[0] = m_WorldMaxs[0];
-			mapY1[0] = m_WorldMins[2];
-			mapY2[0] = m_WorldMaxs[2];
+			tmpinfo.X1 = m_WorldMins[0];
+			tmpinfo.X2 = m_WorldMaxs[0];
+			tmpinfo.Y1 = m_WorldMins[1];
+			tmpinfo.Y2 = m_WorldMaxs[1];
 
-			mapZ[0] = m_WorldMaxs[1];
+			tmpinfo.Z = m_WorldMaxs[2];
 		}
+
+		mapCoordenates.SetArray(0, tmpinfo, sizeof(tmpinfo));
 		
-		for (int i = 1; i < MAX_STAGES; i++) {
-			mapX1[i] = mapX1[0];
-			mapX2[i] = mapX2[0];
-			mapY1[i] = mapY1[0];
-			mapY2[i] = mapY2[0];
-			mapZ[i] = mapZ[0];
-		}
-		
-		LogMessage("Map region estimated: (%f, %f) to (%f, %f) [%f x %f], z = %f", mapX1[0], mapY1[0], mapX2[0], mapY2[0], mapX2[0] - mapX1[0], mapY2[0] - mapY1[0], mapZ[0]);
+		LogMessage("Map region estimated using method %i: (%f, %f) to (%f, %f) [%f x %f], z = %f", method, tmpinfo.X1, tmpinfo.Y1, tmpinfo.X2, tmpinfo.Y2, tmpinfo.X2 - tmpinfo.X1, tmpinfo.Y2 - tmpinfo.Y1, tmpinfo.Z);
 	}
 }
 
@@ -1872,6 +1940,7 @@ void LogTheme()
 	LogMessage("No Particles: %d", mapNoParticles);
 	LogMessage("Indoors: %d", mapIndoors);
 	LogMessage("Overlay: %s", mapOverlay);
+	LogMessage("Stageless: %d", mapStageless);
 	#endif
 }
 
