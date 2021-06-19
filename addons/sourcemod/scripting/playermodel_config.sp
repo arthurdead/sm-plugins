@@ -1062,6 +1062,12 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 		playerinfo[client].pose_cache = tmpanimsetinfo.pose_cache;
 		playerinfo[client].animnames = tmpanimsetinfo.animnames;
 		playerinfo[client].legtype = tmpanimsetinfo.legtype;
+	} else {
+		playerinfo[client].animcode = animcode_default;
+		playerinfo[client].seq_cache = null;
+		playerinfo[client].pose_cache = null;
+		playerinfo[client].animnames = null;
+		playerinfo[client].legtype = leg_ignore;
 	}
 
 	if(!(info.flags & FLAG_NOWEAPONS) && hadnoweapons) {
@@ -1277,7 +1283,7 @@ void DisplayGroupMenu(int client, int item = -1)
 	}
 }
 
-int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int param2)
+int MenuHandler_PropModelGestures(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
 		int ref = Playermodel_GetEntity(param1);
@@ -1292,7 +1298,7 @@ int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int para
 			}
 		}
 
-		DiplayGesturesMenu(param1, menu.Selection);
+		DiplayPropGesturesMenu(param1, menu.Selection);
 	} else if(action == MenuAction_End) {
 		delete menu;
 	}
@@ -1300,13 +1306,13 @@ int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int para
 	return 0;
 }
 
-void DiplayGesturesMenu(int client, int item = -1)
+void DiplayPropGesturesMenu(int client, int item = -1)
 {
 	StringMap gestures = playerinfo[client].gestures;
 
 	Handle style = GetMenuStyleHandle(MenuStyle_Default);
 
-	Menu menu = CreateMenuEx(style, MenuHandler_ModelGestures, MENU_ACTIONS_DEFAULT);
+	Menu menu = CreateMenuEx(style, MenuHandler_PropModelGestures, MENU_ACTIONS_DEFAULT);
 	menu.SetTitle("Gestures");
 
 	StringMapSnapshot snapshot = gestures.Snapshot();
@@ -1330,15 +1336,73 @@ void DiplayGesturesMenu(int client, int item = -1)
 	}
 }
 
-Action ConCommand_GT(int client, int args)
+int MenuHandler_ModelGestures(Menu menu, MenuAction action, int param1, int param2)
 {
-	StringMap gestures = playerinfo[client].gestures;
-	if(gestures == null) {
-		ReplyToCommand(client, "[SM] This model has no gestures configured");
-		return Plugin_Handled;
+	if(action == MenuAction_Select) {
+		menu.GetItem(param2, tmpstr1, sizeof(tmpstr1));
+		
+		
+
+		DiplayGesturesMenu(param1, menu.Selection);
+	} else if(action == MenuAction_End) {
+		delete menu;
+	}
+	
+	return 0;
+}
+
+void DiplayGesturesMenu(int client, int item = -1)
+{
+	/*Handle style = GetMenuStyleHandle(MenuStyle_Default);
+
+	Menu menu = CreateMenuEx(style, MenuHandler_ModelGestures, MENU_ACTIONS_DEFAULT);
+	menu.SetTitle("Gestures");
+
+	TFClassType class = TF2_GetPlayerClass(client);
+	switch(class) {
+		case TFClass_Scout: {
+
+		}
 	}
 
-	//DiplayGesturesMenu(client);
+	menu.AddItem("0", "Thumbs Up");
+
+	if(item == -1) {
+		menu.Display(client, MENU_TIME_FOREVER);
+	} else {
+		menu.DisplayAt(client, item, MENU_TIME_FOREVER);
+	}*/
+}
+
+Action ConCommand_GT(int client, int args)
+{
+	if(playerinfo[client].animcode == animcode_default) {
+		if(args < 1) {
+			DiplayGesturesMenu(client);
+			return Plugin_Handled;
+		}
+
+		char name[64];
+		GetCmdArg(1, name, sizeof(name));
+
+
+	} else {
+		StringMap gestures = playerinfo[client].gestures;
+		if(gestures == null) {
+			ReplyToCommand(client, "[SM] This model has no gestures configured");
+			return Plugin_Handled;
+		}
+
+		if(args < 1) {
+			//DiplayPropGesturesMenu(client);
+			return Plugin_Handled;
+		}
+
+		char name[64];
+		GetCmdArg(1, name, sizeof(name));
+
+
+	}
 
 	return Plugin_Handled;
 }

@@ -73,6 +73,7 @@ ConVar cvPluginEnable  = null;
 ConVar cvNextTheme	   = null;
 ConVar cvAnnounce	   = null;
 ConVar cvParticles     = null;
+ConVar cvParticlesTempEnt = null;
 ConVar cvWind 		   = null;
 ConVar cvWindTimer     = null;
 
@@ -88,7 +89,6 @@ KeyValues kvThemeSets = null;
 
 // General ---------------------------------------------------------------------
 int currentStage = 0; // The current stage of the map
-int numStages = 0;    // The number of stages defined for the theme
 
 Handle windTimer = null;
 bool windEnabled = false;
@@ -135,6 +135,7 @@ bool mapWind;
 bool mapNoParticles;
 bool mapIndoors;
 bool mapStageless;
+bool mapCold;
 char mapOverlay[32];
 
 // Map Region
@@ -186,6 +187,12 @@ enum struct FishInfo
 }
 
 ArrayList fishes = null;
+
+int ParticleEffectNames = INVALID_STRING_TABLE;
+int ParticleEffectStop = INVALID_STRING_INDEX;
+int m_iszDetailSpriteMaterialOffset = -1;
+
+bool bWeatherEnabled[MAXPLAYERS+1] = {false, ...};
 
 bool bSystem2 = false;
 bool bBZip2 = false;
@@ -285,6 +292,7 @@ public void OnPluginStart()
 	cvNextTheme = 	 CreateConVar("sm_themes_next_theme", "", "Forces the next map to use the given theme");
 	cvAnnounce =     CreateConVar("sm_themes_announce", "1", "Whether or not to announce the current theme");
 	cvParticles =    CreateConVar("sm_themes_particles", "1", "Enables or disables custom particles for themes");
+	cvParticlesTempEnt = CreateConVar("sm_themes_particles_tempent", "0");
 	cvWind	    =    CreateConVar("sm_themes_wind", "1");
 	cvWindTimer	  =  CreateConVar("sm_themes_wind_timer", "0.2");
 
@@ -313,6 +321,7 @@ public void OnPluginStart()
 #endif
 
 	RegAdminCmd("sm_themes_reload", ConCommand_ReloadTheme, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_themes_getpos", ConCommand_GetPos, ADMFLAG_GENERIC);
 
 	cvPluginEnable.AddChangeHook(Event_EnableChange);
 	cvWind.AddChangeHook(Event_WindEnableChange);
@@ -339,6 +348,89 @@ public void OnPluginStart()
 	// Initialize
 	windEnabled = cvWind.BoolValue;
 	Initialize(cvPluginEnable.BoolValue);
+
+	m_iszDetailSpriteMaterialOffset = FindSendPropInfo("CWorld", "m_iszDetailSpriteMaterial");
+}
+
+float tmpposses[4][3];
+int currentpos = -1;
+
+public void OnGameFrame()
+{
+	static int g_iLaserBeamIndex = -1;
+
+	if(currentpos != -1) {
+		if(g_iLaserBeamIndex == -1) {
+			g_iLaserBeamIndex = PrecacheModel("materials/sprites/laser.vmt");
+		}
+
+		TE_SetupBeamPoints(tmpposses[0], tmpposses[1], g_iLaserBeamIndex, g_iLaserBeamIndex, 0, 120, 0.1, 1.0, 1.0, 2, 1.0, {255, 0, 0, 255}, 0);
+		TE_SendToAll();
+
+		TE_SetupBeamPoints(tmpposses[2], tmpposses[3], g_iLaserBeamIndex, g_iLaserBeamIndex, 0, 120, 0.1, 1.0, 1.0, 2, 1.0, {255, 0, 0, 255}, 0);
+		TE_SendToAll();
+
+		TE_SetupBeamPoints(tmpposses[3], tmpposses[0], g_iLaserBeamIndex, g_iLaserBeamIndex, 0, 120, 0.1, 1.0, 1.0, 2, 1.0, {255, 0, 0, 255}, 0);
+		TE_SendToAll();
+
+		TE_SetupBeamPoints(tmpposses[1], tmpposses[2], g_iLaserBeamIndex, g_iLaserBeamIndex, 0, 120, 0.1, 1.0, 1.0, 2, 1.0, {255, 0, 0, 255}, 0);
+		TE_SendToAll();
+	}
+}
+
+bool TraceEntityFilter_DontHitEntity(int entity, int mask, any data)
+{
+	return entity != data;
+}
+
+Action ConCommand_GetPos(int client, int args)
+{
+	if(currentpos == -1) {
+		currentpos = 0;
+	} else if(currentpos == -2) {
+		currentpos = -1;
+		return Plugin_Handled;
+	}
+
+	GetClientAbsOrigin(client, tmpposses[currentpos]);
+
+	if(currentpos == 0) {
+		float ang[3];
+		ang[0] = 90.0;
+		Handle trace = TR_TraceRayFilterEx(tmpposses[currentpos], ang, MASK_SOLID, RayType_Infinite, TraceEntityFilter_DontHitEntity, client);
+
+		float end[3];
+		TR_GetEndPosition(end, trace);
+
+		delete trace;
+
+		tmpposses[currentpos][2] -= end[2];
+	}
+
+	if(++currentpos == 4) {
+		float smallestx = 9999999999999999999.0;
+		int smallesti = 0;
+		float bigestx = 0.0;
+		int bigesti = 0;
+		for(int i = 0; i < 4; ++i) {
+			if(tmpposses[i][0] < smallestx) {
+				smallestx = tmpposses[i][0];
+				smallesti = i;
+			}
+			if(tmpposses[i][0] > bigestx) {
+				bigestx = tmpposses[i][0];
+				bigesti = i;
+			}
+		}
+		PrintToConsole(client, "x1=%f", tmpposses[smallesti][0]);
+		PrintToConsole(client, "y1=%f", tmpposses[smallesti][1]);
+		PrintToConsole(client, "x2=%f", tmpposses[bigesti][0]);
+		PrintToConsole(client, "y2=%f", tmpposses[bigesti][1]);
+		PrintToConsole(client, "z=%f", tmpposses[0][2]);
+		currentpos = -2;
+	}
+
+	return Plugin_Handled;
 }
 
 Action ConCommand_ReloadTheme(int client, int args)
@@ -407,6 +499,7 @@ void Initialize(bool enable, bool print=true)
 		HookEvent("teamplay_round_win", Event_RoundEnd);
 		HookEvent("teamplay_round_stalemate", Event_RoundEnd);
 		HookEvent("player_team", Event_PlayerTeam);
+		HookEvent("player_initial_spawn", Event_InitialSpawn);
 	
 		pluginTimer = CreateTimer(cvPluginTimer.FloatValue, Timer_Plugin, 0, TIMER_REPEAT);
 		windTimer = CreateTimer(cvWindTimer.FloatValue, Timer_Wind, 0, TIMER_REPEAT);
@@ -421,6 +514,7 @@ void Initialize(bool enable, bool print=true)
 		UnhookEvent("teamplay_round_win", Event_RoundEnd);
 		UnhookEvent("teamplay_round_stalemate", Event_RoundEnd);
 		UnhookEvent("player_team", Event_PlayerTeam);
+		UnhookEvent("player_initial_spawn", Event_InitialSpawn);
 		
 		KillTimer(pluginTimer);
 		pluginTimer = null;
@@ -538,6 +632,11 @@ void StartTheme(bool download=true)
 ** -------------------------------------------------------------------------- */
 public void OnMapStart()
 {
+	ParticleEffectNames = FindStringTable("ParticleEffectNames");
+
+	int EffectDispatch = FindStringTable("EffectDispatch");
+	ParticleEffectStop = FindStringIndex(EffectDispatch, "ParticleEffectStop");
+
 	StartTheme();
 }
 
@@ -601,23 +700,14 @@ void InitConfig()
 	mapNoParticles = false;
 	mapIndoors = false;
 	mapStageless = false;
+	mapCold = false;
 	mapOverlay[0] = '\0';
 	
 	// Region
-	numStages = 0;
 	mapEstimateRegion = true;
 	
 	delete mapCoordenates;
 	mapCoordenates = new ArrayList(sizeof(MapCoordInfo));
-
-	MapCoordInfo tmpinfo;
-	tmpinfo.X1 = 0.0;
-	tmpinfo.Y1 = 0.0;
-	tmpinfo.X2 = 0.0;
-	tmpinfo.Y2 = 0.0;
-	tmpinfo.Z = 0.0;
-	mapCoordenates.Resize(1);
-	mapCoordenates.SetArray(0, tmpinfo, sizeof(tmpinfo));
 	
 	// Reset etc
 	numThemes = 0;
@@ -945,10 +1035,11 @@ void ReadMapRegion(KeyValues kv)
 				
 				tmpinfo.Z = kv.GetFloat("z", 0.0);
 
-				mapCoordenates.Resize(mapCoordenates.Length+1);
-				mapCoordenates.SetArray(i, tmpinfo, sizeof(MapCoordInfo));
-				
-				numStages++;
+				mapCoordenates.PushArray(tmpinfo, sizeof(MapCoordInfo));
+
+			#if defined DEBUG
+				PrintToServer("%s [%f, %f] [%f, %f] %f", stage, tmpinfo.X1, tmpinfo.Y1, tmpinfo.X2, tmpinfo.Y2, tmpinfo.Z);
+			#endif
 				
 				kv.GoBack();
 			} else {
@@ -1105,6 +1196,8 @@ void ReadThemeAttributes(KeyValues kv)
 	
 	// Read Overlay
 	kv.GetString("overlay", mapOverlay, sizeof(mapOverlay), mapOverlay);
+
+	mapCold = (kv.GetNum("cold", mapCold) == 1);
 }
 
 /* UpdateDownloadsTable()
@@ -1405,14 +1498,25 @@ void ApplyConfigMap()
 	// Apply Lighting
 	if (!StrEqual(mapLighting, "")) {
 		SetLightStyle(0, mapLighting);
+	} else {
+		SetLightStyle(0, "m");
 	}
 	
 	// Apply Detail Sprites
 	if (!StrEqual(mapDetailSprites, "")) {
 		Format(detailMaterial, sizeof(detailMaterial), "detail/detailsprites_%s", mapDetailSprites);
-		DispatchKeyValue(0, "detailmaterial", detailMaterial);
+		DispatchKeyValue(0, "detailmaterial", mapDetailSprites);
+		ChangeEdictState(0, m_iszDetailSpriteMaterialOffset);
+	} else {
+		DispatchKeyValue(0, "detailmaterial", "");
+		ChangeEdictState(0, m_iszDetailSpriteMaterialOffset);
 	}
 	
+	if(mapCold) {
+		SetEntProp(0, Prop_Send, "m_bColdWorld", 1);
+	} else {
+		SetEntProp(0, Prop_Send, "m_bColdWorld", 0);
+	}
 	
 	// Remove old Overlay
 	ent = -1;
@@ -1432,17 +1536,15 @@ void ApplyConfigMap()
 	if (!StrEqual(mapOverlay, "")) {
 		ent = CreateEntityByName("env_screenoverlay");
 		
-		if (IsValidEntity(ent)) {
-			DispatchKeyValue(ent, "OverlayName1", mapOverlay);
+		DispatchKeyValue(ent, "OverlayName1", mapOverlay);
 
-			SetVariantString("OnUser1 !self,StartOverlays");
-			AcceptEntityInput(ent, "AddOutput");
+		SetVariantString("OnUser1 !self,StartOverlays");
+		AcceptEntityInput(ent, "AddOutput");
 
-			SetVariantString("OnUser1 !self,FireUser1,,1");
-			AcceptEntityInput(ent, "AddOutput");
+		SetVariantString("OnUser1 !self,FireUser1,,1");
+		AcceptEntityInput(ent, "AddOutput");
 
-			AcceptEntityInput(ent, "FireUser1");
-		}
+		AcceptEntityInput(ent, "FireUser1");
 	}
 	
 	// Estimate Map Region
@@ -1572,27 +1674,7 @@ void ApplyConfigRound()
 	}
 	
 	// Apply Particles
-	if (cvParticles.BoolValue && mapParticle[0] != '\0') {
-		if(mapStageless) {
-			int num_global = 0;
-			bool hit_limit = false;
-			for(int i = 0; i < numStages; ++i) {
-				int num_stage = CreateParticles(currentStage, num_global, hit_limit);
-				if(hit_limit) {
-					break;
-				}
-				LogMessage("Stage %i created %i particles of type %s", i, num_stage, mapParticle);
-			}
-			LogMessage("Created %i particles in total of type %s", num_global, mapParticle);
-		} else {
-			int num = 0;
-			bool hit_limit = false;
-			CreateParticles(currentStage, num, hit_limit);
-
-			LogMessage("Current stage: %i", currentStage);
-			LogMessage("Created %i particles of type %s", num, mapParticle);
-		}
-	}
+	CreateParticles(-1);
 	
 	// Apply Bloom
 	if (mapBloom != -1.0) {
@@ -1730,24 +1812,72 @@ void ApplyConfigRound()
 	}
 }
 
-/* CreateParticles()
-**
-** Creates particles around the map.
-** -------------------------------------------------------------------------- */
-int CreateParticles(int stage, int &num_global, bool &hit_global_limit)
+enum
 {
-	if(hit_global_limit) {
-		return 0;
+	PATTACH_ABSORIGIN = 0,
+	PATTACH_ABSORIGIN_FOLLOW,
+	PATTACH_CUSTOMORIGIN,
+	PATTACH_POINT,
+	PATTACH_POINT_FOLLOW,
+	PATTACH_WORLDORIGIN,
+	PATTACH_ROOTBONE_FOLLOW
+};
+
+void RemoveWeatherParticle(int client)
+{
+	TE_Start("EffectDispatch");
+	TE_WriteNum("m_iEffectName", ParticleEffectStop);
+	TE_WriteNum("entindex", 0);
+
+	if(client == -1) {
+		TE_SendToAll();
+	} else {
+		TE_SendToClient(client);
+	}
+}
+
+void SendWeatherParticle(const char[] name, float pos[3], int client)
+{
+	int index = FindStringIndex(ParticleEffectNames, name);
+	if(index == INVALID_STRING_INDEX) {
+		return;
 	}
 
-	if (!StrEqual(mapParticle, "")) {
+	TE_Start("TFParticleEffect");
+
+	TE_WriteNum("m_iParticleSystemIndex", index);
+
+	TE_WriteFloat("m_vecOrigin[0]", pos[0]);
+	TE_WriteFloat("m_vecOrigin[1]", pos[1]);
+	TE_WriteFloat("m_vecOrigin[2]", pos[2]);
+
+	float zero[3];
+	TE_WriteVector("m_vecAngles", zero);
+
+	TE_WriteFloat("m_vecStart[0]", zero[0]);
+	TE_WriteFloat("m_vecStart[1]", zero[1]);
+	TE_WriteFloat("m_vecStart[2]", zero[2]);
+
+	TE_WriteNum("entindex", 0);
+	TE_WriteNum("m_iAttachType", PATTACH_CUSTOMORIGIN);
+
+	if(client == -1) {
+		TE_SendToAll();
+	} else {
+		TE_SendToClient(client);
+	}
+}
+
+void DestroyParticles(int client)
+{
+	if(client == -1) {
 		// Remove old particles
 		int ent = -1;
-		int num_stage = 0;
 		
+		char name[32];
+
 		while ((ent = FindEntityByClassname(ent, "info_particle_system")) != -1) {
 			if (IsValidEntity(ent)) {
-				char name[32];
 				
 				GetEntPropString(ent, Prop_Data, "m_iName", name, sizeof(name));
 				
@@ -1756,70 +1886,286 @@ int CreateParticles(int stage, int &num_global, bool &hit_global_limit)
 				}
 			}
 		}
+	}
 
-		/*ent = -1;
-		
-		while ((ent = FindEntityByClassname(ent, "item_ammopack_full")) != -1) {
-			if (IsValidEntity(ent)) {
-				AcceptEntityInput(ent, "Kill");
-			}
-		}*/
-		
-		int x, y, nx, ny;
-		float w, h, ox, oy;
+	RemoveWeatherParticle(client);
+}
 
-		MapCoordInfo tmpinfo;
-		mapCoordenates.GetArray(stage, tmpinfo, sizeof(MapCoordInfo));
-		
-		w = tmpinfo.X2 - tmpinfo.X1;
-		h = tmpinfo.Y2 - tmpinfo.Y1;
-		
-		nx = RoundToFloor(w/1024.0) + 1;
-		ny = RoundToFloor(h/1024.0) + 1;
-		
-		ox = (((RoundToFloor(w/1024.0) + 1) * 1024.0) - w)/2;
-		oy = (((RoundToFloor(h/1024.0) + 1) * 1024.0) - h)/2;
-		
-		int limit_global = cvGlobalParticleLimit.IntValue;
-		int limit_stage = cvStageParticleLimit.IntValue;
+Action Timer_CreateParticules(Handle timer, int client)
+{
+	CreateParticles(client);
+	return Plugin_Continue;
+}
 
-		bool hit_stage_limit = false;
+Action Event_InitialSpawn(Handle event, const char[] name, bool dontBroadcast)
+{
+	if (pluginEnabled) {
+		int client = GetEventInt(event, "index");
 
-		for (x = 0; x < nx; x++) {
-			for (y = 0; y < ny; y++) {
-				float pos[3];
-				pos[0] = tmpinfo.X1 + x*1024.0 + 512.0 - ox;
-				pos[1] = tmpinfo.Y1 + y*1024.0 + 512.0 - oy;
-				pos[2] = mapParticleHeight + tmpinfo.Z;
+		
+	}
+	
+	return Plugin_Continue;
+}
 
-				int particle = CreateEntityByName("info_particle_system");
+public void OnClientDisconnected(int client)
+{
+	bWeatherEnabled[client] = false;
+}
 
-				// Check if it was created correctly
-				if (IsValidEdict(particle)) {
-					// Teleport, set up
-					TeleportEntity(particle, pos, NULL_VECTOR, NULL_VECTOR);
-					DispatchKeyValue(particle, "effect_name", mapParticle);
-					DispatchKeyValue(particle, "targetname", "themes_particle");
-					
-					// Spawn and start
-					DispatchSpawn(particle);
-					ActivateEntity(particle);
-					AcceptEntityInput(particle, "Start");
-					
-					/*ent = CreateEntityByName("item_ammopack_full");
-					TeleportEntity(ent, pos, NULL_VECTOR, NULL_VECTOR);
-					DispatchSpawn(ent);
-					ActivateEntity(ent);*/
+void tf_particles_disable_weather(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay && StrEqual(cvarValue, "1")) {
+		bWeatherEnabled[client] = true;
+	}
+}
+
+public void OnClientPutInServer(int client)
+{
+	QueryClientConVar(client, "tf_particles_disable_weather", tf_particles_disable_weather);
+}
+
+void CreateParticles(int client)
+{
+	DestroyParticles(client);
+
+	if (cvParticles.BoolValue && mapParticle[0] != '\0') {
+		if(mapStageless) {
+			int num_global = 0;
+			bool hit_limit = false;
+			int numStages = mapCoordenates.Length;
+			for(currentStage = 0; currentStage < numStages; ++currentStage) {
+				int num_stage = SpawnParticles(currentStage, num_global, hit_limit, client);
+				if(hit_limit) {
+					break;
 				}
-				
-				num_global++;
-				num_stage++;
-				
+
+			#if defined DEBUG
+				if(client == -1) {
+					LogMessage("Stage %i created %i particles of type %s", currentStage, num_stage, mapParticle);
+				}
+			#endif
+			}
+
+		#if defined DEBUG
+			if(client == -1) {
+				LogMessage("Created %i particles in total of type %s", num_global, mapParticle);
+			}
+		#endif
+		} else {
+			int num = 0;
+			bool hit_limit = false;
+			SpawnParticles(currentStage, num, hit_limit, client);
+
+		#if defined DEBUG
+			if(client == -1) {
+				LogMessage("Current stage: %i", currentStage);
+				LogMessage("Created %i particles of type %s", num, mapParticle);
+			}
+		#endif
+		}
+	}
+}
+
+#if defined DEBUG
+void DrawHull(const float origin[3], int client)
+{
+	const float lifetime = 2.0;
+
+	float mins[3] = {-16.0, -16.0, 0.0};
+	float maxs[3] = {16.0, 16.0, 72.0};
+
+	int drawcolor[4] = {255, 0, 0, 255};
+
+	float angles[3] = {0.0, 0.0, 0.0};
+
+	float corners[8][3];
+	
+	for (int i = 0; i < 3; i++)
+	{
+		corners[0][i] = mins[i];
+	}
+	
+	corners[1][0] = maxs[0];
+	corners[1][1] = mins[1];
+	corners[1][2] = mins[2];
+	
+	corners[2][0] = maxs[0];
+	corners[2][1] = maxs[1];
+	corners[2][2] = mins[2];
+	
+	corners[3][0] = mins[0];
+	corners[3][1] = maxs[1];
+	corners[3][2] = mins[2];
+	
+	corners[4][0] = mins[0];
+	corners[4][1] = mins[1];
+	corners[4][2] = maxs[2];
+	
+	corners[5][0] = maxs[0];
+	corners[5][1] = mins[1];
+	corners[5][2] = maxs[2];
+	
+	for (int i = 0; i < 3; i++)
+	{
+		corners[6][i] = maxs[i];
+	}
+	
+	corners[7][0] = mins[0];
+	corners[7][1] = maxs[1];
+	corners[7][2] = maxs[2];
+
+	for(int i = 0; i < sizeof(corners); i++)
+	{
+		float rad[3];
+		rad[0] = DegToRad(angles[2]);
+		rad[1] = DegToRad(angles[0]);
+		rad[2] = DegToRad(angles[1]);
+
+		float cosAlpha = Cosine(rad[0]);
+		float sinAlpha = Sine(rad[0]);
+		float cosBeta = Cosine(rad[1]);
+		float sinBeta = Sine(rad[1]);
+		float cosGamma = Cosine(rad[2]);
+		float sinGamma = Sine(rad[2]);
+
+		float x = corners[i][0], y = corners[i][1], z = corners[i][2];
+		float newX, newY, newZ;
+		newY = cosAlpha*y - sinAlpha*z;
+		newZ = cosAlpha*z + sinAlpha*y;
+		y = newY;
+		z = newZ;
+
+		newX = cosBeta*x + sinBeta*z;
+		newZ = cosBeta*z - sinBeta*x;
+		x = newX;
+		z = newZ;
+
+		newX = cosGamma*x - sinGamma*y;
+		newY = cosGamma*y + sinGamma*x;
+		x = newX;
+		y = newY;
+		
+		corners[i][0] = x;
+		corners[i][1] = y;
+		corners[i][2] = z;
+	}
+
+	for(int i = 0; i < sizeof(corners); i++)
+	{
+		AddVectors(origin, corners[i], corners[i]);
+	}
+
+	static int g_iLaserBeamIndex = -1;
+	if(g_iLaserBeamIndex == -1) {
+		g_iLaserBeamIndex = PrecacheModel("materials/sprites/laser.vmt");
+	}
+
+	for(int i = 0; i < 4; i++)
+	{
+		int j = ( i == 3 ? 0 : i+1 );
+		TE_SetupBeamPoints(corners[i], corners[j], g_iLaserBeamIndex, g_iLaserBeamIndex, 0, 120, lifetime, 1.0, 1.0, 2, 1.0, drawcolor, 0);
+		if(client == -1) {
+			TE_SendToAll();
+		} else {
+			TE_SendToClient(client);
+		}
+	}
+
+	for(int i = 4; i < 8; i++)
+	{
+		int j = ( i == 7 ? 4 : i+1 );
+		TE_SetupBeamPoints(corners[i], corners[j], g_iLaserBeamIndex, g_iLaserBeamIndex, 0, 120, lifetime, 1.0, 1.0, 2, 1.0, drawcolor, 0);
+		if(client == -1) {
+			TE_SendToAll();
+		} else {
+			TE_SendToClient(client);
+		}
+	}
+
+	for(int i = 0; i < 4; i++)
+	{
+		TE_SetupBeamPoints(corners[i], corners[i+4], g_iLaserBeamIndex, g_iLaserBeamIndex, 0, 120, lifetime, 1.0, 1.0, 2, 1.0, drawcolor, 0);
+		if(client == -1) {
+			TE_SendToAll();
+		} else {
+			TE_SendToClient(client);
+		}
+	}
+}
+#endif
+
+int SpawnParticles(int stage, int &num_global, bool &hit_global_limit, int client)
+{
+	if(hit_global_limit) {
+		return 0;
+	}
+
+	int num_stage = 0;
+	
+	int x, y, nx, ny;
+	float w, h, ox, oy;
+
+	MapCoordInfo tmpinfo;
+	mapCoordenates.GetArray(stage, tmpinfo, sizeof(MapCoordInfo));
+
+#if defined DEBUG
+	PrintToServer("%i [%f, %f] [%f, %f] %f", stage, tmpinfo.X1, tmpinfo.Y1, tmpinfo.X2, tmpinfo.Y2, tmpinfo.Z);
+#endif
+	
+	w = tmpinfo.X2 - tmpinfo.X1;
+	h = tmpinfo.Y2 - tmpinfo.Y1;
+	
+	nx = RoundToFloor(w/1024.0) + 1;
+	ny = RoundToFloor(h/1024.0) + 1;
+	
+	ox = (((RoundToFloor(w/1024.0) + 1) * 1024.0) - w)/2;
+	oy = (((RoundToFloor(h/1024.0) + 1) * 1024.0) - h)/2;
+	
+	int limit_global = cvGlobalParticleLimit.IntValue;
+	int limit_stage = cvStageParticleLimit.IntValue;
+
+	bool hit_stage_limit = false;
+
+	for (x = 0; x < nx; x++) {
+		for (y = 0; y < ny; y++) {
+			float pos[3];
+			pos[0] = tmpinfo.X1 + x*1024.0 + 512.0 - ox;
+			pos[1] = tmpinfo.Y1 + y*1024.0 + 512.0 - oy;
+			pos[2] = mapParticleHeight + tmpinfo.Z;
+
+			if(!cvParticlesTempEnt.BoolValue && client == -1) {
+				int particle = CreateEntityByName("info_particle_system");
+				// Teleport, set up
+				TeleportEntity(particle, pos, NULL_VECTOR, NULL_VECTOR);
+				DispatchKeyValue(particle, "effect_name", mapParticle);
+				DispatchKeyValue(particle, "targetname", "themes_particle");
+				DispatchKeyValue(particle, "start_active", "1");
+				DispatchKeyValue(particle, "flag_as_weather", "1");
+
+			#if defined DEBUG
+				PrintToServer("created %i [%f, %f, %f]", particle, pos[0], pos[1], pos[2]);
+			#endif
+
+				// Spawn and start
+				DispatchSpawn(particle);
+				ActivateEntity(particle);
+			} else {
+				SendWeatherParticle(mapParticle, pos, client);
+			}
+			
+			num_global++;
+			num_stage++;
+
+		#if defined DEBUG
+			//DrawHull(pos, client);
+		#endif
+			
+			if(!cvParticlesTempEnt.BoolValue) {
 				if(limit_global != -1) {
 					if (num_global >= limit_global) {
 						LogMessage("Warning: Hit global particle limit!");
 						hit_global_limit = true;
-						break;
 					}
 				}
 
@@ -1827,7 +2173,6 @@ int CreateParticles(int stage, int &num_global, bool &hit_global_limit)
 					if (num_stage >= limit_stage) {
 						LogMessage("Warning: Stage %i hit particle limit!", stage);
 						hit_stage_limit = true;
-						break;
 					}
 				}
 			}
@@ -1837,10 +2182,12 @@ int CreateParticles(int stage, int &num_global, bool &hit_global_limit)
 			}
 		}
 
-		return num_stage;
+		if(hit_stage_limit || hit_global_limit) {
+			break;
+		}
 	}
 
-	return 0;
+	return num_stage;
 }
 
 /* EstimateMapRegion()
@@ -1898,7 +2245,7 @@ void EstimateMapRegion(int method)
 			tmpinfo.Z = m_WorldMaxs[2];
 		}
 
-		mapCoordenates.SetArray(0, tmpinfo, sizeof(tmpinfo));
+		mapCoordenates.PushArray(tmpinfo, sizeof(tmpinfo));
 		
 		LogMessage("Map region estimated using method %i: (%f, %f) to (%f, %f) [%f x %f], z = %f", method, tmpinfo.X1, tmpinfo.Y1, tmpinfo.X2, tmpinfo.Y2, tmpinfo.X2 - tmpinfo.X1, tmpinfo.Y2 - tmpinfo.Y1, tmpinfo.Z);
 	}
@@ -1941,6 +2288,7 @@ void LogTheme()
 	LogMessage("Indoors: %d", mapIndoors);
 	LogMessage("Overlay: %s", mapOverlay);
 	LogMessage("Stageless: %d", mapStageless);
+	LogMessage("Cold: %d", mapCold);
 	#endif
 }
 
@@ -1954,7 +2302,7 @@ Action Event_RoundEnd(Handle event, const char[] name, bool dontBroadcast)
 		// Check if a full round has completed
 		if (GetEventInt(event, "full_round")) {
 			currentStage = 0;
-		} else if (currentStage < numStages - 1) {
+		} else if (currentStage < mapCoordenates.Length - 1) {
 			currentStage++;
 		}
 	}
@@ -2016,6 +2364,8 @@ Action Event_PlayerTeam(Handle event, const char[] name, bool dontBroadcast)
 			if (mapSkyboxFogEnd != -1.0) {
 				SetEntPropFloat(client, Prop_Send, "m_skybox3d.fog.end", mapSkyboxFogEnd);
 			}
+
+			//CreateTimer(5.0, Timer_CreateParticules, client);
 		}
 	}
 	

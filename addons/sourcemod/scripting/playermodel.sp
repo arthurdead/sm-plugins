@@ -168,7 +168,7 @@ enum struct PlayerModelInfo
 		Event event = CreateEvent("post_inventory_application");
 		event.SetInt("userid", GetClientUserId(this.owner));
 		event.FireToClient(this.owner);
-		delete event;
+		event.Cancel();
 	#endif
 	}
 
@@ -1102,6 +1102,9 @@ void OnPlayerPostThink(int client)
 		}
 
 		if(type == PlayerModelProp) {
+			float scale = GetEntPropFloat(client, Prop_Send, "m_flModelScale");
+			SetEntPropFloat(entity, Prop_Send, "m_flModelScale", scale);
+
 			int anim = EntRefToEntIndex(g_PlayersModelInfo[client].anim);
 			if(IsValidEntity(anim)) {
 				if(anim != entity) {
@@ -1128,9 +1131,9 @@ void OnPlayerPostThink(int client)
 
 					float localorigin[3];
 					if(m_bDucked || m_bDucking) {
-						localorigin[2] = -30.0;
+						localorigin[2] = -30.0 * scale;
 					} else {
-						localorigin[2] = -40.0;
+						localorigin[2] = -40.0 * scale;
 					}
 
 					SetEntPropVector(entity, Prop_Send, "m_vecOrigin", localorigin);

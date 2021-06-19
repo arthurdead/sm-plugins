@@ -5,6 +5,8 @@
 #include <trainingmsg>
 
 bool msg_enabled[MAXPLAYERS+1] = {false, ...};
+bool msg_has_continue[MAXPLAYERS+1] = {false, ...};
+bool has_continued[MAXPLAYERS+1] = {false, ...};
 int num_enabled = 0;
 bool gamerules_hooked = false;
 bool g_bLateLoaded = false;
@@ -18,12 +20,15 @@ UserMsg TrainingMsg = INVALID_MESSAGE_ID;
 int tf_gamerules = -1;
 int m_bIsInTrainingOffset = -1;
 int m_bIsTrainingHUDVisibleOffset = -1;
+int m_bIsWaitingForTrainingContinueOffset = -1;
 
 ConVar tf_training_client_message = null;
 ConVar sm_trainingmsg_setprop = null;
 
 ArrayList TraningMsgMenus = null;
 ArrayList TraningMsgMenusFunctions = null;
+
+GlobalForward hOnContinued = null;
 
 enum struct TraningMsgMenuFunction
 {
@@ -53,9 +58,11 @@ public void OnPluginStart()
 
 	m_bIsInTrainingOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bIsInTraining");
 	m_bIsTrainingHUDVisibleOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bIsTrainingHUDVisible");
+	m_bIsWaitingForTrainingContinueOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bIsWaitingForTrainingContinue");
 
 	AddCommandListener(command_menu, "menuopen");
 	AddCommandListener(command_menu, "menuclosed");
+	AddCommandListener(command_continue, "training_continue");
 
 	tf_training_client_message = FindConVar("tf_training_client_message");
 
@@ -67,6 +74,7 @@ public void OnPluginStart()
 	sm_rsay_time = CreateConVar("sm_rsay_time", "10.0");
 
 	RegAdminCmd("sm_rsay", sm_rsay, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_rsay2", sm_rsay2, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_rbug", sm_rbug, ADMFLAG_GENERIC);
 	//RegAdminCmd("sm_rvote", sm_rvote, ADMFLAG_GENERIC);
 }
@@ -145,49 +153,51 @@ Action sm_rvote(int client, int args)
 	return Plugin_Handled;
 }*/
 
-void WarpText(char[] dst, char[] src, int len)
-{
-	for(int i = 0, j = 0; j <= len; ++j) {
-		if(j > 1) {
-			int mod = (j % TRAINING_MSG_MAX_WIDTH);
-			if(mod == 0) {
-				dst[i++] = '\n';
-			}
-		}
-
-		dst[i++] = src[j];
-	}
-}
-
-Action sm_rsay(int client, int args)
+void DoRSay(int client, int args, bool has_continue)
 {
 	if(args < 1) {
 		ReplyToCommand(client, "[SM] sm_rsay <msg>");
-		return Plugin_Handled;
+		return;
 	}
 
 	char msg[TRAINING_MSG_MAX_LEN];
 	GetCmdArgString(msg, sizeof(msg));
 
-	ReplaceString(msg, sizeof(msg), "\\x2", "\x2");
-	ReplaceString(msg, sizeof(msg), "\\x1", "\x1");
-	ReplaceString(msg, sizeof(msg), "\\n", "\n");
-	ReplaceString(msg, sizeof(msg), "\\t", "\t");
+	CleanTrainingMessageText(msg, sizeof(msg));
 
 	char msg_newline[TRAINING_MSG_MAX_LEN];
 	int len = strlen(msg);
-	WarpText(msg_newline, msg, len);
+	WarpTrainingMessageText(msg_newline, msg, len);
 
 	char title[TRAINING_MSG_MAX_WIDTH];
 	Format(title, sizeof(title), "%N", client);
 
-	SendToAllImpl(title, msg_newline);
+	int numClients = 0;
+	int[] clients = new int[MaxClients];
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(!HandleAllLoop(i, has_continue)) {
+			continue;
+		}
+		clients[numClients++] = i;
+	}
+
+	SendToAllHelper(clients, numClients, title, msg_newline, has_continue);
 
 	if(rsay_timer != null) {
 		KillTimer(rsay_timer);
 	}
 	rsay_timer = CreateTimer(sm_rsay_time.FloatValue, Timer_RemoveRsay, 0, TIMER_FLAG_NO_MAPCHANGE);
+}
 
+Action sm_rsay2(int client, int args)
+{
+	DoRSay(client, args, true);
+	return Plugin_Handled;
+}
+
+Action sm_rsay(int client, int args)
+{
+	DoRSay(client, args, false);
 	return Plugin_Handled;
 }
 
@@ -204,6 +214,12 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 {
 	CreateNative("IsTrainingMessageVisibleToClient", IsVisibleClient);
 	CreateNative("IsTrainingMessageVisibleToAll", IsVisibleAll);
+
+	CreateNative("HasPlayerContinuedTrainingMessage", HasContinued);
+	CreateNative("TrainingMessageHasContinue", HasContinue);
+
+	CreateNative("RemoveContinueFromTrainingMessage", RemoveContinueMsg);
+	CreateNative("RemoveContinueFromClient", RemoveContinueClient);
 
 	CreateNative("SendTrainingMessageToClients", SendToClients);
 	CreateNative("SendTrainingMessageToAll", SendToAll);
@@ -224,6 +240,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("TrainingMsgMenu.AddItem", TrainingMsgMenuAddItem);
 	CreateNative("TrainingMsgMenu.ExitButton.set", TrainingMsgMenuExitButton);
 	CreateNative("TrainingMsgMenu.SendToClient", TrainingMsgMenuSendToClient);
+
+	hOnContinued = new GlobalForward("OnPlayerContinuedTrainingMessage", ET_Ignore, Param_Cell);
 
 	RegPluginLibrary("trainingmsg");
 
@@ -365,10 +383,7 @@ int TrainingMsgMenuSendToClient(Handle plugin, int params)
 
 	int client = GetNativeCell(2);
 
-	if(!IsClientInGame(client) ||
-		IsFakeClient(client) ||
-		IsClientSourceTV(client) ||
-		IsClientReplay(client)) {
+	if(!IsClientValid(client)) {
 		return 0;
 	}
 
@@ -579,11 +594,18 @@ public void OnMapStart()
 	}
 }
 
-public void OnMapEnd()
+public void OnPluginEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
 		DisableClient(i);
 	}
+}
+
+public void OnMapEnd()
+{
+	OnPluginEnd();
+
+	tf_gamerules = -1;
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -605,6 +627,7 @@ void ChangeGameRulesState()
 	if(tf_gamerules != -1) {
 		ChangeEdictState(tf_gamerules, m_bIsInTrainingOffset);
 		ChangeEdictState(tf_gamerules, m_bIsTrainingHUDVisibleOffset);
+		ChangeEdictState(tf_gamerules, m_bIsWaitingForTrainingContinueOffset);
 	} else {
 		ThrowError("tf_gamerules was not found");
 	}
@@ -620,12 +643,21 @@ Action Timer_ResetWantsVgui(Handle timer, int client)
 	}
 }
 
+Action command_continue(int client, const char[] command, int args)
+{
+	if(msg_enabled[client] && msg_has_continue[client]) {
+		has_continued[client] = true;
+
+		Call_StartForward(hOnContinued);
+		Call_PushCell(client);
+		Call_Finish();
+	}
+	return Plugin_Continue;
+}
+
 Action command_menu(int client, const char[] command, int args)
 {
-	int m_bIsInTraining = GameRules_GetProp("m_bIsInTraining");
-	int m_bIsTrainingHUDVisible = GameRules_GetProp("m_bIsTrainingHUDVisible");
-
-	if(msg_enabled[client] || (m_bIsInTraining && m_bIsTrainingHUDVisible)) {
+	if(msg_enabled[client] || IsGloballyEnabled()) {
 		if(StrEqual(command, "menuclosed")) {
 			if(player_wants_vgui[client] >= 3) {
 				--player_wants_vgui[client];
@@ -666,21 +698,34 @@ Action HookIsTraining(const char[] cPropName, int &iValue, const int iElement, c
 	return Plugin_Changed;
 }
 
-void Unhook(bool value)
+Action HookIsContinue(const char[] cPropName, int &iValue, const int iElement, const int iClient)
+{
+	if(msg_enabled[iClient] && msg_has_continue[iClient]) {
+		iValue = 1;
+	} else {
+		iValue = 0;
+	}
+	return Plugin_Changed;
+}
+
+void Unhook(bool value, bool has_continue)
 {
 	if(gamerules_hooked) {
 		SendProxy_UnhookGameRules("m_bIsInTraining", HookIsTraining);
 		SendProxy_UnhookGameRules("m_bIsTrainingHUDVisible", HookIsTraining);
+		SendProxy_UnhookGameRules("m_bIsWaitingForTrainingContinue", HookIsContinue);
 		gamerules_hooked = false;
 	}
 
 	if(sm_trainingmsg_setprop.BoolValue) {
 		GameRules_SetProp("m_bIsInTraining", value);
 		GameRules_SetProp("m_bIsTrainingHUDVisible", value);
+		GameRules_SetProp("m_bIsWaitingForTrainingContinue", has_continue);
 	} else {
 		if(!value) {
 			GameRules_SetProp("m_bIsInTraining", 0);
 			GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
+			GameRules_SetProp("m_bIsWaitingForTrainingContinue", 0);
 		}
 	}
 
@@ -692,6 +737,7 @@ void Hook()
 	if(!gamerules_hooked) {
 		SendProxy_HookGameRules("m_bIsInTraining", Prop_Int, HookIsTraining, true);
 		SendProxy_HookGameRules("m_bIsTrainingHUDVisible", Prop_Int, HookIsTraining, true);
+		SendProxy_HookGameRules("m_bIsWaitingForTrainingContinue", Prop_Int, HookIsContinue, true);
 		gamerules_hooked = true;
 	}
 
@@ -727,11 +773,7 @@ int DisableClient(int client, bool send_empty = true, bool cancel_menu = true)
 	}
 
 	if(send_empty) {
-		if(!IsClientInGame(client) ||
-			IsFakeClient(client) ||
-			IsClientSourceTV(client) ||
-			IsClientReplay(client)) {
-		} else {
+		if(IsClientValid(client)) {
 			int clients[1];
 			clients[0] = client;
 			SendUsrMsgHelper(clients, sizeof(clients), "", "");
@@ -740,10 +782,12 @@ int DisableClient(int client, bool send_empty = true, bool cancel_menu = true)
 
 	if(msg_enabled[client]) {
 		msg_enabled[client] = false;
+		msg_has_continue[client] = false;
+		has_continued[client] = false;
 		--num_enabled;
 
 		if(num_enabled == 0) {
-			Unhook(false);
+			Unhook(false, false);
 			return 2;
 		}
 
@@ -798,49 +842,81 @@ void SendToClientsHelper(int[] clients, int numClients, const char[] title, cons
 	SendUsrMsgHelper(clients, numClients, title, msg);
 }
 
-void SendToAllHelper(int[] clients, int numClients, const char[] title, const char[] msg)
+void SendToAllHelper(int[] clients, int numClients, const char[] title, const char[] msg, bool has_continue)
 {
 	if(!sm_trainingmsg_setprop.BoolValue) {
 		Hook();
 	} else {
-		Unhook(true);
+		Unhook(true, has_continue);
 	}
 	SendUsrMsgHelper(clients, numClients, title, msg);
+}
+
+bool IsGloballyEnabled()
+{
+	int m_bIsInTraining = GameRules_GetProp("m_bIsInTraining");
+	int m_bIsTrainingHUDVisible = GameRules_GetProp("m_bIsTrainingHUDVisible");
+
+	return (m_bIsInTraining && m_bIsTrainingHUDVisible);
 }
 
 int IsVisibleClient(Handle plugin, int params)
 {
 	int client = GetNativeCell(1);
 
-	int m_bIsInTraining = GameRules_GetProp("m_bIsInTraining");
-	int m_bIsTrainingHUDVisible = GameRules_GetProp("m_bIsTrainingHUDVisible");
-
-	return ((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[client]);
+	return (IsGloballyEnabled() || msg_enabled[client]);
 }
 
 int IsVisibleAll(Handle plugin, int params)
 {
-	int m_bIsInTraining = GameRules_GetProp("m_bIsInTraining");
-	int m_bIsTrainingHUDVisible = GameRules_GetProp("m_bIsTrainingHUDVisible");
+	return (IsGloballyEnabled() || num_enabled == MaxClients);
+}
 
-	return ((m_bIsInTraining && m_bIsTrainingHUDVisible) || num_enabled == MaxClients);
+int HasContinued(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	return has_continued[client];
+}
+
+int HasContinue(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	return msg_has_continue[client];
+}
+
+int RemoveContinueMsg(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	if(msg_enabled[client] && msg_has_continue[client]) {
+		msg_has_continue[client] = false;
+	}
+
+	return 0;
+}
+
+int RemoveContinueClient(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	if(msg_enabled[client] && msg_has_continue[client]) {
+		has_continued[client] = false;
+	}
+
+	return 0;
 }
 
 int ChangeTitleAll(Handle plugin, int params)
 {
-	int m_bIsInTraining = GameRules_GetProp("m_bIsInTraining");
-	int m_bIsTrainingHUDVisible = GameRules_GetProp("m_bIsTrainingHUDVisible");
-
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(!IsClientInGame(i) ||
-			IsFakeClient(i) ||
-			IsClientSourceTV(i) ||
-			IsClientReplay(i)) {
+		if(!IsClientValid(i)) {
 			continue;
 		}
-		if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
+		if(IsGloballyEnabled() || msg_enabled[i]) {
 			clients[numClients++] = i;
 			if(CancelTrainingMsgMenu(i)) {
 				//TODO!!! change msg
@@ -862,19 +938,13 @@ int ChangeTitleAll(Handle plugin, int params)
 
 int ChangeTextAll(Handle plugin, int params)
 {
-	int m_bIsInTraining = GameRules_GetProp("m_bIsInTraining");
-	int m_bIsTrainingHUDVisible = GameRules_GetProp("m_bIsTrainingHUDVisible");
-
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(!IsClientInGame(i) ||
-			IsFakeClient(i) ||
-			IsClientSourceTV(i) ||
-			IsClientReplay(i)) {
+		if(!IsClientValid(i)) {
 			continue;
 		}
-		if((m_bIsInTraining && m_bIsTrainingHUDVisible) || msg_enabled[i]) {
+		if(IsGloballyEnabled() || msg_enabled[i]) {
 			clients[numClients++] = i;
 			if(CancelTrainingMsgMenu(i)) {
 				//TODO!!! change title
@@ -946,6 +1016,18 @@ int ChangeText(Handle plugin, int params)
 	EndMessage();
 }
 
+bool IsClientValid(int client)
+{
+	if(!IsClientInGame(client) ||
+		IsFakeClient(client) ||
+		IsClientSourceTV(client) ||
+		IsClientReplay(client)) {
+		return false;
+	}
+
+	return true;
+}
+
 int SendToClients(Handle plugin, int params)
 {
 	int numClients = GetNativeCell(2);
@@ -967,27 +1049,20 @@ int SendToClients(Handle plugin, int params)
 	char[] msg = new char[length];
 	GetNativeString(4, msg, length);
 
+	bool has_continue = GetNativeCell(5);
+
 	if(sm_trainingmsg_setprop.BoolValue && numClients == MaxClients) {
 		for(int i = 0; i < numClients; ++i) {
-			int client = clients[i];
-			if(DisableClient(client, false) == 2) {
-				break;
-			}
-			CancelTrainingMsgMenu(client);
+			HandleAllLoop(i, has_continue);
 		}
 
-		SendToAllHelper(clients, numClients, title, msg);
+		SendToAllHelper(clients, numClients, title, msg, has_continue);
 	} else {
 		for(int i = 0; i < numClients; ++i) {
 			int client = clients[i];
-			if(!IsClientInGame(client) ||
-				IsFakeClient(client) ||
-				IsClientSourceTV(client) ||
-				IsClientReplay(client)) {
+			if(!HandleClientLoop(client, has_continue)) {
 				continue;
 			}
-			CancelTrainingMsgMenu(client);
-			EnableClient(client);
 		}
 
 		SendToClientsHelper(clients, numClients, title, msg);
@@ -996,28 +1071,31 @@ int SendToClients(Handle plugin, int params)
 	return 0;
 }
 
-void SendToAllImpl(const char[] title, const char[] msg)
+bool HandleAllLoop(int i, bool has_continue)
 {
-	int numClients = 0;
-	int[] clients = new int[MaxClients];
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(sm_trainingmsg_setprop.BoolValue) {
-			DisableClient(i);
-		}
-		if(!IsClientInGame(i) ||
-			IsFakeClient(i) ||
-			IsClientSourceTV(i) ||
-			IsClientReplay(i)) {
-			continue;
-		}
-		clients[numClients++] = i;
-		CancelTrainingMsgMenu(i);
-		if(!sm_trainingmsg_setprop.BoolValue) {
-			EnableClient(i);
-		}
+	if(sm_trainingmsg_setprop.BoolValue) {
+		DisableClient(i);
 	}
+	if(!IsClientValid(i)) {
+		return false;
+	}
+	CancelTrainingMsgMenu(i);
+	if(!sm_trainingmsg_setprop.BoolValue) {
+		EnableClient(i);
+		msg_has_continue[i] = has_continue;
+	}
+	return true;
+}
 
-	SendToAllHelper(clients, numClients, title, msg);
+bool HandleClientLoop(int i, bool has_continue)
+{
+	if(!IsClientValid(i)) {
+		return false;
+	}
+	CancelTrainingMsgMenu(i);
+	EnableClient(i);
+	msg_has_continue[i] = has_continue;
+	return true;
 }
 
 int SendToAll(Handle plugin, int params)
@@ -1036,7 +1114,18 @@ int SendToAll(Handle plugin, int params)
 	char[] msg = new char[length];
 	GetNativeString(2, msg, length);
 
-	SendToAllImpl(title, msg);
+	bool has_continue = GetNativeCell(3);
+
+	int numClients = 0;
+	int[] clients = new int[MaxClients];
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(!HandleAllLoop(i, has_continue)) {
+			continue;
+		}
+		clients[numClients++] = i;
+	}
+
+	SendToAllHelper(clients, numClients, title, msg, has_continue);
 
 	return 0;
 }
@@ -1044,11 +1133,9 @@ int SendToAll(Handle plugin, int params)
 int SendToClient(Handle plugin, int params)
 {
 	int client = GetNativeCell(1);
+	bool has_continue = GetNativeCell(4);
 
-	if(!IsClientInGame(client) ||
-		IsFakeClient(client) ||
-		IsClientSourceTV(client) ||
-		IsClientReplay(client)) {
+	if(!HandleClientLoop(client, has_continue)) {
 		return 0;
 	}
 
@@ -1068,9 +1155,6 @@ int SendToClient(Handle plugin, int params)
 
 	int clients[1];
 	clients[0] = client;
-
-	CancelTrainingMsgMenu(client);
-	EnableClient(client);
 
 	SendToClientsHelper(clients, sizeof(clients), title, msg);
 
@@ -1108,12 +1192,5 @@ public void OnClientDisconnect(int client)
 {
 	if(DisableClient(client, _, false) == 1) {
 		ChangeGameRulesState();
-	}
-}
-
-public void OnPluginEnd()
-{
-	for(int i = 1; i <= MaxClients; ++i) {
-		DisableClient(i);
 	}
 }

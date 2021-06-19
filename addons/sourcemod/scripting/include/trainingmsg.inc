@@ -43,17 +43,25 @@ methodmap TrainingMsgMenu
 	//public native void SendToClients(const int[] clients, int numClients, int time);
 };
 
+forward void OnPlayerContinuedTrainingMessage(int client);
+
 native bool IsTrainingMessageVisibleToClient(int client);
 native bool IsTrainingMessageVisibleToAll();
+
+native bool HasPlayerContinuedTrainingMessage(int client);
+native bool TrainingMessageHasContinue(int client);
+
+native void RemoveContinueFromTrainingMessage(int client);
+native void RemoveContinueFromClient(int client);
 
 /*
 if you want text to be hinted use \x2 before the text and \x1 after like this
 Format(mytext, sizeof(mytext), "\x2this text is hinted \x1now this text isnt");
 */
 
-native void SendTrainingMessageToClients(const int[] clients, int numClients, const char[] title, const char[] msg);
-native void SendTrainingMessageToAll(const char[] title, const char[] msg);
-native void SendTrainingMessageToClient(int client, const char[] title, const char[] msg);
+native void SendTrainingMessageToClients(const int[] clients, int numClients, const char[] title, const char[] msg, bool has_continue = false);
+native void SendTrainingMessageToAll(const char[] title, const char[] msg, bool has_continue = false);
+native void SendTrainingMessageToClient(int client, const char[] title, const char[] msg, bool has_continue = false);
 
 native void RemoveTrainingMessageFromAll();
 native void RemoveTrainingMessageFromClients(const int[] clients, int numClients);
@@ -63,6 +71,34 @@ native void ChangeTrainingMessageTextClients(const int[] clients, int numClients
 
 native void ChangeTrainingMessageTitleAll(const char[] title);
 native void ChangeTrainingMessageTextAll(const char[] title);
+
+stock void CleanTrainingMessageText(char[] msg, int len)
+{
+	ReplaceString(msg, len, "\\x2", "\x2");
+	ReplaceString(msg, len, "\\x1", "\x1");
+	ReplaceString(msg, len, "\\n", "\n");
+	ReplaceString(msg, len, "\\t", "\t");
+
+	ReplaceString(msg, len, "{yellow}", "\x2");
+	ReplaceString(msg, len, "{gold}", "\x2");
+
+	ReplaceString(msg, len, "{default}", "\x1");
+	ReplaceString(msg, len, "{white}", "\x1");
+}
+
+stock void WarpTrainingMessageText(char[] dst, char[] src, int len)
+{
+	for(int i = 0, j = 0; j <= len; ++i, ++j) {
+		if(j > 1) {
+			int mod = (j % TRAINING_MSG_MAX_WIDTH);
+			if(mod == 0) {
+				dst[i++] = '\n';
+			}
+		}
+
+		dst[i] = src[j];
+	}
+}
 
 stock void RemoveTrainingMessageFromClient(int client)
 {
