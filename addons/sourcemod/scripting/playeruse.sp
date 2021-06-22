@@ -143,6 +143,5 @@ void OnDoorSpawnPost(int entity)
 void OnButtonSpawnPost(int entity)
 {
 	int flags = GetEntProp(entity, Prop_Data, "m_spawnflags");
-	flags |= SF_BUTTON_USE_ACTIVATES;
 	SetEntProp(entity, Prop_Data, "m_spawnflags", flags);
 }

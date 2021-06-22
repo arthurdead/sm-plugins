@@ -6,8 +6,8 @@
 		{
 			"CBasePlayer::EquipWearable"
 			{
-				"windows" "430"
-				"linux" "431"
+				"windows" "431"
+				"linux" "432"
 			}
 		}
 		"Signatures"

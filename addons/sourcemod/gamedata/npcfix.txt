@@ -193,11 +193,11 @@
 			}
 			"CBaseCombatCharacter::HasHumanGibs"
 			{
-				"linux" "288"
+				"linux" "289"
 			}
 			"CBaseCombatCharacter::HasAlienGibs"
 			{
-				"linux" "289"
+				"linux" "290"
 			}
 			"CBaseEntity::BloodColor"
 			{
@@ -205,11 +205,11 @@
 			}
 			"CBaseCombatCharacter::GetBossType"
 			{
-				"linux" "323"
+				"linux" "324"
 			}
 			"CTFWeaponBase::GetWeaponID"
 			{
-				"linux" "378"
+				"linux" "379"
 			}
 		}
 		"Functions"
