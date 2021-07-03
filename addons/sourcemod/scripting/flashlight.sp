@@ -68,7 +68,7 @@ public void OnClientPutInServer(int client)
 	QueryClientConVar(client, "mat_supportflashlight", mat_supportflashlight);
 }
 
-public void OnClientDisconnected(int client)
+public void OnClientDisconnect(int client)
 {
 	RemoveFlashlight(client);
 

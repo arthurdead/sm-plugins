@@ -152,8 +152,8 @@ enum struct PlayerInfo
 	}
 }
 
-AnimInfo playeranim[33];
-PlayerInfo playerinfo[33];
+AnimInfo playeranim[34];
+PlayerInfo playerinfo[34];
 
 #include "playermodel/animcode_simple.sp"
 
@@ -1048,6 +1048,11 @@ void SetPlayerModel(int client, TFClassType class, ModelInfo info, int id)
 #endif
 
 	playerinfo[client].flags = info.flags;
+
+	if(CheckCommandAccess(client, "playermodel_dmgoverride", ADMFLAG_GENERIC)) {
+		playerinfo[client].flags &= ~FLAG_NODMG;
+	}
+
 	playerinfo[client].modelid = id;
 	playerinfo[client].animid = info.animsetid;
 	playerinfo[client].orig_class = info.orig_class;
@@ -1113,7 +1118,8 @@ int MenuHandler_PlayerModel(Menu menu, MenuAction action, int param1, int param2
 
 				SetPlayerModel(param1, class, tmpmodelinfo, idx);
 
-				if(tmpmodelinfo.flags & FLAG_NODMG) {
+				if(!CheckCommandAccess(param1, "playermodel_dmgoverride", ADMFLAG_GENERIC) &&
+					tmpmodelinfo.flags & FLAG_NODMG) {
 					PrintToChat(param1, "[SM] You cannot do damage with the \"%s\" model", tmpmodelinfo.name);
 				}
 
@@ -1471,7 +1477,7 @@ Action ConCommand_PT(int client, int args)
 	}
 
 	DiplayTauntMenu(client);
-
+	
 	return Plugin_Handled;
 }
 

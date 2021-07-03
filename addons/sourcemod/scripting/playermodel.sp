@@ -714,7 +714,7 @@ enum struct PlayerModelInfo
 	}
 }
 
-PlayerModelInfo g_PlayersModelInfo[33];
+PlayerModelInfo g_PlayersModelInfo[34];
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {

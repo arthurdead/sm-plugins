@@ -1908,7 +1908,7 @@ Action Event_InitialSpawn(Handle event, const char[] name, bool dontBroadcast)
 	return Plugin_Continue;
 }
 
-public void OnClientDisconnected(int client)
+public void OnClientDisconnect(int client)
 {
 	bWeatherEnabled[client] = false;
 }
