@@ -31,7 +31,7 @@ public void OnPluginEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
-			OnClientDisconnected(i);
+			OnClientDisconnect(i);
 		}
 	}
 }
