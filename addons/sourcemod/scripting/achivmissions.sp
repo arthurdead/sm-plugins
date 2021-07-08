@@ -59,11 +59,11 @@ public void OnPluginStart()
 	RegAdminCmd("sm_achivrem", sm_achivrem, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_achivremprog", sm_achivremprog, ADMFLAG_GENERIC);
 
-	/*for(int i = 1; i <= MaxClients; ++i) {
+	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
 			OnClientPutInServer(i);
 		}
-	}*/
+	}
 }
 
 void achievement_earned(Event event, const char[] name, bool dontBroadcast)
