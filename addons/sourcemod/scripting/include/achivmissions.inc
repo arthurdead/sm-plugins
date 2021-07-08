@@ -15,10 +15,7 @@ forward void OnAchievementsLoaded();
 
 methodmap Achievement
 {
-	property int Length
-	{
-		public native get();
-	}
+	public static native int Count();
 
 	public static native Achievement Get(int idx);
 
@@ -56,6 +53,7 @@ forward void OnAchievementStatusChanged(int client, bool achieved, Achievement a
 
 #define MAX_MISSION_NAME 64
 #define MAX_MISSION_DESCRIPTION 64
+#define MAX_MISSION_PARAMS 5
 
 #define MissionEntry_Null view_as<MissionEntry>(-1)
 #define PlayerMission_Null view_as<PlayerMission>(-1)
@@ -63,14 +61,27 @@ forward void OnAchievementStatusChanged(int client, bool achieved, Achievement a
 forward void OnMissionDataLoaded(int client);
 forward void OnMissionsLoaded();
 
+enum MissionParamType
+{
+	MPARAM_INVALID,
+	MPARAM_INT,
+	MPARAM_PLRCLASS,
+};
+
+enum struct MissionParamInfo
+{
+	MissionParamType type;
+	int min;
+	int max;
+}
+
+#define MissionParamInfoVar any[]
+
 methodmap MissionEntry
 {
-	property int Length
-	{
-		public native get();
-	}
+	public static native int Count();
 
-	//public static native MissionEntry Get(int idx);
+	public static native MissionEntry Get(int idx);
 
 	public static native MissionEntry FindByName(const char[] name);
 	public static native MissionEntry FindByID(int id);
@@ -83,19 +94,16 @@ methodmap MissionEntry
 		public native get();
 	}
 
-	property int Max
-	{
-		public native get();
-	}
+	//public native void GetParamInfo(int idx, MissionParamInfoVar info);
 
 	public native PlayerMission GiveToPlayer(int client);
 };
 
 methodmap PlayerMission
 {
-	//public static native int Count(int client);
+	public static native int Count(int client);
 
-	//public static native PlayerMission Get(int client, int idx);
+	public static native PlayerMission Get(int client, int idx);
 
 	public static native PlayerMission Find(int client, MissionEntry missi);
 	public static native PlayerMission FindByName(int client, const char[] name);
@@ -109,13 +117,16 @@ methodmap PlayerMission
 		public native get();
 	}
 
-	public native bool AwardProgress(int value);
-	public native void RemoveProgress(int value);
-	public native void Complete();
-	public native void Cancel();
-	public native void TurnIn();
+	//public native bool AwardProgress(int value);
+	//public native void RemoveProgress(int value);
+	//public native void Complete();
+	//public native void Cancel();
+	//public native void TurnIn();
 
-	property any PluginData
+	//public native void SetParamValue(int param, int value);
+	//public native int GetParamValue(int param);
+
+	/*property any PluginData
 	{
 		public native get();
 		public native set(any value);
@@ -129,7 +140,7 @@ methodmap PlayerMission
 	property bool Completed
 	{
 		public native get();
-	}
+	}*/
 };
 
 forward void OnMissionProgressChanged(int client, int oldprogress, int newprogress, PlayerMission missi);

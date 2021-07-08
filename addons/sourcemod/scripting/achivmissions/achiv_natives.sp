@@ -1,3 +1,18 @@
+int NativeAchiv_Get(Handle plugin, int args)
+{
+	#pragma unused plugin,args
+
+	int idx = GetNativeCell(1);
+
+	if(idx >= achiv_cache.Length) {
+		return -1;
+	}
+
+	int id = achiv_cache.GetID(idx);
+
+	return id;
+}
+
 int NativeAchiv_FindByID(Handle plugin, int args)
 {
 	#pragma unused plugin,args

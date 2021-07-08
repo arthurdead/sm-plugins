@@ -10,8 +10,8 @@
 
 #undef REQUIRE_PLUGIN
 #define NO_SHAPESHIFT_NATIVES
-#include <shapeshift_funcs>
-#include <tauntmanager>
+#tryinclude <shapeshift_funcs>
+#tryinclude <tauntmanager>
 
 ArrayList arrModelInfos = null;
 ArrayList arrAnimInfos = null;

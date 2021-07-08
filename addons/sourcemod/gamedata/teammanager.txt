@@ -1,0 +1,413 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CBaseEntity::InSameTeam"
+			{
+				"linux" "@_ZNK11CBaseEntity10InSameTeamEPKS_"
+			}
+			"CWeaponMedigun::AllowedToHealTarget"
+			{
+				"linux" "@_ZN14CWeaponMedigun19AllowedToHealTargetEP11CBaseEntity"
+			}
+			"CObjectDispenser::CouldHealTarget"
+			{
+				"linux" "@_ZN16CObjectDispenser15CouldHealTargetEP11CBaseEntity"
+			}
+			"CObjectTeleporter::PlayerCanBeTeleported"
+			{
+				"linux" "@_ZN17CObjectTeleporter21PlayerCanBeTeleportedEP9CTFPlayer"
+			}
+			"CObjectSapper::IsValidRoboSapperTarget"
+			{
+				"linux" "@_ZN13CObjectSapper23IsValidRoboSapperTargetEP9CTFPlayer"
+			}
+			"CTFWrench::Smack"
+			{
+				"linux" "@_ZN9CTFWrench5SmackEv"
+			}
+			"JarExplode"
+			{
+				"linux" "@_Z10JarExplodeiP9CTFPlayerP11CBaseEntityS2_RK6Vectorif7ETFCondfPKcS8_"
+			}
+			"CTFProjectile_Arrow::StrikeTarget"
+			{
+				"linux" "@_ZN19CTFProjectile_Arrow12StrikeTargetEP13mstudiobbox_tP11CBaseEntity"
+			}
+			"CTFPlayer::TryToPickupBuilding"
+			{
+				"linux" "@_ZN9CTFPlayer19TryToPickupBuildingEv"
+			}
+			"CTFPlayer::AddObject"
+			{
+				"linux" "@_ZN9CTFPlayer9AddObjectEP11CBaseObject"
+			}
+			"CTFPlayer::RemoveObject"
+			{
+				"linux" "@_ZN9CTFPlayer12RemoveObjectEP11CBaseObject"
+			}
+			"CTFKnife::CanPerformBackstabAgainstTarget"
+			{
+				"linux" "@_ZN8CTFKnife31CanPerformBackstabAgainstTargetEP9CTFPlayer"
+			}
+			"CTFKnife::BackstabVMThink"
+			{
+				"linux" "@_ZN8CTFKnife15BackstabVMThinkEv"
+			}
+			"CObjectSapper::IsValidRoboSapperTarget"
+			{
+				"linux" "@_ZN13CObjectSapper23IsValidRoboSapperTargetEP9CTFPlayer"
+			}
+		}
+		"Offsets"
+		{
+			"CTeamplayRules::PlayerRelationship"
+			{
+				"linux" "109"
+			}
+			"CTeamplayRules::FPlayerCanTakeDamage"
+			{
+				"linux" "64"
+			}
+			"CTeamplayRules::GetTeamID"
+			{
+				"linux" "108"
+			}
+			"CBaseObject::StartBuilding"
+			{
+				"linux" "337"
+			}
+			"CTeam::AddPlayer"
+			{
+				"linux" "203"
+			}
+			"CTeam::RemovePlayer"
+			{
+				"linux" "204"
+			}
+			"CBaseEntity::ShouldCollide"
+			{
+				"linux" "17"
+			}
+			"CBaseProjectile::CanCollideWithTeammates"
+			{
+				"linux" "224"
+			}
+			"CTFWeaponBaseMelee::DoSwingTrace"
+			{
+				"linux" "469"
+			}
+			"CBaseCombatWeapon::PrimaryAttack"
+			{
+				"linux" "286"
+			}
+		}
+		"Functions"
+		{
+			"CBaseEntity::InSameTeam"
+			{
+				"signature" "CBaseEntity::InSameTeam"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CObjectDispenser::CouldHealTarget"
+			{
+				"signature" "CObjectDispenser::CouldHealTarget"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CWeaponMedigun::AllowedToHealTarget"
+			{
+				"signature" "CWeaponMedigun::AllowedToHealTarget"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CObjectTeleporter::PlayerCanBeTeleported"
+			{
+				"signature" "CObjectTeleporter::PlayerCanBeTeleported"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CObjectSapper::IsValidRoboSapperTarget"
+			{
+				"signature" "CObjectSapper::IsValidRoboSapperTarget"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CTFPlayer::TryToPickupBuilding"
+			{
+				"signature" "CTFPlayer::TryToPickupBuilding"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CTFWrench::Smack"
+			{
+				"signature" "CTFWrench::Smack"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CTFProjectile_Arrow::StrikeTarget"
+			{
+				"signature" "CTFProjectile_Arrow::StrikeTarget"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"studio"
+					{
+						"type" "objectptr"
+					}
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CBaseObject::StartBuilding"
+			{
+				"offset" "CBaseObject::StartBuilding"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CTeamplayRules::FPlayerCanTakeDamage"
+			{
+				"offset" "CTeamplayRules::FPlayerCanTakeDamage"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"player"
+					{
+						"type" "cbaseentity"
+					}
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CTeamplayRules::PlayerRelationship"
+			{
+				"offset" "CTeamplayRules::PlayerRelationship"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "entity"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"player"
+					{
+						"type" "cbaseentity"
+					}
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CTeamplayRules::GetTeamID"
+			{
+				"offset" "CTeamplayRules::GetTeamID"
+				"callconv" "thiscall"
+				"return" "charptr"
+				"this" "entity"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"player"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CBaseEntity::ShouldCollide"
+			{
+				"offset" "CBaseEntity::ShouldCollide"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"group"
+					{
+						"type" "int"
+					}
+					"mask"
+					{
+						"type" "int"
+					}
+				}
+			}
+			"CBaseProjectile::CanCollideWithTeammates"
+			{
+				"signature" "CBaseProjectile::CanCollideWithTeammates"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"JarExplode"
+			{
+				"signature" "JarExplode"
+				"callconv" "cdecl"
+				"return" "void"
+				"this" "ignore"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"iEntIndex"
+					{
+						"type" "int"
+					}
+					"pAttacker"
+					{
+						"type" "cbaseentity"
+					}
+					"pOriginalWeapon"
+					{
+						"type" "cbaseentity"
+					}
+					"pWeapon"
+					{
+						"type" "cbaseentity"
+					}
+					"vContactPoint"
+					{
+						"type" "vectorptr"
+					}
+					"iTeam"
+					{
+						"type" "int"
+					}
+					"flRadius"
+					{
+						"type" "float"
+					}
+					"cond"
+					{
+						"type" "int"
+					}
+					"flDuration"
+					{
+						"type" "float"
+					}
+					"pszImpactEffect"
+					{
+						"type" "charptr"
+					}
+				}
+			}
+			"CTFKnife::CanPerformBackstabAgainstTarget"
+			{
+				"signature" "CTFKnife::CanPerformBackstabAgainstTarget"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"pTarget"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CTFWeaponBaseMelee::DoSwingTrace"
+			{
+				"signature" "CTFWeaponBaseMelee::DoSwingTrace"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"pTarget"
+					{
+						"type" "objectptr"
+					}
+				}
+			}
+			"CTFKnife::BackstabVMThink"
+			{
+				"signature" "CTFKnife::BackstabVMThink"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CBaseCombatWeapon::PrimaryAttack"
+			{
+				"signature" "CBaseCombatWeapon::PrimaryAttack"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+		}
+	}
+}

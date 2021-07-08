@@ -49,12 +49,6 @@ public void OnPluginStart()
 		Database.Connect(OnMissiDatabaseConnect, "missions");
 	}
 
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			OnClientPutInServer(i);
-		}
-	}
-
 	HookEvent("achievement_earned", achievement_earned);
 
 	RegConsoleCmd("sm_achievements", sm_achievements);
@@ -65,11 +59,11 @@ public void OnPluginStart()
 	RegAdminCmd("sm_achivrem", sm_achivrem, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_achivremprog", sm_achivremprog, ADMFLAG_GENERIC);
 
-	for(int i = 1; i <= MaxClients; ++i) {
+	/*for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
 			OnClientPutInServer(i);
 		}
-	}
+	}*/
 }
 
 void achievement_earned(Event event, const char[] name, bool dontBroadcast)
@@ -115,9 +109,10 @@ public APLRes AskPluginLoad2(Handle plugin, bool late, char[] error, int len)
 	CreateNative("Achievement.GetDescription", NativeAchiv_GetDesc);
 	CreateNative("Achievement.RemoveProgress", NativeAchiv_RemoveProgress);
 	CreateNative("Achievement.Remove", NativeAchiv_Remove);
-	CreateNative("Achievement.Length.get", NativeAchiv_GetCount);
+	CreateNative("Achievement.Count", NativeAchiv_GetCount);
 	CreateNative("Achievement.GetPluginData", NativeAchiv_GetPluginData);
 	CreateNative("Achievement.SetPluginData", NativeAchiv_SetPluginData);
+	CreateNative("Achievement.Get", NativeAchiv_Get);
 
 	hOnAchievementDataLoaded = new GlobalForward("OnAchievementDataLoaded", ET_Ignore, Param_Cell);
 	hOnAchievementsLoaded = new GlobalForward("OnAchievementsLoaded", ET_Ignore);
@@ -125,20 +120,22 @@ public APLRes AskPluginLoad2(Handle plugin, bool late, char[] error, int len)
 	hOnAchievementProgressChanged = new GlobalForward("OnAchievementProgressChanged", ET_Ignore, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
 	hOnAchievementStatusChanged = new GlobalForward("OnAchievementStatusChanged", ET_Ignore, Param_Cell, Param_Cell, Param_Cell);
 
-	CreateNative("MissionEntry.Length.get", NativeMissi_GetCount);
+	CreateNative("MissionEntry.Count", NativeMissi_GetCount);
 	CreateNative("MissionEntry.FindByName", NativeMissi_FindByName);
 	CreateNative("MissionEntry.FindByID", NativeMissi_FindByID);
 	CreateNative("MissionEntry.GetName", NativeMissi_GetName);
 	CreateNative("MissionEntry.GetDescription", NativeMissi_GetDesc);
 	CreateNative("MissionEntry.ID.get", NativeMissi_GetID);
-	CreateNative("MissionEntry.Max.get", NativeMissi_GetMax);
 	CreateNative("MissionEntry.GiveToPlayer", NativeMissi_GiveToPlayer);
+	CreateNative("MissionEntry.Get", NativeMissi_Get);
 
-	CreateNative("PlayerMission.Find", NativeMissi_Find);
-	CreateNative("PlayerMission.FindByName", NativeMissi_FindByName2);
-	CreateNative("PlayerMission.FindByID", NativeMissi_FindByID2);
-	CreateNative("PlayerMission.GiveByName", NativeMissi_GiveByName);
-	CreateNative("PlayerMission.GiveByID", NativeMissi_GiveByID);
+	CreateNative("PlayerMission.Find", NativePlrMissi_Find);
+	CreateNative("PlayerMission.FindByName", NativePlrMissi_FindByName);
+	CreateNative("PlayerMission.FindByID", NativePlrMissi_FindByID);
+	CreateNative("PlayerMission.GiveByName", NativePlrMissi_GiveByName);
+	CreateNative("PlayerMission.GiveByID", NativePlrMissi_GiveByID);
+	CreateNative("PlayerMission.Count", NativePlrMissi_Count);
+	CreateNative("PlayerMission.Get", NativePlrMissi_Get);
 
 	hOnMissionDataLoaded = new GlobalForward("OnMissionDataLoaded", ET_Ignore, Param_Cell);
 	hOnMissionsLoaded = new GlobalForward("OnMissionsLoaded", ET_Ignore);

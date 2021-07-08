@@ -1,3 +1,8 @@
+#define ACHIVPLAYERCACHE_BLOCK 4
+#define ACHIVPLAYERCACHE_PROG_IDX 1
+#define ACHIVPLAYERCACHE_ACHIV_IDX 2
+#define ACHIVPLAYERCACHE_PLUDATA_IDX 3
+
 methodmap MPlayerAchivCache < Handle
 {
 	public any __GenericGet(int id, int block, int idx = -1)
@@ -21,12 +26,12 @@ methodmap MPlayerAchivCache < Handle
 				return;
 			}
 		}
-		arr.Set(idx, value, 1);
+		arr.Set(idx, value, block);
 	}
 
 	public MPlayerAchivCache()
 	{
-		ArrayList arr = new ArrayList(4);
+		ArrayList arr = new ArrayList(ACHIVPLAYERCACHE_BLOCK);
 		return view_as<MPlayerAchivCache>(arr);
 	}
 
@@ -46,32 +51,32 @@ methodmap MPlayerAchivCache < Handle
 
 	public int GetProgress(int id, int idx = -1)
 	{
-		return this.__GenericGet(id, 1, idx);
+		return this.__GenericGet(id, ACHIVPLAYERCACHE_PROG_IDX, idx);
 	}
 
 	public void SetProgress(int id, int value, int idx = -1)
 	{
-		this.__GenericSet(id, value, 1, idx);
+		this.__GenericSet(id, value, ACHIVPLAYERCACHE_PROG_IDX, idx);
 	}
 
 	public int GetAchivedTime(int id, int idx = -1)
 	{
-		return this.__GenericGet(id, 2, idx);
+		return this.__GenericGet(id, ACHIVPLAYERCACHE_ACHIV_IDX, idx);
 	}
 
 	public void SetAchievedTime(int id, int value, int idx = -1)
 	{
-		this.__GenericSet(id, value, 2, idx);
+		this.__GenericSet(id, value, ACHIVPLAYERCACHE_ACHIV_IDX, idx);
 	}
 
 	public any GetPluginData(int id, int idx = -1)
 	{
-		return this.__GenericGet(id, 3, idx);
+		return this.__GenericGet(id, ACHIVPLAYERCACHE_PLUDATA_IDX, idx);
 	}
 
 	public void SetPluginData(int id, int value, int idx = -1)
 	{
-		this.__GenericSet(id, value, 3, idx);
+		this.__GenericSet(id, value, ACHIVPLAYERCACHE_PLUDATA_IDX, idx);
 	}
 
 	public bool HasAchieved(int id, int idx = -1)
@@ -101,6 +106,12 @@ methodmap MPlayerAchivCache < Handle
 	}
 };
 
+#define ACHIVCACHE_BLOCK 5
+#define ACHIVCACHE_MAX_IDX 1
+#define ACHIVCACHE_NAME_IDX 2
+#define ACHIVCACHE_DESC_IDX 3
+#define ACHIVCACHE_HIDD_IDX 4
+
 methodmap MAchivCache < Handle
 {
 	public any __GenericGet(int id, int block, int idx = -1)
@@ -124,12 +135,12 @@ methodmap MAchivCache < Handle
 				return;
 			}
 		}
-		arr.Set(idx, value, 1);
+		arr.Set(idx, value, block);
 	}
 
 	public MAchivCache()
 	{
-		ArrayList arr = new ArrayList(5);
+		ArrayList arr = new ArrayList(ACHIVCACHE_BLOCK);
 		return view_as<MAchivCache>(arr);
 	}
 
@@ -147,52 +158,67 @@ methodmap MAchivCache < Handle
 		return idx;
 	}
 
+	property int Length
+	{
+		public get()
+		{
+			ArrayList arr = view_as<ArrayList>(this);
+			return arr.Length;
+		}
+	}
+
+	public int GetID(int idx)
+	{
+		ArrayList arr = view_as<ArrayList>(this);
+		return arr.Get(idx, 0);
+	}
+
 	public int GetMax(int id, int idx = -1)
 	{
-		return this.__GenericGet(id, 1, idx);
+		return this.__GenericGet(id, ACHIVCACHE_MAX_IDX, idx);
 	}
 
 	public void SetMax(int id, int value, int idx = -1)
 	{
-		this.__GenericSet(id, value, 1, idx);
+		this.__GenericSet(id, value, ACHIVCACHE_MAX_IDX, idx);
 	}
 
 	public bool IsHidden(int id, int idx = -1)
 	{
-		return (this.__GenericGet(id, 4, idx) == 1);
+		return (this.__GenericGet(id, ACHIVCACHE_HIDD_IDX, idx) == 1);
 	}
 
 	public void SetHidden(int id, bool value, int idx = -1)
 	{
-		this.__GenericSet(id, value ? 1 : 0, 4, idx);
+		this.__GenericSet(id, value ? 1 : 0, ACHIVCACHE_HIDD_IDX, idx);
 	}
 
 	public void SetName(int id, const char[] name, int idx = -1)
 	{
 		int nidx = achiv_names.PushString(name);
-		this.__GenericSet(id, nidx, 2, idx);
+		this.__GenericSet(id, nidx, ACHIVCACHE_NAME_IDX, idx);
 	}
 
 	public void SetDesc(int id, const char[] desc, int idx = -1)
 	{
 		int nidx = achiv_descs.PushString(desc);
-		this.__GenericSet(id, nidx, 3, idx);
+		this.__GenericSet(id, nidx, ACHIVCACHE_DESC_IDX, idx);
 	}
 
 	public void NullDesc(int id, int idx = -1)
 	{
-		this.__GenericSet(id, -1, 3, idx);
+		this.__GenericSet(id, -1, ACHIVCACHE_DESC_IDX, idx);
 	}
 
 	public void GetName(int id, char[] name, int len, int idx = -1)
 	{
-		int nidx = this.__GenericGet(id, 2, idx);
+		int nidx = this.__GenericGet(id, ACHIVCACHE_NAME_IDX, idx);
 		achiv_names.GetString(nidx, name, len);
 	}
 
 	public bool GetDesc(int id, char[] desc, int len, int idx = -1)
 	{
-		int nidx = this.__GenericGet(id, 3, idx);
+		int nidx = this.__GenericGet(id, ACHIVCACHE_DESC_IDX, idx);
 		if(nidx == -1) {
 			return false;
 		}

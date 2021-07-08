@@ -13,7 +13,7 @@ void OnAchivDatabaseConnect(Database db, const char[] error, any data)
 
 	Transaction tr = new Transaction();
 
-	db.Format(tmpquery, sizeof(tmpquery), "select id,name,max from achiv_data;");
+	db.Format(tmpquery, sizeof(tmpquery), "select * from achiv_data;");
 	tr.AddQuery(tmpquery);
 
 	db.Format(tmpquery, sizeof(tmpquery), "select id,description,hidden from achiv_display;");
@@ -27,7 +27,7 @@ void QueryPlayerAchivData(Database db, int client, Transaction tr = null)
 	int accid = GetSteamAccountID(client);
 	int userid = GetClientUserId(client);
 
-	db.Format(tmpquery, sizeof(tmpquery), "select id,progress,plugin_data,achieved from achiv_player_data where accountid=%i;", accid);
+	db.Format(tmpquery, sizeof(tmpquery), "select * from achiv_player_data where accountid=%i;", accid);
 	if(tr != null) {
 		tr.AddQuery(tmpquery, userid);
 	} else {

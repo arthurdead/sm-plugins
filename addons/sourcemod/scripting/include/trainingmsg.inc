@@ -3,7 +3,7 @@
 #endif
 #define trainingmsg_inc
 
-#define TRAINING_MSG_MAX_WIDTH 46
+#define TRAINING_MSG_MAX_WIDTH 59
 #define TRAINING_MSG_MAX_HEIGHT 4
 #define TRAINING_MSG_MAX_LEN (TRAINING_MSG_MAX_WIDTH * TRAINING_MSG_MAX_HEIGHT)
 
@@ -25,6 +25,15 @@ typedef TrainingMsgMenuHandler = function void (TrainingMsgMenuAction action, in
 
 #define TRAININGMSGMENU_TIME_FOREVER 0
 
+enum TrainingMsgFlags
+{
+	TMSG_NOFLAGS = 0,
+	TMSG_HAS_CONTINUE = (1 << 0),
+	TMSG_REMOVE_ON_CONTINUE = (1 << 2),
+};
+
+#define TMSG_CONTINUE_AUTOREMOVE (TMSG_HAS_CONTINUE|TMSG_REMOVE_ON_CONTINUE)
+
 methodmap TrainingMsgMenu
 {
 	public native TrainingMsgMenu(TrainingMsgMenuHandler handler, any data = 0);
@@ -36,6 +45,10 @@ methodmap TrainingMsgMenu
 
 	property bool ExitButton {
 		public native set(bool value);
+	}
+
+	property TrainingMsgFlags Flags {
+		public native set(TrainingMsgFlags value);
 	}
 
 	public native bool SendToClient(int client, int time);
@@ -59,9 +72,9 @@ if you want text to be hinted use \x2 before the text and \x1 after like this
 Format(mytext, sizeof(mytext), "\x2this text is hinted \x1now this text isnt");
 */
 
-native void SendTrainingMessageToClients(const int[] clients, int numClients, const char[] title, const char[] msg, bool has_continue = false);
-native void SendTrainingMessageToAll(const char[] title, const char[] msg, bool has_continue = false);
-native void SendTrainingMessageToClient(int client, const char[] title, const char[] msg, bool has_continue = false);
+native void SendTrainingMessageToClients(const int[] clients, int numClients, const char[] title, const char[] msg, TrainingMsgFlags flags = TMSG_NOFLAGS);
+native void SendTrainingMessageToAll(const char[] title, const char[] msg, TrainingMsgFlags flags = TMSG_NOFLAGS);
+native void SendTrainingMessageToClient(int client, const char[] title, const char[] msg, TrainingMsgFlags flags = TMSG_NOFLAGS);
 
 native void RemoveTrainingMessageFromAll();
 native void RemoveTrainingMessageFromClients(const int[] clients, int numClients);
