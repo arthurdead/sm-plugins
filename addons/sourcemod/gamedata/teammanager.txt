@@ -119,6 +119,10 @@
 			{
 				"linux" "421"
 			}
+			"CBaseObject::Killed"
+			{
+				"linux" "350"
+			}
 		}
 		"Functions"
 		{
@@ -506,6 +510,21 @@
 					"vecSize"
 					{
 						"type" "vectorptr"
+					}
+				}
+			}
+			"CBaseObject::Killed"
+			{
+				"offset" "CBaseObject::Killed"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"info"
+					{
+						"type" "objectptr"
 					}
 				}
 			}

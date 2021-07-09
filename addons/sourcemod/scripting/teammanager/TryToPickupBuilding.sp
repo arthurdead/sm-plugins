@@ -2,11 +2,13 @@ Handle dhTryToPickupBuilding = null;
 Handle dhStartBuilding = null;
 Handle callAddObject = null;
 Handle callRemoveObject = null;
+Handle dhObjectKilled = null;
 
 void TryToPickupBuildingCreate(GameData gamedata)
 {
 	dhTryToPickupBuilding = DHookCreateFromConf(gamedata, "CTFPlayer::TryToPickupBuilding");
 	dhStartBuilding = DHookCreateFromConf(gamedata, "CBaseObject::StartBuilding");
+	dhObjectKilled = DHookCreateFromConf(gamedata, "CBaseObject::Killed");
 
 	DHookEnableDetour(dhTryToPickupBuilding, false, TryToPickupBuildingPre);
 	DHookEnableDetour(dhTryToPickupBuilding, true, TryToPickupBuildingPost);
@@ -27,8 +29,9 @@ int TryToPickupBuildingTempTeam = -1;
 int TryToPickupBuildingTempOwner[MAXPLAYERS+1] = {-1, ...};
 int StartBuildingTempIDPre[MAXPLAYERS+1] = {-1, ...};
 int StartBuildingTempIDPost[MAXPLAYERS+1] = {-1, ...};
+int ObjectKilledIDPre[MAXPLAYERS+1] = {-1,...};
 
-void TryToPickupBuildingDisconnect(int client)
+void TryToPickupBuildingRemoveHooks(int client)
 {
 	if(StartBuildingTempIDPre[client] != -1) {
 		DHookRemoveHookID(StartBuildingTempIDPre[client]);
@@ -38,6 +41,15 @@ void TryToPickupBuildingDisconnect(int client)
 		DHookRemoveHookID(StartBuildingTempIDPost[client]);
 		StartBuildingTempIDPost[client] = -1;
 	}
+	if(ObjectKilledIDPre[client] != -1) {
+		DHookRemoveHookID(ObjectKilledIDPre[client]);
+		ObjectKilledIDPre[client] = -1;
+	}
+}
+
+void TryToPickupBuildingDisconnect(int client)
+{
+	TryToPickupBuildingRemoveHooks(client);
 	TryToPickupBuildingTempOwner[client] = -1;
 }
 
@@ -74,7 +86,8 @@ MRESReturn TryToPickupBuildingPre(int pThis, Handle hReturn)
 
 	TryToPickupBuildingTempTeam = -1;
 	TryToPickupBuildingTempEntity = -1;
-	TryToPickupBuildingTempOwner[pThis] = -1;
+
+	TryToPickupBuildingDisconnect(pThis);
 
 	TR_EnumerateEntities(start, end, PARTITION_SOLID_EDICTS, RayType_EndPoint, BuildingEnum);
 
@@ -96,10 +109,12 @@ MRESReturn TryToPickupBuildingPre(int pThis, Handle hReturn)
 			TryToPickupBuildingTempEntity = -1;
 			return MRES_Ignored;
 		} else if(result == Plugin_Changed) {
-			TryToPickupBuildingTempTeam = GetEntityTeam(pThis);
-			TryToPickupBuildingTempOwner[pThis] = owner;
-			SetEntityTeam(pThis, GetEntityTeam(TryToPickupBuildingTempEntity), true);
-			SDKCall(callAddObject, pThis, TryToPickupBuildingTempEntity);
+			if(owner != pThis) {
+				TryToPickupBuildingTempTeam = GetEntityTeam(pThis);
+				TryToPickupBuildingTempOwner[pThis] = owner;
+				SetEntityTeam(pThis, GetEntityTeam(TryToPickupBuildingTempEntity), true);
+				SDKCall(callAddObject, pThis, TryToPickupBuildingTempEntity);
+			}
 		} else {
 			TryToPickupBuildingTempEntity = -1;
 			DHookSetReturn(hReturn, 0);
@@ -114,14 +129,10 @@ MRESReturn TryToPickupBuildingPost(int pThis, Handle hReturn)
 {
 	if(TryToPickupBuildingTempEntity != -1) {
 		SDKCall(callRemoveObject, pThis, TryToPickupBuildingTempEntity);
-		if(StartBuildingTempIDPre[pThis] != -1) {
-			DHookRemoveHookID(StartBuildingTempIDPre[pThis]);
-		}
-		if(StartBuildingTempIDPost[pThis] != -1) {
-			DHookRemoveHookID(StartBuildingTempIDPost[pThis]);
-		}
+		TryToPickupBuildingRemoveHooks(pThis);
 		StartBuildingTempIDPre[pThis] = DHookEntity(dhStartBuilding, false, TryToPickupBuildingTempEntity, INVALID_FUNCTION, StartBuildingPre);
 		StartBuildingTempIDPost[pThis] = DHookEntity(dhStartBuilding, true, TryToPickupBuildingTempEntity, INVALID_FUNCTION, StartBuildingPost);
+		ObjectKilledIDPre[pThis] = DHookEntity(dhObjectKilled, false, TryToPickupBuildingTempEntity, INVALID_FUNCTION, ObjectKilledPre);
 		TryToPickupBuildingTempEntity = -1;
 	}
 
@@ -140,26 +151,51 @@ void TryToPickupBuildingDestroyed(int entity)
 	}
 }
 
+int StartBuildingHackTempWasDisposable = -1;
+
+MRESReturn ObjectKilledPre(int pThis, Handle hReturn, Handle hParams)
+{
+	int fake_owner = GetOwner(pThis);
+
+	int real_owner = TryToPickupBuildingTempOwner[fake_owner];
+	if(real_owner != -1) {
+		SetEntPropEnt(pThis, Prop_Send, "m_hBuilder", real_owner);
+		TryToPickupBuildingTempOwner[fake_owner] = -1;
+	}
+
+	return MRES_Ignored;
+}
+
 MRESReturn StartBuildingPre(int pThis, Handle hReturn, Handle hParams)
 {
+	StartBuildingHackTempWasDisposable = -1;
+
 	int fake_owner = GetOwner(pThis);
 	int real_owner = TryToPickupBuildingTempOwner[fake_owner];
 	if(real_owner != -1) {
 		TryToPickupBuildingTempOwner[real_owner] = fake_owner;
 		SetEntPropEnt(pThis, Prop_Send, "m_hBuilder", real_owner);
-		SetEntProp(pThis, Prop_Send, "m_iObjectMode", 0);
+		StartBuildingHackTempWasDisposable = GetEntProp(pThis, Prop_Send, "m_bDisposableBuilding");
+		SetEntProp(pThis, Prop_Send, "m_bDisposableBuilding", 1);
 		TryToPickupBuildingTempOwner[fake_owner] = -1;
 	}
+
 	return MRES_Ignored;
 }
 
 MRESReturn StartBuildingPost(int pThis, Handle hReturn, Handle hParams)
 {
+	if(StartBuildingHackTempWasDisposable != -1) {
+		SetEntProp(pThis, Prop_Send, "m_bDisposableBuilding", StartBuildingHackTempWasDisposable);
+		StartBuildingHackTempWasDisposable = -1;
+	}
+
 	int real_owner = GetOwner(pThis);
 	int fake_owner = TryToPickupBuildingTempOwner[real_owner];
 	if(fake_owner != -1) {
 		SDKCall(callRemoveObject, fake_owner, pThis);
 		TryToPickupBuildingTempOwner[real_owner] = -1;
 	}
+
 	return MRES_Ignored;
 }
