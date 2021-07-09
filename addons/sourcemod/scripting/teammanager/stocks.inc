@@ -82,29 +82,54 @@ stock int GetOwner(int entity)
 		return entity;
 	}
 
-	int owner = -1;
+	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	if(owner != -1) {
+		return GetOwner(owner);
+	}
 
 	if(HasEntProp(entity, Prop_Send, "m_hBuilder")) {
 		owner = GetEntPropEnt(entity, Prop_Send, "m_hBuilder");
-	} else if(HasEntProp(entity, Prop_Send, "m_hLauncher")) {
+		if(owner != -1) {
+			return owner;
+		}
+	}
+
+	if(HasEntProp(entity, Prop_Send, "m_hLauncher")) {
 		owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
-	} else if(HasEntProp(entity, Prop_Send, "m_hOriginalLauncher")) {
+		if(owner != -1) {
+			return GetOwner(owner);
+		}
+	}
+
+	if(HasEntProp(entity, Prop_Send, "m_hOriginalLauncher")) {
 		owner = GetEntPropEnt(entity, Prop_Send, "m_hOriginalLauncher");
-	} else if(HasEntProp(entity, Prop_Send, "m_hThrower")) {
+		if(owner != -1) {
+			return GetOwner(owner);
+		}
+	}
+
+	if(HasEntProp(entity, Prop_Send, "m_hThrower")) {
 		owner = GetEntPropEnt(entity, Prop_Send, "m_hThrower");
-	} else if(HasEntProp(entity, Prop_Send, "m_hDeflectOwner")) {
+		if(owner != -1) {
+			return owner;
+		}
+	}
+
+	if(HasEntProp(entity, Prop_Send, "m_hDeflectOwner")) {
 		owner = GetEntPropEnt(entity, Prop_Send, "m_hDeflectOwner");
-	} else if(HasEntProp(entity, Prop_Send, "m_hOwner")) {
+		if(owner != -1) {
+			return owner;
+		}
+	}
+
+	if(HasEntProp(entity, Prop_Send, "m_hOwner")) {
 		owner = GetEntPropEnt(entity, Prop_Send, "m_hOwner");
-	} else if(HasEntProp(entity, Prop_Send, "m_hOwnerEntity")) {
-		owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+		if(owner != -1) {
+			return owner;
+		}
 	}
 
-	if(owner == -1) {
-		return entity;
-	}
-
-	return GetOwner(owner);
+	return entity;
 }
 
 stock bool TraceFilterPlayers(int entity, int contentsMask, any data)

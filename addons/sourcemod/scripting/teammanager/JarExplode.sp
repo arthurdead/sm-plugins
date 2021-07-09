@@ -1,11 +1,66 @@
 Handle dhJarExplode = null;
+Handle dhJarOnHit = null;
 
 void JarExplodeCreate(GameData gamedata)
 {
 	dhJarExplode = DHookCreateFromConf(gamedata, "JarExplode");
+	dhJarOnHit = DHookCreateFromConf(gamedata, "CTFProjectile_Jar::OnHit");
 
 	DHookEnableDetour(dhJarExplode, false, JarExplodePre);
 	DHookEnableDetour(dhJarExplode, true, JarExplodePost);
+}
+
+void JarExplodeEntityCreated(int entity, const char[] classname)
+{
+	if(StrContains(classname, "tf_projectile_jar") != -1 ||
+		StrEqual(classname, "tf_projectile_cleaver") ||
+		StrContains(classname, "tf_projectile_spell") != -1) {
+		DHookEntity(dhJarOnHit, false, entity, INVALID_FUNCTION, JarOnHitPre);
+		DHookEntity(dhJarOnHit, true, entity, INVALID_FUNCTION, JarOnHitPost);
+	}
+}
+
+int JarOnHitTempTeam = -1;
+
+MRESReturn JarOnHitPre(int pThis, Handle hParams)
+{
+	int owner = GetOwner(pThis);
+	int other = DHookGetParam(hParams, 1);
+	int other_owner = GetOwner(other);
+
+	JarOnHitTempTeam = -1;
+
+	Call_StartForward(fwCanDamage);
+	Call_PushCell(owner);
+	Call_PushCell(other_owner);
+
+	Action result = Plugin_Continue;
+	Call_Finish(result);
+
+	if(result == Plugin_Continue) {
+		return MRES_Ignored;
+	} else if(result == Plugin_Changed) {
+		int enemy_team = GetOppositeTeam(owner);
+		JarOnHitTempTeam = GetEntityTeam(other_owner);
+		SetEntityTeam(other, enemy_team, true);
+	} else {
+		int owner_team = GetEntityTeam(owner);
+		JarOnHitTempTeam = GetEntityTeam(other_owner);
+		SetEntityTeam(other, owner_team, true);
+	}
+
+	return MRES_Ignored;
+}
+
+MRESReturn JarOnHitPost(int pThis, Handle hParams)
+{
+	if(JarOnHitTempTeam != -1) {
+		int other = DHookGetParam(hParams, 1);
+		SetEntityTeam(other, JarOnHitTempTeam, true);
+		JarOnHitTempTeam = -1;
+	}
+
+	return MRES_Ignored;
 }
 
 bool EnumPlayers(int entity, any data)

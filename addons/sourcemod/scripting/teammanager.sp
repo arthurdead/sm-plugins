@@ -28,6 +28,8 @@ GlobalForward fwInSameTeam = null;
 GlobalForward fwCanPickupBuilding = null;
 GlobalForward fwCanChangeTeam = null;
 GlobalForward fwCanChangeClass = null;
+GlobalForward fwCanBackstab = null;
+GlobalForward fwCanAirblast = null;
 
 #include "teammanager/AllowedToHealTarget.sp"
 #include "teammanager/CouldHealTarget.sp"
@@ -38,20 +40,22 @@ GlobalForward fwCanChangeClass = null;
 #include "teammanager/FPlayerCanTakeDamage.sp"
 #include "teammanager/PlayerRelationship.sp"
 #include "teammanager/ShouldCollide.sp"
-
-#include "teammanager/GetTeamID.sp"
+#include "teammanager/CanPerformBackstabAgainstTarget.sp"
 #include "teammanager/JarExplode.sp"
-#include "teammanager/IsValidRoboSapperTarget.sp"
-#include "teammanager/PlayerCanBeTeleported.sp"
+#include "teammanager/DeflectProjectiles.sp"
+
+bool g_bLateLoaded = false;
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 {
 	fwCanHeal = new GlobalForward("TeamManager_CanHeal", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
 	fwCanDamage = new GlobalForward("TeamManager_CanDamage", ET_Hook, Param_Cell, Param_Cell);
 	fwInSameTeam = new GlobalForward("TeamManager_InSameTeam", ET_Hook, Param_Cell, Param_Cell);
-	fwCanPickupBuilding = new GlobalForward("TeamManager_CanPickupBuilding", ET_Hook, Param_Cell);
+	fwCanPickupBuilding = new GlobalForward("TeamManager_CanPickupBuilding", ET_Hook, Param_Cell, Param_Cell);
 	fwCanChangeTeam = new GlobalForward("TeamManager_CanChangeTeam", ET_Hook, Param_Cell, Param_Cell);
 	fwCanChangeClass = new GlobalForward("TeamManager_CanChangeClass", ET_Hook, Param_Cell, Param_Cell);
+	fwCanBackstab = new GlobalForward("TeamManager_CanBackstab", ET_Hook, Param_Cell, Param_Cell);
+	fwCanAirblast = new GlobalForward("TeamManager_CanAirblast", ET_Hook, Param_Cell, Param_Cell);
 
 	CreateNative("TeamManager_GetEntityTeam", Native_TeamManager_GetEntityTeam);
 	CreateNative("TeamManager_SetEntityTeam", Native_TeamManager_SetEntityTeam);
@@ -67,6 +71,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 		}
 	}
 #endif
+
+	g_bLateLoaded = late;
 
 	return APLRes_Success;
 }
@@ -103,6 +109,8 @@ public void OnPluginStart()
 	PlayerRelationshipCreate(gamedata);
 	ShouldCollideCreate(gamedata);
 	JarExplodeCreate(gamedata);
+	CanPerformBackstabAgainstTargetCreate(gamedata);
+	DeflectProjectilesCreate(gamedata);
 
 	StartPrepSDKCall(SDKCall_Entity);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CTeam::AddPlayer");
@@ -127,10 +135,18 @@ public void OnPluginStart()
 
 	HookEvent("player_death", Event_Death, EventHookMode_Post);
 
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			OnClientPutInServer(i);
-			OnEntityCreated(i, "player");
+	if(g_bLateLoaded) {
+		for(int i = 1; i <= MaxClients; ++i) {
+			if(IsClientInGame(i)) {
+				OnClientPutInServer(i);
+			}
+		}
+
+		int entity = -1;
+		char classname[64];
+		while((entity = FindEntityByClassname(entity, "*")) != -1) {
+			GetEntityClassname(entity, classname, sizeof(classname));
+			OnEntityCreated(entity, classname);
 		}
 	}
 }
@@ -221,6 +237,9 @@ public void OnMapStart()
 public void OnEntityCreated(int entity, const char[] classname)
 {
 	ShouldCollideEntityCreated(entity, classname);
+	JarExplodeEntityCreated(entity, classname);
+	CanPerformBackstabAgainstTargetEntityCreated(entity, classname);
+	DeflectProjectilesEntityCreated(entity, classname);
 }
 
 public void OnEntityDestroyed(int entity)

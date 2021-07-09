@@ -54,8 +54,9 @@ MRESReturn StrikeTargetPre(int pThis, Handle hReturn, Handle hParams)
 			StrikeTargetTempTeam = GetEntityTeam(other_owner);
 			SetEntityTeam(other, owner_team, true);
 		} else {
-			DHookSetReturn(hReturn, 0);
-			return MRES_Supercede;
+			int enemy_team = GetOppositeTeam(owner);
+			StrikeTargetTempTeam = GetEntityTeam(other_owner);
+			SetEntityTeam(other, enemy_team, true);
 		}
 	}
 

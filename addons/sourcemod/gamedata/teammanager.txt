@@ -95,6 +95,10 @@
 			{
 				"linux" "224"
 			}
+			"CBaseProjectile::GetCollideWithTeammatesDelay"
+			{
+				"linux" "225"
+			}
 			"CTFWeaponBaseMelee::DoSwingTrace"
 			{
 				"linux" "469"
@@ -102,6 +106,18 @@
 			"CBaseCombatWeapon::PrimaryAttack"
 			{
 				"linux" "286"
+			}
+			"CTFProjectile_Jar::OnHit"
+			{
+				"linux" "260"
+			}
+			"CTFWeaponBase::DeflectPlayer"
+			{
+				"linux" "420"
+			}
+			"CTFWeaponBase::DeflectEntity"
+			{
+				"linux" "421"
 			}
 		}
 		"Functions"
@@ -305,9 +321,17 @@
 			}
 			"CBaseProjectile::CanCollideWithTeammates"
 			{
-				"signature" "CBaseProjectile::CanCollideWithTeammates"
+				"offset" "CBaseProjectile::CanCollideWithTeammates"
 				"callconv" "thiscall"
 				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+			}
+			"CBaseProjectile::GetCollideWithTeammatesDelay"
+			{
+				"offset" "CBaseProjectile::GetCollideWithTeammatesDelay"
+				"callconv" "thiscall"
+				"return" "float"
 				"this" "entity"
 				"hooktype" "entity"
 			}
@@ -379,7 +403,7 @@
 			}
 			"CTFWeaponBaseMelee::DoSwingTrace"
 			{
-				"signature" "CTFWeaponBaseMelee::DoSwingTrace"
+				"offset" "CTFWeaponBaseMelee::DoSwingTrace"
 				"callconv" "thiscall"
 				"return" "bool"
 				"this" "entity"
@@ -402,11 +426,88 @@
 			}
 			"CBaseCombatWeapon::PrimaryAttack"
 			{
-				"signature" "CBaseCombatWeapon::PrimaryAttack"
+				"offset" "CBaseCombatWeapon::PrimaryAttack"
 				"callconv" "thiscall"
 				"return" "void"
 				"this" "entity"
 				"hooktype" "entity"
+			}
+			"CTFProjectile_Jar::OnHit"
+			{
+				"offset" "CTFProjectile_Jar::OnHit"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"pOther"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CTFWeaponBase::DeflectPlayer"
+			{
+				"offset" "CTFWeaponBase::DeflectPlayer"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"pTarget"
+					{
+						"type" "cbaseentity"
+					}
+					"pOwner"
+					{
+						"type" "cbaseentity"
+					}
+					"vecForward"
+					{
+						"type" "vectorptr"
+					}
+					"vecCenter"
+					{
+						"type" "vectorptr"
+					}
+					"vecSize"
+					{
+						"type" "vectorptr"
+					}
+				}
+			}
+			"CTFWeaponBase::DeflectEntity"
+			{
+				"offset" "CTFWeaponBase::DeflectEntity"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"pTarget"
+					{
+						"type" "cbaseentity"
+					}
+					"pOwner"
+					{
+						"type" "cbaseentity"
+					}
+					"vecForward"
+					{
+						"type" "vectorptr"
+					}
+					"vecCenter"
+					{
+						"type" "vectorptr"
+					}
+					"vecSize"
+					{
+						"type" "vectorptr"
+					}
+				}
 			}
 		}
 	}

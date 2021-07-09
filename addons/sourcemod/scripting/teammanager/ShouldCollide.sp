@@ -1,23 +1,14 @@
 Handle dhShouldCollide = null;
-Handle dhCanCollideWithTeammates = null;
 
 void ShouldCollideCreate(GameData gamedata)
 {
 	dhShouldCollide = DHookCreateFromConf(gamedata, "CBaseEntity::ShouldCollide");
-	dhCanCollideWithTeammates = DHookCreateFromConf(gamedata, "CBaseProjectile::CanCollideWithTeammates");
 }
 
 void ShouldCollideEntityCreated(int entity, const char[] classname)
 {
 	//SDKHook(entity, SDKHook_ShouldCollide, ShouldCollideSDKHook);
 	//DHookEntity(dhShouldCollide, false, entity, INVALID_FUNCTION, ShouldCollideDHookPre);
-
-	if(StrContains(classname, "tf_projectile") != -1) {
-		int owner = GetOwner(entity);
-		if(IsPlayer(owner)) {
-			//DHookEntity(dhCanCollideWithTeammates, false, entity, INVALID_FUNCTION, CanCollideWithTeammatesPre);
-		}
-	}
 }
 
 #define COLLISION_GROUP_PLAYER_MOVEMENT 8
@@ -65,12 +56,6 @@ MRESReturn ShouldCollideDHookPre(int pThis, Handle hReturn, Handle hParams)
 	}
 
 	return MRES_Ignored;
-}
-
-MRESReturn CanCollideWithTeammatesPre(int pThis, Handle hReturn)
-{
-	DHookSetReturn(hReturn, 1);
-	return MRES_Supercede;
 }
 
 /*public Action CH_PassFilter(int ent1, int ent2, bool &result)

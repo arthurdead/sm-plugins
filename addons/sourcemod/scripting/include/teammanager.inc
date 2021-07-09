@@ -11,7 +11,6 @@ enum HealSource
 	HEAL_SUPPLYCABINET, //not implemented
 	HEAL_WRENCH,
 	HEAL_PROJECTILE,
-	//HEAL_AIRBLAST, //not implemented
 };
 
 /*
@@ -28,8 +27,8 @@ forward Action TeamManager_CanPickupBuilding(int entity, int other);
 forward Action TeamManager_InSameTeam(int entity, int other);
 forward Action TeamManager_CanChangeTeam(int entity, int team);
 forward Action TeamManager_CanChangeClass(int entity, int class);
-//forward Action TeamManager_CanAirblast(int entity, int other);
-//forward Action TeamManager_CanBackstab(int entity, int other);
+forward Action TeamManager_CanAirblast(int entity, int other);
+forward Action TeamManager_CanBackstab(int entity, int other);
 
 native int TeamManager_GetEntityTeam(int entity);
 native void TeamManager_SetEntityTeam(int entity, int team, bool raw);
