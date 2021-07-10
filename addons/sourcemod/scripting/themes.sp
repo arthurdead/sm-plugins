@@ -1891,7 +1891,7 @@ void DestroyParticles(int client)
 	RemoveWeatherParticle(client);
 }
 
-stock Action Timer_CreateParticules(Handle timer, int client)
+stock Action Timer_CreateParticles(Handle timer, int client)
 {
 	CreateParticles(client);
 	return Plugin_Continue;
@@ -2368,7 +2368,7 @@ Action Event_PlayerTeam(Handle event, const char[] name, bool dontBroadcast)
 				SetEntPropFloat(client, Prop_Send, "m_skybox3d.fog.end", mapSkyboxFogEnd);
 			}
 
-			//CreateTimer(5.0, Timer_CreateParticules, client);
+			//CreateTimer(5.0, Timer_CreateParticles, client);
 		}
 	}
 	

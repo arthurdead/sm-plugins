@@ -26,7 +26,7 @@ MRESReturn FPlayerCanTakeDamagePre(int pThis, Handle hReturn, Handle hParams)
 		//HACK!!! remove this once i figure out why its failing
 		int team1 = GetEntityTeam(owner);
 		int team2 = GetEntityTeam(other);
-		if(team1 == team2) {
+		if(team1 == team2 && owner != other) {
 			DHookSetReturn(hReturn, 0);
 			return MRES_Supercede;
 		}
