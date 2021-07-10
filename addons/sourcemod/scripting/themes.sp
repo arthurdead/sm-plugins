@@ -46,7 +46,7 @@
 #define PLUGIN_URL		"http://j-factor.com/"
 
 // Debug -----------------------------------------------------------------------
-#define DEBUG		1 
+//#define DEBUG		1 
 
 // Configs ---------------------------------------------------------------------
 #define CONFIG_MAPS 		"configs/themes/maps.cfg"
@@ -254,7 +254,7 @@ ConVar cvBZ2CopyFolder = null;
 ConVar cvGlobalParticleLimit = null;
 ConVar cvStageParticleLimit = null;
 
-void ClampCompression(ConVar convar, const char[] oldValue, const char[] newValue)
+stock void ClampCompression(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	int compress = StringToInt(newValue);
 
@@ -378,7 +378,7 @@ public void OnGameFrame()
 	}
 }
 
-bool TraceEntityFilter_DontHitEntity(int entity, int mask, any data)
+stock bool TraceEntityFilter_DontHitEntity(int entity, int mask, any data)
 {
 	return entity != data;
 }
@@ -499,7 +499,7 @@ void Initialize(bool enable, bool print=true)
 		HookEvent("teamplay_round_win", Event_RoundEnd);
 		HookEvent("teamplay_round_stalemate", Event_RoundEnd);
 		HookEvent("player_team", Event_PlayerTeam);
-		HookEvent("player_initial_spawn", Event_InitialSpawn);
+		//HookEvent("player_initial_spawn", Event_InitialSpawn);
 	
 		pluginTimer = CreateTimer(cvPluginTimer.FloatValue, Timer_Plugin, 0, TIMER_REPEAT);
 		windTimer = CreateTimer(cvWindTimer.FloatValue, Timer_Wind, 0, TIMER_REPEAT);
@@ -514,7 +514,7 @@ void Initialize(bool enable, bool print=true)
 		UnhookEvent("teamplay_round_win", Event_RoundEnd);
 		UnhookEvent("teamplay_round_stalemate", Event_RoundEnd);
 		UnhookEvent("player_team", Event_PlayerTeam);
-		UnhookEvent("player_initial_spawn", Event_InitialSpawn);
+		//UnhookEvent("player_initial_spawn", Event_InitialSpawn);
 		
 		KillTimer(pluginTimer);
 		pluginTimer = null;
@@ -1806,7 +1806,7 @@ void ApplyConfigRound()
 			SetEntPropString(entity, Prop_Data, "m_ModelName", info.model);
 			SetEntPropFloat(entity, Prop_Data, "m_maxRange", info.range);
 			SetEntProp(entity, Prop_Data, "m_fishCount", info.count);
-			TeleportEntity(entity, info.pos);
+			TeleportEntity(entity, info.pos, NULL_VECTOR, NULL_VECTOR);
 			DispatchSpawn(entity);
 		}
 	}
@@ -1891,13 +1891,13 @@ void DestroyParticles(int client)
 	RemoveWeatherParticle(client);
 }
 
-Action Timer_CreateParticules(Handle timer, int client)
+stock Action Timer_CreateParticules(Handle timer, int client)
 {
 	CreateParticles(client);
 	return Plugin_Continue;
 }
 
-Action Event_InitialSpawn(Handle event, const char[] name, bool dontBroadcast)
+stock Action Event_InitialSpawn(Handle event, const char[] name, bool dontBroadcast)
 {
 	if (pluginEnabled) {
 		int client = GetEventInt(event, "index");
@@ -1913,7 +1913,7 @@ public void OnClientDisconnect(int client)
 	bWeatherEnabled[client] = false;
 }
 
-void tf_particles_disable_weather(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+stock void tf_particles_disable_weather(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
 {
 	if(result == ConVarQuery_Okay && StrEqual(cvarValue, "1")) {
 		bWeatherEnabled[client] = true;
@@ -1935,7 +1935,10 @@ void CreateParticles(int client)
 			bool hit_limit = false;
 			int numStages = mapCoordenates.Length;
 			for(currentStage = 0; currentStage < numStages; ++currentStage) {
-				int num_stage = SpawnParticles(currentStage, num_global, hit_limit, client);
+			#if defined DEBUG
+				int num_stage = 
+			#endif
+				SpawnParticles(currentStage, num_global, hit_limit, client);
 				if(hit_limit) {
 					break;
 				}
@@ -1968,7 +1971,7 @@ void CreateParticles(int client)
 }
 
 #if defined DEBUG
-void DrawHull(const float origin[3], int client)
+stock void DrawHull(const float origin[3], int client)
 {
 	const float lifetime = 2.0;
 
