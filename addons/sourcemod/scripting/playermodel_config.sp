@@ -770,8 +770,8 @@ public void OnMapStart()
 		}
 
 		Format(tmpstr2, sizeof(tmpstr2), "%s.dep", tmpmodelinfo.model);
-		if(FileExists(tmpstr2)) {
-			File dlfile = OpenFile(tmpstr2, "r");
+		if(FileExists(tmpstr2, true)) {
+			File dlfile = OpenFile(tmpstr2, "r", true);
 
 			while(!dlfile.EndOfFile()) {
 				dlfile.ReadLine(tmpstr2, sizeof(tmpstr2));

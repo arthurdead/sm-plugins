@@ -3,6 +3,8 @@
 #endif
 #define _teammanager_inc_
 
+#include <sdktools_functions>
+
 enum HealSource
 {
 	HEAL_MEDIGUN,
