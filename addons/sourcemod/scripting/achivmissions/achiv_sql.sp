@@ -1,7 +1,5 @@
 void OnAchivDatabaseConnect(Database db, const char[] error, any data)
 {
-	#pragma unused data
-
 	if(db == null) {
 		LogError("%s", error);
 		return;
@@ -13,10 +11,14 @@ void OnAchivDatabaseConnect(Database db, const char[] error, any data)
 
 	Transaction tr = new Transaction();
 
-	db.Format(tmpquery, sizeof(tmpquery), "select * from achiv_data;");
+	db.Format(tmpquery, sizeof(tmpquery),
+		"select * from achiv_data;"
+	);
 	tr.AddQuery(tmpquery);
 
-	db.Format(tmpquery, sizeof(tmpquery), "select id,description,hidden from achiv_display;");
+	db.Format(tmpquery, sizeof(tmpquery),
+		"select id,description,hidden from achiv_display;"
+	);
 	tr.AddQuery(tmpquery);
 
 	db.Execute(tr, CacheAchivData, OnErrorTransaction);
@@ -27,7 +29,10 @@ void QueryPlayerAchivData(Database db, int client, Transaction tr = null)
 	int accid = GetSteamAccountID(client);
 	int userid = GetClientUserId(client);
 
-	db.Format(tmpquery, sizeof(tmpquery), "select * from achiv_player_data where accountid=%i;", accid);
+	db.Format(tmpquery, sizeof(tmpquery),
+		"select * from achiv_player_data where accountid=%i;"
+		,accid
+	);
 	if(tr != null) {
 		tr.AddQuery(tmpquery, userid);
 	} else {
@@ -162,7 +167,7 @@ void CachePlayerAchivData(Database db, DBResultSet results, const char[] error, 
 					time = results.FetchInt(3);
 				}
 
-				int progress = -1;
+				int progress = 0;
 				if(!results.IsFieldNull(1)) {
 					progress = results.FetchInt(1);
 				}
@@ -181,7 +186,7 @@ void CachePlayerAchivData(Database db, DBResultSet results, const char[] error, 
 				bAchivCacheLoaded[client] = true;
 
 			#if defined DEBUG
-				PrintToServer("achiv %N %i %i %i", client, id, progress, plugin_data);
+				PrintToServer("achiv %N %i %i %i %i", client, id, progress, time, plugin_data);
 			#endif
 			} while(results.MoreRows);
 		} while(results.FetchMoreResults());

@@ -148,8 +148,6 @@ Action sm_achivremprog(int client, int args)
 
 int MenuHandler_AchivInfo(Menu menu, MenuAction action, int param1, int param2)
 {
-	#pragma unused menu
-
 	if(action == MenuAction_Select) {
 		if(param2 == 8) {
 			DisplayAchivMenu(param1);
@@ -166,7 +164,7 @@ int MenuHandler_Achiv(Menu menu, MenuAction action, int param1, int param2)
 		menu.GetItem(param2, num, sizeof(num));
 
 		int idx = StringToInt(num);
-		int id = idx+1;
+		int id = achiv_cache.GetID(idx);
 
 		char title[MAX_ACHIEVEMENT_NAME + 10];
 		achiv_cache.GetName(id, title, sizeof(title), idx);
@@ -182,9 +180,7 @@ int MenuHandler_Achiv(Menu menu, MenuAction action, int param1, int param2)
 		}
 
 		char desc[MAX_ACHIEVEMENT_DESCRIPTION];
-		if(!achiv_cache.GetDesc(id, desc, sizeof(desc), idx)) {
-			strcopy(desc, sizeof(desc), "<<description missing>>");
-		}
+		achiv_cache.GetDesc(id, desc, sizeof(desc), idx);
 
 		Panel info = new Panel();
 		info.SetTitle(title);
@@ -216,21 +212,20 @@ void DisplayAchivMenu(int client, int item = -1)
 	char num[5];
 	char name[MAX_ACHIEVEMENT_NAME + 4];
 	for(int i = 0; i < num_achivs; ++i) {
-		int idx = i;
-		int id = idx+1;
+		int id = achiv_cache.GetID(i);
 
 		bool achieved = PlayerAchivCache[client].HasAchieved(id);
-		if(!achieved && achiv_cache.IsHidden(id, idx)) {
+		if(!achieved && achiv_cache.IsHidden(id, i)) {
 			continue;
 		}
 
-		achiv_cache.GetName(id, name, sizeof(name), idx);
+		achiv_cache.GetName(id, name, sizeof(name), i);
 
 		if(achieved) {
 			StrCat(name, sizeof(name), " *");
 		}
 
-		IntToString(idx, num, sizeof(num));
+		IntToString(i, num, sizeof(num));
 		menu.AddItem(num, name);
 	}
 
@@ -243,8 +238,6 @@ void DisplayAchivMenu(int client, int item = -1)
 
 Action sm_achievements(int client, int args)
 {
-	#pragma unused args
-
 	DisplayAchivMenu(client);
 
 	return Plugin_Handled;

@@ -10,15 +10,11 @@
 
 void OnErrorTransaction(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
 {
-	#pragma unused db,data,numQueries,failIndex,queryData
-
 	LogError("%s", error);
 }
 
 void OnErrorQuery(Database db, DBResultSet results, const char[] error, any data)
 {
-	#pragma unused db,results,data
-
 	if(!results) {
 		LogError("%s", error);
 	}
@@ -38,8 +34,50 @@ char tmpquery[1024];
 #include "achivmissions/missi_helpers.sp"
 #include "achivmissions/missi_sql.sp"
 #include "achivmissions/missi_natives.sp"
+#include "achivmissions/missi_cmds.sp"
 
 public void OnPluginStart()
+{
+	load_databases();
+
+	HookEvent("achievement_earned", achievement_earned);
+
+	RegConsoleCmd("sm_achievements", sm_achievements);
+	RegConsoleCmd("sm_achivs", sm_achievements);
+
+	RegConsoleCmd("sm_missions", sm_missions);
+	RegConsoleCmd("sm_missis", sm_missions);
+
+	RegAdminCmd("sm_achivgiv", sm_achivgiv, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_achivprog", sm_achivprog, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_achivrem", sm_achivrem, ADMFLAG_GENERIC);
+	RegAdminCmd("sm_achivremprog", sm_achivremprog, ADMFLAG_GENERIC);
+
+	RegAdminCmd("sm_missigiv", sm_missigiv, ADMFLAG_GENERIC);
+
+	RegAdminCmd("sm_missiachiv_reload", sm_archiv_reload, ADMFLAG_ROOT);
+
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
+			OnClientPutInServer(i);
+		}
+	}
+}
+
+void unload_databases()
+{
+	delete dbAchiv;
+	delete achiv_names;
+	delete achiv_descs;
+	delete mapAchivIds;
+
+	delete dbMissi;
+	delete mapMissiIds;
+	delete missi_names;
+	delete missi_descs;
+}
+
+void load_databases()
 {
 	if(SQL_CheckConfig("achievements")) {
 		Database.Connect(OnAchivDatabaseConnect, "achievements");
@@ -48,22 +86,21 @@ public void OnPluginStart()
 	if(SQL_CheckConfig("missions")) {
 		Database.Connect(OnMissiDatabaseConnect, "missions");
 	}
+}
 
-	HookEvent("achievement_earned", achievement_earned);
-
-	RegConsoleCmd("sm_achievements", sm_achievements);
-	RegConsoleCmd("sm_achivs", sm_achievements);
-
-	RegAdminCmd("sm_achivgiv", sm_achivgiv, ADMFLAG_GENERIC);
-	RegAdminCmd("sm_achivprog", sm_achivprog, ADMFLAG_GENERIC);
-	RegAdminCmd("sm_achivrem", sm_achivrem, ADMFLAG_GENERIC);
-	RegAdminCmd("sm_achivremprog", sm_achivremprog, ADMFLAG_GENERIC);
+Action sm_archiv_reload(int client, int args)
+{
+	unload_databases();
+	load_databases();
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
+			OnClientDisconnect(i);
 			OnClientPutInServer(i);
 		}
 	}
+
+	return Plugin_Handled;
 }
 
 void achievement_earned(Event event, const char[] name, bool dontBroadcast)
@@ -75,6 +112,10 @@ void achievement_earned(Event event, const char[] name, bool dontBroadcast)
 
 public void OnClientPutInServer(int client)
 {
+	if(IsFakeClient(client)) {
+		return;
+	}
+
 	if(dbAchiv != null) {
 		QueryPlayerAchivData(dbAchiv, client);
 	}
@@ -86,6 +127,8 @@ public void OnClientPutInServer(int client)
 
 public void OnClientDisconnect(int client)
 {
+	missi_map.RemoveClient(client);
+
 	delete PlayerAchivCache[client];
 	bAchivCacheLoaded[client] = false;
 
@@ -126,16 +169,26 @@ public APLRes AskPluginLoad2(Handle plugin, bool late, char[] error, int len)
 	CreateNative("MissionEntry.GetName", NativeMissi_GetName);
 	CreateNative("MissionEntry.GetDescription", NativeMissi_GetDesc);
 	CreateNative("MissionEntry.ID.get", NativeMissi_GetID);
-	CreateNative("MissionEntry.GiveToPlayer", NativeMissi_GiveToPlayer);
+	CreateNative("MissionEntry.Give", NativeMissi_GiveToPlayer);
 	CreateNative("MissionEntry.Get", NativeMissi_Get);
+	CreateNative("MissionEntry.GetInstanceCache", NativeMissi_GetInstanceCache);
 
-	CreateNative("PlayerMission.Find", NativePlrMissi_Find);
-	CreateNative("PlayerMission.FindByName", NativePlrMissi_FindByName);
-	CreateNative("PlayerMission.FindByID", NativePlrMissi_FindByID);
-	CreateNative("PlayerMission.GiveByName", NativePlrMissi_GiveByName);
-	CreateNative("PlayerMission.GiveByID", NativePlrMissi_GiveByID);
-	CreateNative("PlayerMission.Count", NativePlrMissi_Count);
-	CreateNative("PlayerMission.Get", NativePlrMissi_Get);
+	CreateNative("MissionInstance.Count", NativePlrMissi_Count);
+	CreateNative("MissionInstance.Get", NativePlrMissi_Get);
+	CreateNative("MissionInstance.Entry.get", NativePlrMissi_GetEntry);
+	CreateNative("MissionInstance.AwardProgress", NativePlrMissi_AwardProgress);
+	CreateNative("MissionInstance.RemoveProgress", NativePlrMissi_RemoveProgress);
+	CreateNative("MissionInstance.Complete", NativePlrMissi_Complete);
+	CreateNative("MissionInstance.Cancel", NativePlrMissi_Cancel);
+	CreateNative("MissionInstance.TurnIn", NativePlrMissi_TurnIn);
+	CreateNative("MissionInstance.SetParamValue", NativePlrMissi_SetParamValue);
+	CreateNative("MissionInstance.GetParamValue", NativePlrMissi_GetParamValue);
+	CreateNative("MissionInstance.PluginData.get", NativePlrMissi_GetPluginData);
+	CreateNative("MissionInstance.Progress.get", NativePlrMissi_GetProgress);
+	CreateNative("MissionInstance.Completed.get", NativePlrMissi_GetCompleted);
+	CreateNative("MissionInstance.Owner.get", NativePlrMissi_GetOwner);
+	CreateNative("MissionInstance.PluginData.set", NativePlrMissi_SetPluginData);
+	CreateNative("MissionInstance.ID.get", NativePlrMissi_GetID);
 
 	hOnMissionDataLoaded = new GlobalForward("OnMissionDataLoaded", ET_Ignore, Param_Cell);
 	hOnMissionsLoaded = new GlobalForward("OnMissionsLoaded", ET_Ignore);

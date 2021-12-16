@@ -1,8 +1,9 @@
-#define MISSIPLAYERCACHE_BLOCK (4+MAX_MISSION_PARAMS)
-#define MISSIPLAYERCACHE_PROG_IDX 1
-#define MISSIPLAYERCACHE_COMPLT_IDX 2
-#define MISSIPLAYERCACHE_PLUDATA_IDX 3
-#define MISSIPLAYERCACHE_PARAMS_START_IDX 4
+#define MISSIPLAYERCACHE_BLOCK (5+MAX_MISSION_PARAMS)
+#define MISSIPLAYERCACHE_ENTRY_IDX 1
+#define MISSIPLAYERCACHE_PROG_IDX 2
+#define MISSIPLAYERCACHE_COMPLT_IDX 3
+#define MISSIPLAYERCACHE_PLUDATA_IDX 4
+#define MISSIPLAYERCACHE_PARAMS_START_IDX 5
 #define MISSIPLAYERCACHE_PARAM_IDX(%1) (MISSIPLAYERCACHE_PARAMS_START_IDX+(%1))
 
 methodmap MPlayerMissiCache < Handle
@@ -51,6 +52,22 @@ methodmap MPlayerMissiCache < Handle
 		return idx;
 	}
 
+	public int GetID(int idx)
+	{
+		ArrayList arr = view_as<ArrayList>(this);
+		return arr.Get(idx, 0);
+	}
+
+	public int GetMissionID(int id, int idx = -1)
+	{
+		return this.__GenericGet(id, MISSIPLAYERCACHE_ENTRY_IDX, idx);
+	}
+
+	public void SetMissionID(int id, int value, int idx = -1)
+	{
+		this.__GenericSet(id, value, MISSIPLAYERCACHE_ENTRY_IDX, idx);
+	}
+
 	public int GetProgress(int id, int idx = -1)
 	{
 		return this.__GenericGet(id, MISSIPLAYERCACHE_PROG_IDX, idx);
@@ -93,7 +110,7 @@ methodmap MPlayerMissiCache < Handle
 
 	public bool IsCompleted(int id, int idx = -1)
 	{
-		return (this.GetCompletedTime(idx, idx) > 0);
+		return (this.GetCompletedTime(id, idx) > 0);
 	}
 
 	property int Length
@@ -231,5 +248,106 @@ methodmap MMissiCache < Handle
 	}
 };
 
+methodmap MMissiMap < Handle
+{
+	public MMissiMap()
+	{
+		ArrayList arr = new ArrayList(2);
+		return view_as<MMissiMap>(arr);
+	}
+
+	public void Add(int client, int mission_id, int instid)
+	{
+		ArrayList arr = view_as<ArrayList>(this);
+		int usrid = GetClientUserId(client);
+		int cidx = arr.FindValue(usrid);
+		ArrayList missions = null;
+		if(cidx == -1) {
+			cidx = arr.Push(usrid);
+			missions = new ArrayList(2);
+			arr.Set(cidx, missions, 1);
+		} else {
+			missions = arr.Get(cidx, 1);
+		}
+		ArrayList instances = null;
+		int midx = missions.FindValue(mission_id);
+		if(midx == -1) {
+			midx = missions.Push(mission_id);
+			instances = new ArrayList();
+			missions.Set(midx, instances, 1);
+		} else {
+			instances = missions.Get(midx, 1);
+		}
+		int packed = PackInts2(usrid, instid);
+		instances.Push(packed);
+	}
+
+	public ArrayList Get(int client, int mission_id)
+	{
+		ArrayList arr = view_as<ArrayList>(this);
+		int usrid = GetClientUserId(client);
+		int cidx = arr.FindValue(usrid);
+		if(cidx == -1) {
+			return null;
+		}
+		ArrayList missions = arr.Get(cidx, 1);
+		int midx = missions.FindValue(mission_id);
+		if(midx == -1) {
+			return null;
+		}
+		return missions.Get(midx, 1);
+	}
+
+	public void RemoveClient(int client)
+	{
+		ArrayList arr = view_as<ArrayList>(this);
+		int usrid = GetClientUserId(client);
+		int cidx = arr.FindValue(usrid);
+		if(cidx == -1) {
+			return;
+		}
+		ArrayList missions = arr.Get(cidx, 1);
+		int mlen = missions.Length;
+		for(int i = 0; i < mlen; ++i) {
+			ArrayList instances = missions.Get(i, 1);
+			delete instances;
+		}
+		delete missions;
+		arr.Erase(cidx);
+	}
+
+	public void RemoveInstance(int client, int mission_id, int instid)
+	{
+		ArrayList instances = this.Get(client, mission_id);
+		if(instances == null) {
+			return;
+		}
+
+		int usrid = GetClientUserId(client);
+
+		int iidx = instances.FindValue(PackInts2(usrid, instid));
+		if(iidx == -1) {
+			return;
+		}
+
+		instances.Erase(iidx);
+	}
+};
+
 MPlayerMissiCache PlayerMissiCache[MAXPLAYERS+1] = {null, ...};
 MMissiCache missi_cache = null;
+MMissiMap missi_map = null;
+
+int GetOrCreatePlrMissiCache(int client, int id)
+{
+	if(PlayerMissiCache[client] == null) {
+		PlayerMissiCache[client] = new MPlayerMissiCache();
+	}
+
+	int idx = PlayerMissiCache[client].Find(id);
+	if(idx == -1) {
+		idx = PlayerMissiCache[client].Push(id);
+	}
+
+	return idx;
+}

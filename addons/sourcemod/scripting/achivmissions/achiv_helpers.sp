@@ -39,7 +39,7 @@ void AnnouceAchievement(int client, int id, int idx = -1)
 	usrmsg.WriteByte(1);
 	usrmsg.WriteString("#Achievement_Earned");
 
-	char plname[64];
+	char plname[MAX_NAME_LENGTH];
 	GetClientName(client, plname, sizeof(plname));
 
 	char name[MAX_ACHIEVEMENT_NAME];

@@ -3,8 +3,6 @@
 
 void OnMissiDatabaseConnect(Database db, const char[] error, any data)
 {
-	#pragma unused data
-
 	if(db == null) {
 		LogError("%s", error);
 		return;
@@ -14,7 +12,9 @@ void OnMissiDatabaseConnect(Database db, const char[] error, any data)
 
 	db.SetCharset("utf8");
 
-	db.Format(tmpquery, sizeof(tmpquery), "select * from missi_data;");
+	db.Format(tmpquery, sizeof(tmpquery),
+		"select * from missi_data;"
+	);
 	db.Query(CacheMissiData, tmpquery);
 }
 
@@ -23,7 +23,10 @@ void QueryPlayerMissiData(Database db, int client, Transaction tr = null)
 	int accid = GetSteamAccountID(client);
 	int userid = GetClientUserId(client);
 
-	db.Format(tmpquery, sizeof(tmpquery), "select * from missi_player_data where accountid=%i;", accid);
+	db.Format(tmpquery, sizeof(tmpquery),
+		"select * from missi_player_data where accountid=%i;"
+		,accid
+	);
 	if(tr != null) {
 		tr.AddQuery(tmpquery, userid);
 	} else {
@@ -40,30 +43,34 @@ void ParseMissiParam(const char[] str, MissionParamType &type, int &min, int &ma
 
 	int num = ExplodeString(str, ";", missiparambuff, 3, MAX_MISSI_PARAM_STRING);
 
+	type = MPARAM_INT;
+
 	char varname[MAX_MISSI_PARAM_VARNAME];
 	for(int i = 0; i < num; ++i) {
-		if(missiparambuff[i][0] == '\0') {
-			continue;
-		}
-
 		int idx = SplitString(missiparambuff[i], "=", varname, sizeof(varname));
 
-		if(StrEqual(varname, "type")) {
-			if(StrEqual(missiparambuff[i][idx], "int")) {
-				type = MPARAM_INT;
-			} else if(StrEqual(missiparambuff[i][idx], "player_class")) {
-				type = MPARAM_PLRCLASS;
+		if(idx != -1) {
+			if(StrEqual(varname, "type")) {
+				type = StringToInt(missiparambuff[i][idx]);
+			} else if(StrEqual(varname, "min")) {
+				min = StringToInt(missiparambuff[i][idx]);
+			} else if(StrEqual(varname, "max")) {
+				max = StringToInt(missiparambuff[i][idx]);
+			} else if(StrEqual(varname, "value")) {
+				int value = StringToInt(missiparambuff[i][idx]);
+				min = value;
+				max = value;
+			} else {
+
+			}
+		} else {
+			if(StrEqual(missiparambuff[i], "random_class")) {
+				type = MPARAM_CLASS;
 				min = 1;
 				max = 9;
+			} else {
+				
 			}
-		} else if(StrEqual(varname, "min")) {
-			min = StringToInt(missiparambuff[i][idx]);
-		} else if(StrEqual(varname, "max")) {
-			max = StringToInt(missiparambuff[i][idx]);
-		} else if(StrEqual(varname, "value")) {
-			int value = StringToInt(missiparambuff[i][idx]);
-			min = value;
-			max = value;
 		}
 	}
 }
@@ -78,6 +85,7 @@ void CacheMissiData(Database db, DBResultSet results, const char[] error, any da
 	if(results.HasResults) {
 		mapMissiIds = new StringMap();
 		missi_cache = new MMissiCache();
+		missi_map = new MMissiMap();
 		missi_names = new ArrayList(ByteCountToCells(MAX_MISSION_NAME));
 		missi_descs = new ArrayList(ByteCountToCells(MAX_MISSION_DESCRIPTION));
 
@@ -103,7 +111,7 @@ void CacheMissiData(Database db, DBResultSet results, const char[] error, any da
 				missi_cache.SetName(id, name, idx);
 
 				if(!results.IsFieldNull(2)) {
-					results.FetchString(1, desc, sizeof(desc));
+					results.FetchString(2, desc, sizeof(desc));
 					missi_cache.SetDesc(id, desc, idx);
 				} else {
 					strcopy(desc, sizeof(desc), "<<missing description>>");
@@ -143,6 +151,7 @@ void CacheMissiData(Database db, DBResultSet results, const char[] error, any da
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(!IsClientInGame(i) ||
+			IsFakeClient(i) ||
 			bMissiCacheLoaded[i]) {
 			continue;
 		}
@@ -186,42 +195,47 @@ void CachePlayerMissiData(Database db, DBResultSet results, const char[] error, 
 
 				int id = results.FetchInt(0);
 
+				int mission_id = results.FetchInt(1);
+
 				int time = -1;
-				if(!results.IsFieldNull(3)) {
-					time = results.FetchInt(3);
+				if(!results.IsFieldNull(5)) {
+					time = results.FetchInt(5);
 				}
 
-				int progress = -1;
-				if(!results.IsFieldNull(1)) {
-					progress = results.FetchInt(1);
+				int progress = 0;
+				if(!results.IsFieldNull(3)) {
+					progress = results.FetchInt(3);
 				}
 
 				any plugin_data = -1;
-				if(!results.IsFieldNull(2)) {
-					plugin_data = results.FetchInt(2);
+				if(!results.IsFieldNull(4)) {
+					plugin_data = results.FetchInt(4);
 				}
 
 				int idx = PlayerMissiCache[client].Push(id);
 
+				PlayerMissiCache[client].SetMissionID(id, mission_id, idx);
 				PlayerMissiCache[client].SetCompletedTime(id, time, idx);
 				PlayerMissiCache[client].SetProgress(id, progress, idx);
 				PlayerMissiCache[client].SetPluginData(id, plugin_data, idx);
 
 				for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
 					int value = -1;
-					if(!results.IsFieldNull(3+i)) {
-						value = results.FetchInt(3+i);
+					if(!results.IsFieldNull(6+i)) {
+						value = results.FetchInt(6+i);
 					}
 
 					PlayerMissiCache[client].SetParamValue(id, i, value, idx);
 				}
 
+				missi_map.Add(client, mission_id, id);
+
 				bMissiCacheLoaded[client] = true;
 
 			#if defined DEBUG
-				PrintToServer("missi %N %i %i %i", client, id, progress, plugin_data);
+				PrintToServer("missi %N %i %i %i %i", client, id, mission_id, progress, plugin_data);
 				for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
-					PrintToServer(" param1: %i", PlayerMissiCache[client].GetParamValue(id, i, idx));
+					PrintToServer(" param%i: %i", i+1, PlayerMissiCache[client].GetParamValue(id, i, idx));
 				}
 			#endif
 			} while(results.MoreRows);

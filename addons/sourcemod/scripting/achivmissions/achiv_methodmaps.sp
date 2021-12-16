@@ -81,7 +81,7 @@ methodmap MPlayerAchivCache < Handle
 
 	public bool HasAchieved(int id, int idx = -1)
 	{
-		return (this.GetAchivedTime(idx, idx) > 0);
+		return (this.GetAchivedTime(id, idx) > 0);
 	}
 
 	property int Length
@@ -210,10 +210,14 @@ methodmap MAchivCache < Handle
 		this.__GenericSet(id, -1, ACHIVCACHE_DESC_IDX, idx);
 	}
 
-	public void GetName(int id, char[] name, int len, int idx = -1)
+	public bool GetName(int id, char[] name, int len, int idx = -1)
 	{
 		int nidx = this.__GenericGet(id, ACHIVCACHE_NAME_IDX, idx);
+		if(nidx == -1) {
+			return false;
+		}
 		achiv_names.GetString(nidx, name, len);
+		return true;
 	}
 
 	public bool GetDesc(int id, char[] desc, int len, int idx = -1)
@@ -229,3 +233,17 @@ methodmap MAchivCache < Handle
 
 MPlayerAchivCache PlayerAchivCache[MAXPLAYERS+1] = {null, ...};
 MAchivCache achiv_cache = null;
+
+int GetOrCreatePlrAchivCache(int client, int id)
+{
+	if(PlayerAchivCache[client] == null) {
+		PlayerAchivCache[client] = new MPlayerAchivCache();
+	}
+
+	int idx = PlayerAchivCache[client].Find(id);
+	if(idx == -1) {
+		idx = PlayerAchivCache[client].Push(id);
+	}
+
+	return idx;
+}

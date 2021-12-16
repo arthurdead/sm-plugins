@@ -1,8 +1,10 @@
 int NativeMissi_Get(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int idx = GetNativeCell(1);
+
+	if(missi_cache == null) {
+		return -1;
+	}
 
 	if(idx >= missi_cache.Length) {
 		return -1;
@@ -15,14 +17,14 @@ int NativeMissi_Get(Handle plugin, int args)
 
 int NativeMissi_GetCount(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	return num_missis;
 }
 
 int NativeMissi_FindByName(Handle plugin, int args)
 {
-	#pragma unused plugin,args
+	if(mapMissiIds == null) {
+		return -1;
+	}
 
 	int len = 0;
 	GetNativeStringLength(1, len);
@@ -41,9 +43,11 @@ int NativeMissi_FindByName(Handle plugin, int args)
 
 int NativeMissi_FindByID(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int id = GetNativeCell(1);
+
+	if(missi_cache == null) {
+		return -1;
+	}
 
 	int idx = missi_cache.Find(id);
 	if(idx == -1) {
@@ -55,8 +59,6 @@ int NativeMissi_FindByID(Handle plugin, int args)
 
 int NativeMissi_GetName(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int id = GetNativeCell(1);
 	int len = GetNativeCell(3);
 
@@ -69,8 +71,6 @@ int NativeMissi_GetName(Handle plugin, int args)
 
 int NativeMissi_GetDesc(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int id = GetNativeCell(1);
 	int len = GetNativeCell(3);
 
@@ -85,167 +85,524 @@ int NativeMissi_GetDesc(Handle plugin, int args)
 
 int NativeMissi_GetID(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int id = GetNativeCell(1);
 
 	return id;
 }
 
-int GiveMission(int client, int id)
+int NativeMissi_GetInstanceCache(Handle plugin, int args)
 {
-	int accid = GetSteamAccountID(client);
-	dbAchiv.Format(tmpquery, sizeof(tmpquery), "insert ignore into missi_player_data values(%i,%i,null,null,null);",id,accid);
-	for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+	int id = GetNativeCell(1);
+	int client = GetNativeCell(2);
 
+	return view_as<int>(missi_map.Get(client, id));
+}
+
+int GenerateParamValue(int id, int i, int midx = -1)
+{
+	MissionParamType type;
+	int min;
+	int max;
+
+	missi_cache.GetParamInfo(id, i, type, min, max, midx);
+
+	int value = 0;
+
+	switch(type) {
+		case MPARAM_INT, MPARAM_CLASS: {
+			if(min == max) {
+				value = min;
+			} else {
+				value = GetRandomInt(min, max);
+			}
+		}
 	}
-	dbAchiv.Query(OnErrorQuery, tmpquery);
-	return PlayerMissiCache[client].Push(id);
+
+	return value;
 }
 
 int NativeMissi_GiveToPlayer(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int id = GetNativeCell(1);
 	int client = GetNativeCell(2);
 
-	int idx = GiveMission(client, id);
+	int midx = missi_cache.Find(id);
 
-	int usrid = GetClientUserId(client);
+	int instid = -1;
 
-	return PackInts2(usrid, idx);
-}
+	if(!IsFakeClient(client)) {
+		int accid = GetSteamAccountID(client);
 
-int NativePlrMissi_Find(Handle plugin, int args)
-{
-	#pragma unused plugin,args
+		char param_values[256];
+		char param_names[256];
 
-	int client = GetNativeCell(1);
-	int id = GetNativeCell(2);
+		int values[MAX_MISSION_PARAMS];
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			char tmp[256];
 
-	int idx = PlayerMissiCache[client].Find(id);
-	if(idx == -1) {
-		return -1;
+			values[i] = GenerateParamValue(id, i, midx);
+			IntToString(values[i], tmp, sizeof(tmp));
+			StrCat(param_values, sizeof(param_values), ",");
+			StrCat(param_values, sizeof(param_values), tmp);
+
+			Format(tmp, sizeof(tmp), "param_%i", i+1);
+			StrCat(param_names, sizeof(param_names), ",");
+			StrCat(param_names, sizeof(param_names), tmp);
+		}
+
+		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			"insert into missi_player_data " ...
+			" (mission_id,accountid%s) " ...
+			" values(%i,%i%s);"
+			,param_names,
+			id,accid,param_values
+		);
+
+		SQL_LockDatabase(dbAchiv);
+		SQL_FastQuery(dbAchiv, tmpquery);
+		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			"select last_insert_id();"
+		);
+		DBResultSet results = SQL_Query(dbAchiv, tmpquery);
+		SQL_UnlockDatabase(dbAchiv);
+		if(results.HasResults) {
+			do {
+				do {
+					if(!results.FetchRow()) {
+						continue;
+					}
+
+					instid = results.FetchInt(0);
+				} while(results.MoreRows);
+			} while(results.FetchMoreResults());
+		}
+		delete results;
+
+		int pidx = GetOrCreatePlrMissiCache(client, instid);
+
+		PlayerMissiCache[client].SetMissionID(instid, id, pidx);
+
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			PlayerMissiCache[client].SetParamValue(instid, i, values[i], pidx);
+		}
+	} else {
+		static int fakeid = 0;
+		instid = fakeid++;
+
+		int pidx = GetOrCreatePlrMissiCache(client, instid);
+
+		PlayerMissiCache[client].SetMissionID(instid, id, pidx);
+
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			int value = GenerateParamValue(id, i, midx);
+			PlayerMissiCache[client].SetParamValue(instid, i, value, pidx);
+		}
 	}
 
-	int usrid = GetClientUserId(client);
-	
-	return PackInts2(usrid, idx);
-}
+	missi_map.Add(client, id, instid);
 
-int NativePlrMissi_FindByName(Handle plugin, int args)
-{
-	#pragma unused plugin,args
-
-	int client = GetNativeCell(1);
-
-	int len = 0;
-	GetNativeStringLength(2, len);
-	++len;
-	
-	char[] name = new char[len];
-	GetNativeString(2, name, len);
-
-	int id = -1;
-	if(!mapMissiIds.GetValue(name, id)) {
-		return -1;
-	}
-
-	int idx = PlayerMissiCache[client].Find(id);
-	if(idx == -1) {
-		return -1;
-	}
-
-	int usrid = GetClientUserId(client);
-
-	return PackInts2(usrid, idx);
-}
-
-int NativePlrMissi_FindByID(Handle plugin, int args)
-{
-	#pragma unused plugin,args
-
-	int client = GetNativeCell(1);
-
-	int id = GetNativeCell(2);
-
-	int idx = PlayerMissiCache[client].Find(id);
-	if(idx == -1) {
-		return -1;
-	}
-
-	int usrid = GetClientUserId(client);
-
-	return PackInts2(usrid, idx);
-}
-
-int NativePlrMissi_GiveByName(Handle plugin, int args)
-{
-	#pragma unused plugin,args
-
-	int client = GetNativeCell(1);
-
-	int len = 0;
-	GetNativeStringLength(2, len);
-	++len;
-	
-	char[] name = new char[len];
-	GetNativeString(2, name, len);
-
-	int id = -1;
-	if(!mapMissiIds.GetValue(name, id)) {
-		return -1;
-	}
-
-	int idx = GiveMission(client, id);
-
-	int usrid = GetClientUserId(client);
-
-	return PackInts2(usrid, idx);
-}
-
-int NativePlrMissi_GiveByID(Handle plugin, int args)
-{
-	#pragma unused plugin,args
-
-	int client = GetNativeCell(1);
-
-	int id = GetNativeCell(2);
-
-	int idx = missi_cache.Find(id);
-	if(idx == -1) {
-		return -1;
-	}
-
-	idx = GiveMission(client, id);
-
-	int usrid = GetClientUserId(client);
-
-	return PackInts2(usrid, idx);
+	return instid;
 }
 
 int NativePlrMissi_Count(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int client = GetNativeCell(1);
+
+	if(PlayerMissiCache[client] == null) {
+		return 0;
+	}
 
 	return PlayerMissiCache[client].Length;
 }
 
 int NativePlrMissi_Get(Handle plugin, int args)
 {
-	#pragma unused plugin,args
-
 	int client = GetNativeCell(1);
 	int idx = GetNativeCell(2);
 
-	if(idx >= PlayerMissiCache[client].Length) {
+	if(PlayerMissiCache[client] == null) {
 		return -1;
 	}
 
 	int usrid = GetClientUserId(client);
+	int id = PlayerMissiCache[client].GetID(idx);
 
-	return PackInts2(usrid, idx);
+	return PackInts2(usrid, id);
+}
+
+int NativePlrMissi_GetEntry(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	return PlayerMissiCache[client].GetMissionID(id);
+}
+
+int NativePlrMissi_AwardProgress(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	int value = GetNativeCell(2);
+
+	int pidx = PlayerMissiCache[client].Find(id);
+
+	int progress = PlayerMissiCache[client].GetProgress(id, pidx);
+
+	int oldprogress = progress;
+
+	progress += value;
+
+	Call_StartForward(hOnMissionProgressChanged);
+	Call_PushCell(client);
+	Call_PushCell(oldprogress);
+	Call_PushCell(progress);
+	Call_PushCell(packed);
+	Call_Finish();
+
+	PlayerMissiCache[client].SetProgress(id, progress, pidx);
+
+	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		"update missi_player_data set " ...
+		" progress=%i " ...
+		" where " ...
+		" id=%i;"
+		,progress,
+		id
+	);
+	dbAchiv.Query(OnErrorQuery, tmpquery);
+
+	return 0;
+}
+
+int NativePlrMissi_RemoveProgress(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	int value = GetNativeCell(2);
+
+	int pidx = PlayerMissiCache[client].Find(id);
+
+	int progress = PlayerMissiCache[client].GetProgress(id, pidx);
+	if(progress == 0) {
+		return 0;
+	}
+
+	int oldprogress = progress;
+
+	bool remove = false;
+
+	progress -= value;
+	if(progress < 0) {
+		progress = 0;
+		remove = true;
+	}
+
+	Call_StartForward(hOnMissionProgressChanged);
+	Call_PushCell(client);
+	Call_PushCell(oldprogress);
+	Call_PushCell(progress);
+	Call_PushCell(packed);
+	Call_Finish();
+
+	PlayerMissiCache[client].SetProgress(id, progress, pidx);
+
+	if(remove) {
+		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			"update missi_player_data set " ...
+			" progress=0,completed=null " ...
+			" where " ...
+			" id=%i;"
+			,id
+		);
+	} else {
+		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			"update missi_player_data set " ...
+			" progress=%i " ...
+			" where " ...
+			" id=%i;"
+			,progress,
+			id
+		);
+	}
+	dbAchiv.Query(OnErrorQuery, tmpquery);
+
+	return view_as<int>(remove);
+}
+
+int NativePlrMissi_Complete(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	int pidx = PlayerMissiCache[client].Find(id);
+
+	if(PlayerMissiCache[client].IsCompleted(id, pidx)) {
+		return 0;
+	}
+
+	Call_StartForward(hOnMissionStatusChanged);
+	Call_PushCell(client);
+	Call_PushCell(MISSION_COMPLETED);
+	Call_PushCell(packed);
+	Call_Finish();
+
+	int time = GetTime();
+
+	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		"update missi_player_data set " ...
+		" completed=%i " ...
+		" where " ...
+		" id=%i;"
+		,time,
+		id
+	);
+	dbAchiv.Query(OnErrorQuery, tmpquery);
+
+	PlayerMissiCache[client].SetCompletedTime(id, time, pidx);
+
+	return 1;
+}
+
+int handle_cancel_native(bool cancel)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	Call_StartForward(hOnMissionStatusChanged);
+	Call_PushCell(client);
+	Call_PushCell(cancel ? MISSION_CANCELED : MISSION_TURNEDIN);
+	Call_PushCell(packed);
+	Call_Finish();
+
+	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		"delete from missi_player_data where id=%i;"
+		,id
+	);
+	dbAchiv.Query(OnErrorQuery, tmpquery);
+
+	int pidx = PlayerMissiCache[client].Find(id);
+
+	int mission_id = PlayerMissiCache[client].GetMissionID(id, pidx);
+
+	missi_map.RemoveInstance(client, mission_id, id);
+
+	PlayerMissiCache[client].Erase(id, pidx);
+
+	return 0;
+}
+
+int NativePlrMissi_Cancel(Handle plugin, int args)
+{
+	return handle_cancel_native(true);
+}
+
+int NativePlrMissi_TurnIn(Handle plugin, int args)
+{
+	return handle_cancel_native(false);
+}
+
+int NativePlrMissi_SetParamValue(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	int param = GetNativeCell(2);
+	int value = GetNativeCell(3);
+
+	PlayerMissiCache[client].SetParamValue(id, param, value);
+
+	char param_name[64];
+	Format(param_name, sizeof(param_name), "param_%i", param);
+
+	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		"update missi_player_data set " ...
+		" %s=%i " ...
+		" where " ...
+		" id=%i;"
+		,param_name,value,
+		id
+	);
+	dbAchiv.Query(OnErrorQuery, tmpquery);
+
+	return 0;
+}
+
+int NativePlrMissi_GetParamValue(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	int param = GetNativeCell(2);
+
+	return PlayerMissiCache[client].GetParamValue(id, param);
+}
+
+int NativePlrMissi_GetPluginData(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	int param = GetNativeCell(2);
+
+	return PlayerMissiCache[client].GetPluginData(id, param);
+}
+
+int NativePlrMissi_GetProgress(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	return PlayerMissiCache[client].GetProgress(id);
+}
+
+int NativePlrMissi_GetCompleted(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	return PlayerMissiCache[client].IsCompleted(id);
+}
+
+int NativePlrMissi_GetOwner(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	return client;
+}
+
+int NativePlrMissi_GetID(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	return id;
+}
+
+int NativePlrMissi_SetPluginData(Handle plugin, int args)
+{
+	int packed = GetNativeCell(1);
+
+	int usrid;
+	int id;
+	UnpackInts2(packed, usrid, id);
+
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return -1;
+	}
+
+	int value = GetNativeCell(2);
+
+	PlayerMissiCache[client].SetPluginData(id, value);
+
+	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		"update missi_player_data set " ...
+		" plugin_data=%i " ...
+		" where " ...
+		" id=%i;"
+		,value,
+		id
+	);
+	dbAchiv.Query(OnErrorQuery, tmpquery);
+
+	return 0;
 }
