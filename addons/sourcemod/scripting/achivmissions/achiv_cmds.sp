@@ -179,6 +179,10 @@ int MenuHandler_Achiv(Menu menu, MenuAction action, int param1, int param2)
 			StrCat(title, sizeof(title), " *");
 		}
 
+		if(achiv_cache.IsHidden(id, idx)) {
+			StrCat(title, sizeof(title), " $");
+		}
+
 		char desc[MAX_ACHIEVEMENT_DESCRIPTION];
 		achiv_cache.GetDesc(id, desc, sizeof(desc), idx);
 
@@ -201,6 +205,10 @@ int MenuHandler_Achiv(Menu menu, MenuAction action, int param1, int param2)
 
 void DisplayAchivMenu(int client, int item = -1)
 {
+	if(PlayerAchivCache[client] == null) {
+		return;
+	}
+
 	Menu menu = new Menu(MenuHandler_Achiv);
 
 	int num_player_achieved = PlayerAchivCache[client].Length;
@@ -210,23 +218,28 @@ void DisplayAchivMenu(int client, int item = -1)
 	menu.SetTitle(title);
 
 	char num[5];
-	char name[MAX_ACHIEVEMENT_NAME + 4];
+	char name[MAX_ACHIEVEMENT_NAME + 10];
 	for(int i = 0; i < num_achivs; ++i) {
 		int id = achiv_cache.GetID(i);
 
 		bool achieved = PlayerAchivCache[client].HasAchieved(id);
-		if(!achieved && achiv_cache.IsHidden(id, i)) {
-			continue;
-		}
+		bool hidden = achiv_cache.IsHidden(id, i);
 
-		achiv_cache.GetName(id, name, sizeof(name), i);
+		if(!achieved && hidden) {
+			strcopy(name, sizeof(name), "????");
+		} else {
+			achiv_cache.GetName(id, name, sizeof(name), i);
+		}
 
 		if(achieved) {
 			StrCat(name, sizeof(name), " *");
+			if(hidden) {
+				StrCat(name, sizeof(name), " $");
+			}
 		}
 
 		IntToString(i, num, sizeof(num));
-		menu.AddItem(num, name);
+		menu.AddItem(num, name, (!achieved && hidden) ? ITEMDRAW_DISABLED : ITEMDRAW_DEFAULT);
 	}
 
 	if(item == -1) {

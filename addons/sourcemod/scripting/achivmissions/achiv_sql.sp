@@ -163,18 +163,18 @@ void CachePlayerAchivData(Database db, DBResultSet results, const char[] error, 
 				int id = results.FetchInt(0);
 
 				int time = -1;
-				if(!results.IsFieldNull(3)) {
-					time = results.FetchInt(3);
+				if(!results.IsFieldNull(4)) {
+					time = results.FetchInt(4);
 				}
 
 				int progress = 0;
-				if(!results.IsFieldNull(1)) {
-					progress = results.FetchInt(1);
+				if(!results.IsFieldNull(2)) {
+					progress = results.FetchInt(2);
 				}
 
 				any plugin_data = -1;
-				if(!results.IsFieldNull(2)) {
-					plugin_data = results.FetchInt(2);
+				if(!results.IsFieldNull(3)) {
+					plugin_data = results.FetchInt(3);
 				}
 
 				int idx = PlayerAchivCache[client].Push(id);
