@@ -4,9 +4,12 @@
 #include <stocksoup/tf/tempents_stocks.inc>
 #include <achivmissions>
 
-#define DEBUG
+//#define DEBUG
 
-//TODO!!! use prepared statements
+#define QUERY_STR_MAX 1024
+#define INT_STR_MAX 4
+
+//TODO!!! use prepared statements?
 
 void OnErrorTransaction(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
 {
@@ -20,7 +23,8 @@ void OnErrorQuery(Database db, DBResultSet results, const char[] error, any data
 	}
 }
 
-char tmpquery[1024];
+char __ignorename[1];
+bool __ignoreisml;
 
 #include "achivmissions/achiv_globals.sp"
 #include "achivmissions/achiv_methodmaps.sp"
@@ -112,22 +116,22 @@ void achievement_earned(Event event, const char[] name, bool dontBroadcast)
 
 public void OnClientPutInServer(int client)
 {
-	if(IsFakeClient(client)) {
-		return;
-	}
+	if(!IsFakeClient(client)) {
+		if(dbAchiv != null) {
+			QueryPlayerAchivData(dbAchiv, client);
+		}
 
-	if(dbAchiv != null) {
-		QueryPlayerAchivData(dbAchiv, client);
-	}
-
-	if(dbMissi != null) {
-		QueryPlayerMissiData(dbMissi, client);
+		if(dbMissi != null) {
+			QueryPlayerMissiData(dbMissi, client);
+		}
 	}
 }
 
 public void OnClientDisconnect(int client)
 {
-	missi_map.RemoveClient(client);
+	if(missi_map != null) {
+		missi_map.RemoveClient(client);
+	}
 
 	delete PlayerAchivCache[client];
 	bAchivCacheLoaded[client] = false;
@@ -138,8 +142,21 @@ public void OnClientDisconnect(int client)
 	m_flNextAchievementAnnounceTime[client] = 0.0;
 }
 
+int Native_DoAchievementEffects(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	if(ShouldAnnounceAchievement(client)) {
+		OnAchievementAchieved(client);
+	}
+
+	return 0;
+}
+
 public APLRes AskPluginLoad2(Handle plugin, bool late, char[] error, int len)
 {
+	CreateNative("DoAchievementEffects", Native_DoAchievementEffects);
+
 	CreateNative("Achievement.FindByName", NativeAchiv_FindByName);
 	CreateNative("Achievement.FindByID", NativeAchiv_FindByID);
 	CreateNative("Achievement.Award", NativeAchiv_AwardAchievement);
@@ -170,6 +187,7 @@ public APLRes AskPluginLoad2(Handle plugin, bool late, char[] error, int len)
 	CreateNative("MissionEntry.GetDescription", NativeMissi_GetDesc);
 	CreateNative("MissionEntry.ID.get", NativeMissi_GetID);
 	CreateNative("MissionEntry.Give", NativeMissi_GiveToPlayer);
+	CreateNative("MissionEntry.GiveEx", NativeMissi_GiveToPlayerEx);
 	CreateNative("MissionEntry.Get", NativeMissi_Get);
 	CreateNative("MissionEntry.GetInstanceCache", NativeMissi_GetInstanceCache);
 

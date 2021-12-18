@@ -1,6 +1,8 @@
 #include <sourcemod>
 #include <sdkhooks>
 
+#define INT_STR_MAX 4
+
 #define SF_DOOR_PUSE 256
 #define SF_DOOR_PTOUCH 1024
 #define	SF_DOOR_USE_CLOSES 8192
@@ -13,8 +15,8 @@
 #define	SF_BUTTON_SPARK_IF_OFF 4096
 #define	SF_BUTTON_JIGGLE_ON_USE_LOCKED 8192
 
-Handle PlayerUseTimer[MAXPLAYERS+1] = {null, ...};
-bool bPlayerInUse[MAXPLAYERS+1] = {false, ...};
+Handle PlayerUseTimer[MAXPLAYERS+1];
+bool bPlayerInUse[MAXPLAYERS+1];
 
 public void OnPluginStart()
 {
@@ -90,13 +92,13 @@ Action command_hook(int client, const char[] command, int args)
 {
 	if(StrEqual(command, "voicemenu")) {
 		if(args == 2) {
-			char arg1[2];
-			GetCmdArg(1, arg1, sizeof(arg1));
+			char arg1[INT_STR_MAX];
+			GetCmdArg(1, arg1, INT_STR_MAX);
 
-			char arg2[2];
-			GetCmdArg(2, arg2, sizeof(arg2));
+			char arg2[INT_STR_MAX];
+			GetCmdArg(2, arg2, INT_STR_MAX);
 
-			if(arg1[0] == '0' && arg2[0] == '0') {
+			if(StrEqual(arg1, "0") && StrEqual(arg2, "0")) {
 				if(PlayerUseTimer[client] != null) {
 					KillTimer(PlayerUseTimer[client]);
 				}

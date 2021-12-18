@@ -1,3 +1,5 @@
+#include <tf2_stocks>
+
 stock bool IsStealthed(int player)
 {
 	return (TF2_IsPlayerInCondition(player, TFCond_Stealthed) ||

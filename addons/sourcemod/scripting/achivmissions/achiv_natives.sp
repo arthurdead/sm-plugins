@@ -40,9 +40,7 @@ int NativeAchiv_FindByName(Handle plugin, int args)
 
 	int len = 0;
 	GetNativeStringLength(1, len);
-	++len;
-	
-	char[] name = new char[len];
+	char[] name = new char[++len];
 	GetNativeString(1, name, len);
 
 	int id = -1;
@@ -99,11 +97,12 @@ int NativeAchiv_Remove(Handle plugin, int args)
 
 	if(!IsFakeClient(client)) {
 		int accid = GetSteamAccountID(client);
-		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		char query[QUERY_STR_MAX];
+		dbAchiv.Format(query, QUERY_STR_MAX,
 			"delete from achiv_player_data where id=%i and accountid=%i;"
 			,id,accid
 		);
-		dbAchiv.Query(OnErrorQuery, tmpquery);
+		dbAchiv.Query(OnErrorQuery, query);
 	}
 
 	if(achieved) {
@@ -142,7 +141,7 @@ int NativeAchiv_RemoveProgress(Handle plugin, int args)
 	bool remove = false;
 
 	progress -= value;
-	if(progress < 0) {
+	if(progress <= 0) {
 		progress = 0;
 		remove = true;
 	}
@@ -158,18 +157,19 @@ int NativeAchiv_RemoveProgress(Handle plugin, int args)
 
 	if(!IsFakeClient(client)) {
 		int accid = GetSteamAccountID(client);
+		char query[QUERY_STR_MAX];
 		if(remove) {
-			dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			dbAchiv.Format(query, QUERY_STR_MAX,
 				"delete from achiv_player_data where id=%i and accountid=%i;"
 				,id,accid
 			);
 		} else {
-			dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			dbAchiv.Format(query, QUERY_STR_MAX,
 				"update achiv_player_data set progress=%i where id=%i and accountid=%i;"
 				,progress,id,accid
 			);
 		}
-		dbAchiv.Query(OnErrorQuery, tmpquery);
+		dbAchiv.Query(OnErrorQuery, query);
 	}
 
 	if(remove) {
@@ -198,16 +198,17 @@ int NativeAchiv_AwardAchievement(Handle plugin, int args)
 		int time = GetTime();
 		if(!IsFakeClient(client)) {
 			int accid = GetSteamAccountID(client);
-			dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			char query[QUERY_STR_MAX];
+			dbAchiv.Format(query, QUERY_STR_MAX,
 				"insert into achiv_player_data " ...
 				" (id,accountid,achieved) " ...
 				" values(%i,%i,%i) " ...
-				" on duplicate key " ...
-				" update achieved=%i;"
+				" on duplicate key update " ...
+				" achieved=%i;"
 				,id,accid,time,
 				time
 			);
-			dbAchiv.Query(OnErrorQuery, tmpquery);
+			dbAchiv.Query(OnErrorQuery, query);
 		}
 		PlayerAchivCache[client].SetAchievedTime(id, time, pidx);
 		AnnouceAchievement(client, id);
@@ -273,8 +274,9 @@ int NativeAchiv_AwardProgress(Handle plugin, int args)
 
 	if(!IsFakeClient(client)) {
 		int accid = GetSteamAccountID(client);
+		char query[QUERY_STR_MAX];
 		if(achieved) {
-			dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			dbAchiv.Format(query, QUERY_STR_MAX,
 				"insert into achiv_player_data " ...
 				" (id,accountid,progress,achieved) " ...
 				" values(%i,%i,%i,%i) " ...
@@ -284,7 +286,7 @@ int NativeAchiv_AwardProgress(Handle plugin, int args)
 				progress,time
 			);
 		} else {
-			dbAchiv.Format(tmpquery, sizeof(tmpquery),
+			dbAchiv.Format(query, QUERY_STR_MAX,
 				"insert into achiv_player_data " ...
 				" (id,accountid,progress) " ...
 				" values(%i,%i,%i) " ...
@@ -294,7 +296,7 @@ int NativeAchiv_AwardProgress(Handle plugin, int args)
 				progress
 			);
 		}
-		dbAchiv.Query(OnErrorQuery, tmpquery);
+		dbAchiv.Query(OnErrorQuery, query);
 	}
 
 	if(achieved) {
@@ -334,7 +336,8 @@ int NativeAchiv_SetPluginData(Handle plugin, int args)
 
 	if(!IsFakeClient(client)) {
 		int accid = GetSteamAccountID(client);
-		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		char query[QUERY_STR_MAX];
+		dbAchiv.Format(query, QUERY_STR_MAX,
 			"insert into achiv_player_data " ...
 			" (id,accountid,plugin_data) " ...
 			" values(%i,%i,%i) " ...
@@ -343,7 +346,7 @@ int NativeAchiv_SetPluginData(Handle plugin, int args)
 			,id,accid,value,
 			value
 		);
-		dbAchiv.Query(OnErrorQuery, tmpquery);
+		dbAchiv.Query(OnErrorQuery, query);
 	}
 
 	return 0;

@@ -26,7 +26,7 @@
 /* INCLUDES *******************************************************************/
 #include <sourcemod>
 #include <sdktools>
-#include <morecolors>
+#include <colorlib>
 
 #undef REQUIRE_EXTENSIONS
 #tryinclude <system2>
@@ -46,7 +46,7 @@
 #define PLUGIN_URL		"http://j-factor.com/"
 
 // Debug -----------------------------------------------------------------------
-//#define DEBUG		1 
+#define DEBUG		1 
 
 // Configs ---------------------------------------------------------------------
 #define CONFIG_MAPS 		"configs/themes/maps.cfg"
@@ -341,9 +341,9 @@ public void OnPluginStart()
 	LoadTranslations("themes.phrases");
 
 	// Execute main config
-#if !defined DEBUG
+//#if !defined DEBUG
 	AutoExecConfig(true, "themes");
-#endif
+//#endif
 
 	// Initialize
 	windEnabled = cvWind.BoolValue;
@@ -1209,7 +1209,8 @@ void UpdateDownloadsTable()
 	char filename[96];
 	
 	// Handle Particles
-	if (cvParticles.BoolValue) {
+	//if (cvParticles.BoolValue)
+	{
 		HandleParticleFiles();
 		
 		AddFileToDownloadsTable("materials/particles/themes_leaf.vmt");
@@ -1857,6 +1858,10 @@ void SendWeatherParticle(const char[] name, float pos[3], int client)
 	TE_WriteFloat("m_vecStart[0]", zero[0]);
 	TE_WriteFloat("m_vecStart[1]", zero[1]);
 	TE_WriteFloat("m_vecStart[2]", zero[2]);
+
+#if defined DEBUG
+	PrintToServer("sent to %N [%f, %f, %f]", client == -1 ? 0 : client, pos[0], pos[1], pos[2]);
+#endif
 
 	TE_WriteNum("entindex", 0);
 	TE_WriteNum("m_iAttachType", PATTACH_CUSTOMORIGIN);

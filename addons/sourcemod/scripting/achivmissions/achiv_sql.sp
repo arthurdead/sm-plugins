@@ -7,21 +7,46 @@ void OnAchivDatabaseConnect(Database db, const char[] error, any data)
 
 	dbAchiv = db;
 
-	db.SetCharset("utf8");
+	dbAchiv.SetCharset("utf8");
 
 	Transaction tr = new Transaction();
 
-	db.Format(tmpquery, sizeof(tmpquery),
+	char query[QUERY_STR_MAX];
+	dbAchiv.Format(query, QUERY_STR_MAX,
+		"create table if not exists achiv_data ( " ...
+		" id int not null primary key auto_increment, " ...
+		" name varchar(%i) not null, " ...
+		" max int default null, " ...
+		" description varchar(%i) not null, " ...
+		" hidden int default 0, " ...
+		" constraint unique(name) " ...
+		");"
+		,MAX_ACHIEVEMENT_NAME,
+		MAX_ACHIEVEMENT_DESCRIPTION
+	);
+	tr.AddQuery(query);
+
+#if defined DEBUG
+	PrintToServer("achiv_data table query:");
+	PrintToServer("\n%s\n", query);
+#endif
+
+	tr.AddQuery(
+		"create table if not exists achiv_player_data ( " ...
+		" id int not null primary key, " ...
+		" accountid int not null, " ...
+		" progress int default null, " ...
+		" plugin_data int default null, " ...
+		" achieved int default null, " ...
+		" constraint unique(id) " ...
+		");"
+	);
+
+	tr.AddQuery(
 		"select * from achiv_data;"
 	);
-	tr.AddQuery(tmpquery);
 
-	db.Format(tmpquery, sizeof(tmpquery),
-		"select id,description,hidden from achiv_display;"
-	);
-	tr.AddQuery(tmpquery);
-
-	db.Execute(tr, CacheAchivData, OnErrorTransaction);
+	dbAchiv.Execute(tr, CacheAchivData, OnErrorTransaction);
 }
 
 void QueryPlayerAchivData(Database db, int client, Transaction tr = null)
@@ -29,26 +54,34 @@ void QueryPlayerAchivData(Database db, int client, Transaction tr = null)
 	int accid = GetSteamAccountID(client);
 	int userid = GetClientUserId(client);
 
-	db.Format(tmpquery, sizeof(tmpquery),
+	char query[QUERY_STR_MAX];
+	db.Format(query, QUERY_STR_MAX,
 		"select * from achiv_player_data where accountid=%i;"
 		,accid
 	);
 	if(tr != null) {
-		tr.AddQuery(tmpquery, userid);
+		tr.AddQuery(query, userid);
 	} else {
-		db.Query(CachePlayerAchivData, tmpquery, userid);
+		db.Query(CachePlayerAchivData, query, userid);
 	}
 }
 
 void CacheAchivData(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
 {
-	DBResultSet set = results[0];
+	DBResultSet set = results[2];
 	if(set.HasResults) {
 		mapAchivIds = new StringMap();
 		achiv_cache = new MAchivCache();
 		achiv_names = new ArrayList(ByteCountToCells(MAX_ACHIEVEMENT_NAME));
+		achiv_descs = new ArrayList(ByteCountToCells(MAX_ACHIEVEMENT_DESCRIPTION));
 
 		char name[MAX_ACHIEVEMENT_NAME];
+		char desc[MAX_ACHIEVEMENT_DESCRIPTION];
+
+	#if defined DEBUG
+		PrintToServer("achievements:");
+	#endif
+
 		do {
 			do {
 				if(!set.FetchRow()) {
@@ -73,43 +106,19 @@ void CacheAchivData(Database db, any data, int numQueries, DBResultSet[] results
 				}
 				achiv_cache.SetMax(id, max, idx);
 
-				achiv_cache.NullDesc(id, idx);
-				achiv_cache.SetHidden(id, false, idx);
+				set.FetchString(3, desc, sizeof(desc));
 
-			#if defined DEBUG
-				PrintToServer("achiv %i %s %i", id, name, max);
-			#endif
-			} while(set.MoreRows);
-		} while(set.FetchMoreResults());
-	}
+				achiv_cache.SetDesc(id, desc, idx);
 
-	set = results[1];
-	if(set.HasResults) {
-		achiv_descs = new ArrayList(ByteCountToCells(MAX_ACHIEVEMENT_DESCRIPTION));
+				bool hidden = view_as<bool>(set.FetchInt(4));
 
-		char desc[MAX_ACHIEVEMENT_DESCRIPTION];
-		do {
-			do {
-				if(!set.FetchRow()) {
-					continue;
-				}
-
-				int id = set.FetchInt(0);
-
-				int idx = achiv_cache.Find(id);
-
-				if(!set.IsFieldNull(1)) {
-					set.FetchString(1, desc, sizeof(desc));
-					achiv_cache.SetDesc(id, desc, idx);
-				} else {
-					strcopy(desc, sizeof(desc), "<<missing description>>");
-				}
-
-				bool hidden = (!set.IsFieldNull(2) && (set.FetchInt(2) == 1));
 				achiv_cache.SetHidden(id, hidden, idx);
 
 			#if defined DEBUG
-				PrintToServer("achiv %i %i:\n %s", id, hidden, desc);
+				PrintToServer("  %s:", name);
+				PrintToServer("    desc = %s", desc);
+				PrintToServer("    max = %i", max);
+				PrintToServer("    hidden = %s", hidden ? "true" : "false");
 			#endif
 			} while(set.MoreRows);
 		} while(set.FetchMoreResults());
@@ -119,6 +128,7 @@ void CacheAchivData(Database db, any data, int numQueries, DBResultSet[] results
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(!IsClientInGame(i) ||
+			IsFakeClient(i) ||
 			bAchivCacheLoaded[i]) {
 			continue;
 		}
@@ -154,6 +164,10 @@ void CachePlayerAchivData(Database db, DBResultSet results, const char[] error, 
 	if(results.HasResults) {
 		PlayerAchivCache[client] = new MPlayerAchivCache();
 
+	#if defined DEBUG
+		PrintToServer("%N achievements:", client);
+	#endif
+
 		do {
 			do {
 				if(!results.FetchRow()) {
@@ -183,11 +197,14 @@ void CachePlayerAchivData(Database db, DBResultSet results, const char[] error, 
 				PlayerAchivCache[client].SetProgress(id, progress, idx);
 				PlayerAchivCache[client].SetPluginData(id, plugin_data, idx);
 
-				bAchivCacheLoaded[client] = true;
-
 			#if defined DEBUG
-				PrintToServer("achiv %N %i %i %i %i", client, id, progress, time, plugin_data);
+				PrintToServer("  %i:", id);
+				PrintToServer("    achieved = %i", time);
+				PrintToServer("    progress = %i", progress);
+				PrintToServer("    plugin_data = %i", plugin_data);
 			#endif
+
+				bAchivCacheLoaded[client] = true;
 			} while(results.MoreRows);
 		} while(results.FetchMoreResults());
 	}

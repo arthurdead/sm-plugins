@@ -8,6 +8,8 @@
 
 #define ACHIEVEMENT_ANNOUNCEMENT_MIN_TIME 10.0
 
+native void DoAchievementEffects(int client);
+
 #define Achievement_Null view_as<Achievement>(-1)
 
 forward void OnAchievementDataLoaded(int client);
@@ -97,6 +99,7 @@ methodmap MissionEntry
 	//public native void GetParamInfo(int idx, MissionParamInfoVar info);
 
 	public native MissionInstance Give(int client);
+	public native MissionInstance GiveEx(int client, int param_values[MAX_MISSION_PARAMS]);
 
 	public native ArrayList GetInstanceCache(int client);
 
@@ -185,6 +188,7 @@ forward void OnMissionProgressChanged(int client, int oldprogress, int newprogre
 
 enum MissionStatus
 {
+	MISSION_UNCOMPLETED,
 	MISSION_COMPLETED,
 	MISSION_CANCELED,
 	MISSION_TURNEDIN,

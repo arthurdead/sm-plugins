@@ -2,6 +2,7 @@
 #include <tf2>
 #include <tf2_stocks>
 #include <achivmissions>
+#include <trainingmsg>
 
 Achievement test_achiv = Achievement_Null;
 MissionEntry test_missi = MissionEntry_Null;
@@ -18,8 +19,38 @@ public void OnPluginStart()
 
 	OnAchievementsLoaded();
 
+	RegConsoleCmd("sm_missitest", sm_missitest);
+
 	HookEvent("player_death", player_death);
 	OnMissionsLoaded();
+}
+
+void trmenuhndl(TrainingMsgMenuAction action, int client, int param1, any menu_data, any item_data)
+{
+	if(action == TrainingMsgMenuAction_Select) {
+		
+	}
+}
+
+Action sm_missitest(int client, int args)
+{
+	TrainingMsgMenu menu = TrainingMsgMenu(trmenuhndl);
+
+	menu.SetTitle("test");
+
+	//menu.AddItem("yes");
+	//menu.AddItem("no");
+
+	char display[(6)*TRAINING_MSG_MAX_HEIGHT];
+
+	for(int i = 0; i < TRAINING_MSG_MAX_HEIGHT; ++i) {
+		Format(display, sizeof(display), "test%i", i);
+		menu.AddItem(display);
+	}
+
+	menu.SendToClient(client, TRAININGMSGMENU_TIME_FOREVER);
+
+	return Plugin_Handled;
 }
 
 void handle_die(int client, MissionInstance inst, any data)

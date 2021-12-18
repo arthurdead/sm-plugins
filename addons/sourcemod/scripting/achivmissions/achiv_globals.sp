@@ -1,17 +1,17 @@
-Database dbAchiv = null;
-StringMap mapAchivIds = null;
+Database dbAchiv;
+StringMap mapAchivIds;
 
-bool bAchivCacheLoaded[MAXPLAYERS+1] = {false, ...};
+bool bAchivCacheLoaded[MAXPLAYERS+1];
 
-ArrayList achiv_names = null;
-ArrayList achiv_descs = null;
+ArrayList achiv_names;
+ArrayList achiv_descs;
 
-int num_achivs = 0;
+int num_achivs;
 
-GlobalForward hOnAchievementDataLoaded = null;
-GlobalForward hOnAchievementsLoaded = null;
+GlobalForward hOnAchievementDataLoaded;
+GlobalForward hOnAchievementsLoaded;
 
-GlobalForward hOnAchievementProgressChanged = null;
-GlobalForward hOnAchievementStatusChanged = null;
+GlobalForward hOnAchievementProgressChanged;
+GlobalForward hOnAchievementStatusChanged;
 
-float m_flNextAchievementAnnounceTime[MAXPLAYERS+1] = {0.0, ...};
+float m_flNextAchievementAnnounceTime[MAXPLAYERS+1];

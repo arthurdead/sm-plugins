@@ -24,3 +24,13 @@ void UnpackInts3(int packed, int &i1, int &i2, int &i3)
 	i2 = (packed >> 8) & 255;
 	i3 = packed & 255;
 }
+
+int digit_count(int i)
+{
+	int count = 0;
+	while(i != 0) {
+		i /= 10;
+		++count;
+	}
+	return count;
+}

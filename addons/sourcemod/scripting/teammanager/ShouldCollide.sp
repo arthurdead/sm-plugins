@@ -18,7 +18,7 @@ void ShouldCollideEntityCreated(int entity, const char[] classname)
 
 int ShouldCollideHelper(int owner, int other, int collisiongroup, int contentsmask)
 {
-	if(IsPlayer(owner)) {
+	/*if(IsPlayer(owner)) {
 		if(collisiongroup != -1 && contentsmask != -1) {
 			if(collisiongroup == COLLISION_GROUP_PLAYER_MOVEMENT) {
 				if(PlayerFF[owner]) {
@@ -38,7 +38,7 @@ int ShouldCollideHelper(int owner, int other, int collisiongroup, int contentsma
 				}
 			}
 		}
-	}
+	}*/
 
 	return -1;
 }

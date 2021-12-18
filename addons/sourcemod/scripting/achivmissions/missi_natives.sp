@@ -1,3 +1,5 @@
+#define PARAM_NAME_MAX (6+INT_STR_MAX)
+
 int NativeMissi_Get(Handle plugin, int args)
 {
 	int idx = GetNativeCell(1);
@@ -28,9 +30,7 @@ int NativeMissi_FindByName(Handle plugin, int args)
 
 	int len = 0;
 	GetNativeStringLength(1, len);
-	++len;
-	
-	char[] name = new char[len];
+	char[] name = new char[++len];
 	GetNativeString(1, name, len);
 
 	int id = -1;
@@ -95,6 +95,10 @@ int NativeMissi_GetInstanceCache(Handle plugin, int args)
 	int id = GetNativeCell(1);
 	int client = GetNativeCell(2);
 
+	if(missi_map == null) {
+		return 0;
+	}
+
 	return view_as<int>(missi_map.Get(client, id));
 }
 
@@ -121,6 +125,88 @@ int GenerateParamValue(int id, int i, int midx = -1)
 	return value;
 }
 
+int NativeMissi_GiveToPlayerEx(Handle plugin, int args)
+{
+	int id = GetNativeCell(1);
+	int client = GetNativeCell(2);
+
+	int[] values = new int[MAX_MISSION_PARAMS];
+	GetNativeArray(3, values, MAX_MISSION_PARAMS);
+
+	int instid = -1;
+
+	if(!IsFakeClient(client)) {
+		int accid = GetSteamAccountID(client);
+
+		char param_values[(1+INT_STR_MAX) * MAX_MISSION_PARAMS];
+		char param_names[(1+PARAM_NAME_MAX) * MAX_MISSION_PARAMS];
+
+		char param_value[INT_STR_MAX];
+		char param_name[PARAM_NAME_MAX];
+
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			IntToString(values[i], param_value, INT_STR_MAX);
+			StrCat(param_values, sizeof(param_values), ",");
+			StrCat(param_values, sizeof(param_values), param_value);
+
+			Format(param_name, PARAM_NAME_MAX, "param_%i", i+1);
+			StrCat(param_names, sizeof(param_names), ",");
+			StrCat(param_names, sizeof(param_names), param_name);
+		}
+
+		char query[QUERY_STR_MAX];
+		dbMissi.Format(query, QUERY_STR_MAX,
+			"insert into missi_player_data " ...
+			" (mission_id,accountid%s) " ...
+			" values(%i,%i%s);"
+			,param_names,
+			id,accid,param_values
+		);
+
+		SQL_LockDatabase(dbMissi);
+		SQL_FastQuery(dbMissi, query);
+		DBResultSet results = SQL_Query(dbMissi,
+			"select last_insert_id();"
+		);
+		SQL_UnlockDatabase(dbMissi);
+		if(results.HasResults) {
+			do {
+				do {
+					if(!results.FetchRow()) {
+						continue;
+					}
+
+					instid = results.FetchInt(0);
+				} while(results.MoreRows);
+			} while(results.FetchMoreResults());
+		}
+		delete results;
+
+		int pidx = GetOrCreatePlrMissiCache(client, instid);
+
+		PlayerMissiCache[client].SetMissionID(instid, id, pidx);
+
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			PlayerMissiCache[client].SetParamValue(instid, i, values[i], pidx);
+		}
+	} else {
+		static int fakeid = 0;
+		instid = fakeid++;
+
+		int pidx = GetOrCreatePlrMissiCache(client, instid);
+
+		PlayerMissiCache[client].SetMissionID(instid, id, pidx);
+
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			PlayerMissiCache[client].SetParamValue(instid, i, values[i], pidx);
+		}
+	}
+
+	missi_map.Add(client, id, instid);
+
+	return instid;
+}
+
 int NativeMissi_GiveToPlayer(Handle plugin, int args)
 {
 	int id = GetNativeCell(1);
@@ -133,24 +219,26 @@ int NativeMissi_GiveToPlayer(Handle plugin, int args)
 	if(!IsFakeClient(client)) {
 		int accid = GetSteamAccountID(client);
 
-		char param_values[256];
-		char param_names[256];
+		char param_values[(1+INT_STR_MAX) * MAX_MISSION_PARAMS];
+		char param_names[(1+PARAM_NAME_MAX) * MAX_MISSION_PARAMS];
+
+		char param_value[INT_STR_MAX];
+		char param_name[PARAM_NAME_MAX];
 
 		int values[MAX_MISSION_PARAMS];
 		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
-			char tmp[256];
-
 			values[i] = GenerateParamValue(id, i, midx);
-			IntToString(values[i], tmp, sizeof(tmp));
+			IntToString(values[i], param_value, INT_STR_MAX);
 			StrCat(param_values, sizeof(param_values), ",");
-			StrCat(param_values, sizeof(param_values), tmp);
+			StrCat(param_values, sizeof(param_values), param_value);
 
-			Format(tmp, sizeof(tmp), "param_%i", i+1);
+			Format(param_name, PARAM_NAME_MAX, "param_%i", i+1);
 			StrCat(param_names, sizeof(param_names), ",");
-			StrCat(param_names, sizeof(param_names), tmp);
+			StrCat(param_names, sizeof(param_names), param_name);
 		}
 
-		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		char query[QUERY_STR_MAX];
+		dbMissi.Format(query, QUERY_STR_MAX,
 			"insert into missi_player_data " ...
 			" (mission_id,accountid%s) " ...
 			" values(%i,%i%s);"
@@ -158,13 +246,12 @@ int NativeMissi_GiveToPlayer(Handle plugin, int args)
 			id,accid,param_values
 		);
 
-		SQL_LockDatabase(dbAchiv);
-		SQL_FastQuery(dbAchiv, tmpquery);
-		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		SQL_LockDatabase(dbMissi);
+		SQL_FastQuery(dbMissi, query);
+		DBResultSet results = SQL_Query(dbMissi,
 			"select last_insert_id();"
 		);
-		DBResultSet results = SQL_Query(dbAchiv, tmpquery);
-		SQL_UnlockDatabase(dbAchiv);
+		SQL_UnlockDatabase(dbMissi);
 		if(results.HasResults) {
 			do {
 				do {
@@ -278,7 +365,8 @@ int NativePlrMissi_AwardProgress(Handle plugin, int args)
 
 	PlayerMissiCache[client].SetProgress(id, progress, pidx);
 
-	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+	char query[QUERY_STR_MAX];
+	dbMissi.Format(query, QUERY_STR_MAX,
 		"update missi_player_data set " ...
 		" progress=%i " ...
 		" where " ...
@@ -286,7 +374,7 @@ int NativePlrMissi_AwardProgress(Handle plugin, int args)
 		,progress,
 		id
 	);
-	dbAchiv.Query(OnErrorQuery, tmpquery);
+	dbMissi.Query(OnErrorQuery, query);
 
 	return 0;
 }
@@ -313,12 +401,14 @@ int NativePlrMissi_RemoveProgress(Handle plugin, int args)
 		return 0;
 	}
 
+	bool completed = PlayerMissiCache[client].IsCompleted(id, pidx);
+
 	int oldprogress = progress;
 
 	bool remove = false;
 
 	progress -= value;
-	if(progress < 0) {
+	if(progress <= 0) {
 		progress = 0;
 		remove = true;
 	}
@@ -332,16 +422,26 @@ int NativePlrMissi_RemoveProgress(Handle plugin, int args)
 
 	PlayerMissiCache[client].SetProgress(id, progress, pidx);
 
+	if(completed && remove) {
+		Call_StartForward(hOnMissionStatusChanged);
+		Call_PushCell(client);
+		Call_PushCell(MISSION_UNCOMPLETED);
+		Call_PushCell(packed);
+		Call_Finish();
+	}
+
+	char query[QUERY_STR_MAX];
 	if(remove) {
-		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		dbMissi.Format(query, QUERY_STR_MAX,
 			"update missi_player_data set " ...
 			" progress=0,completed=null " ...
 			" where " ...
 			" id=%i;"
 			,id
 		);
+		PlayerMissiCache[client].SetCompletedTime(id, -1, pidx);
 	} else {
-		dbAchiv.Format(tmpquery, sizeof(tmpquery),
+		dbMissi.Format(query, QUERY_STR_MAX,
 			"update missi_player_data set " ...
 			" progress=%i " ...
 			" where " ...
@@ -350,7 +450,7 @@ int NativePlrMissi_RemoveProgress(Handle plugin, int args)
 			id
 		);
 	}
-	dbAchiv.Query(OnErrorQuery, tmpquery);
+	dbMissi.Query(OnErrorQuery, query);
 
 	return view_as<int>(remove);
 }
@@ -382,7 +482,8 @@ int NativePlrMissi_Complete(Handle plugin, int args)
 
 	int time = GetTime();
 
-	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+	char query[QUERY_STR_MAX];
+	dbMissi.Format(query, QUERY_STR_MAX,
 		"update missi_player_data set " ...
 		" completed=%i " ...
 		" where " ...
@@ -390,7 +491,7 @@ int NativePlrMissi_Complete(Handle plugin, int args)
 		,time,
 		id
 	);
-	dbAchiv.Query(OnErrorQuery, tmpquery);
+	dbMissi.Query(OnErrorQuery, query);
 
 	PlayerMissiCache[client].SetCompletedTime(id, time, pidx);
 
@@ -416,11 +517,12 @@ int handle_cancel_native(bool cancel)
 	Call_PushCell(packed);
 	Call_Finish();
 
-	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+	char query[QUERY_STR_MAX];
+	dbMissi.Format(query, QUERY_STR_MAX,
 		"delete from missi_player_data where id=%i;"
 		,id
 	);
-	dbAchiv.Query(OnErrorQuery, tmpquery);
+	dbMissi.Query(OnErrorQuery, query);
 
 	int pidx = PlayerMissiCache[client].Find(id);
 
@@ -461,10 +563,11 @@ int NativePlrMissi_SetParamValue(Handle plugin, int args)
 
 	PlayerMissiCache[client].SetParamValue(id, param, value);
 
-	char param_name[64];
-	Format(param_name, sizeof(param_name), "param_%i", param);
+	char param_name[PARAM_NAME_MAX];
+	Format(param_name, PARAM_NAME_MAX, "param_%i", param);
 
-	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+	char query[QUERY_STR_MAX];
+	dbMissi.Format(query, QUERY_STR_MAX,
 		"update missi_player_data set " ...
 		" %s=%i " ...
 		" where " ...
@@ -472,7 +575,7 @@ int NativePlrMissi_SetParamValue(Handle plugin, int args)
 		,param_name,value,
 		id
 	);
-	dbAchiv.Query(OnErrorQuery, tmpquery);
+	dbMissi.Query(OnErrorQuery, query);
 
 	return 0;
 }
@@ -594,7 +697,8 @@ int NativePlrMissi_SetPluginData(Handle plugin, int args)
 
 	PlayerMissiCache[client].SetPluginData(id, value);
 
-	dbAchiv.Format(tmpquery, sizeof(tmpquery),
+	char query[QUERY_STR_MAX];
+	dbMissi.Format(query, QUERY_STR_MAX,
 		"update missi_player_data set " ...
 		" plugin_data=%i " ...
 		" where " ...
@@ -602,7 +706,7 @@ int NativePlrMissi_SetPluginData(Handle plugin, int args)
 		,value,
 		id
 	);
-	dbAchiv.Query(OnErrorQuery, tmpquery);
+	dbMissi.Query(OnErrorQuery, query);
 
 	return 0;
 }

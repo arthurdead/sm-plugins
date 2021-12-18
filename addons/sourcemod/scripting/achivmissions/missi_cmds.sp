@@ -1,3 +1,6 @@
+#define MISSI_DESC_FORMATED_MAX (MAX_MISSION_DESCRIPTION+(INT_STR_MAX*MAX_MISSION_PARAMS))
+#define MISSI_TITLE_MAX (MAX_MISSION_NAME+2)
+
 Action sm_missigiv(int client, int args)
 {
 	if(args < 2) {
@@ -6,7 +9,7 @@ Action sm_missigiv(int client, int args)
 	}
 
 	char missiname[MAX_MISSION_NAME];
-	GetCmdArg(2, missiname, sizeof(missiname));
+	GetCmdArg(2, missiname, MAX_MISSION_NAME);
 
 	MissionEntry missi = MissionEntry.FindByName(missiname);
 	if(missi == MissionEntry_Null) {
@@ -14,14 +17,13 @@ Action sm_missigiv(int client, int args)
 		return Plugin_Handled;
 	}
 
-	char filter[32];
-	GetCmdArg(1, filter, sizeof(filter));
+	char plrname[MAX_NAME_LENGTH];
+	GetCmdArg(1, plrname, MAX_NAME_LENGTH);
 
-	char name[MAX_TARGET_LENGTH];
 	int targets[MAXPLAYERS];
-	bool isml = false;
-	int count = ProcessTargetString(filter, client, targets, MAXPLAYERS, COMMAND_FILTER_ALIVE|COMMAND_FILTER_NO_IMMUNITY, name, sizeof(name), isml);
-	if(count == 0) {
+	int count = ProcessTargetString(plrname, client, targets, MAXPLAYERS, COMMAND_FILTER_ALIVE|COMMAND_FILTER_NO_IMMUNITY, __ignorename, 1, __ignoreisml);
+	if(count <= 0) {
+		ReplyToTargetError(client, count);
 		return Plugin_Handled;
 	}
 
@@ -53,6 +55,10 @@ void format_missi_desc(int client, int pidx, int midx, char[] desc, int size)
 {
 	missi_cache.GetDesc(-1, desc, size, midx);
 
+	char param[1+INT_STR_MAX];
+	int value_len = 7;
+	char[] value_str = new char[value_len];
+
 	for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
 		int value = PlayerMissiCache[client].GetParamValue(-1, i, pidx);
 
@@ -61,37 +67,36 @@ void format_missi_desc(int client, int pidx, int midx, char[] desc, int size)
 		int max;
 		missi_cache.GetParamInfo(-1, i, type, min, max, midx);
 
-		char tmpnum[10];
 		switch(type) {
 			case MPARAM_INT:
-			{ IntToString(value, tmpnum, sizeof(tmpnum)); }
+			{ IntToString(value, value_str, value_len); }
 			case MPARAM_CLASS: {
-				switch(value) {
-					case 1:
-					{ strcopy(tmpnum, sizeof(tmpnum), "scout"); }
-					case 2:
-					{ strcopy(tmpnum, sizeof(tmpnum), "sniper"); }
-					case 3:
-					{ strcopy(tmpnum, sizeof(tmpnum), "soldier"); }
-					case 4:
-					{ strcopy(tmpnum, sizeof(tmpnum), "demoman"); }
-					case 5:
-					{ strcopy(tmpnum, sizeof(tmpnum), "medic"); }
-					case 6:
-					{ strcopy(tmpnum, sizeof(tmpnum), "heavy"); }
-					case 7:
-					{ strcopy(tmpnum, sizeof(tmpnum), "pyro"); }
-					case 8:
-					{ strcopy(tmpnum, sizeof(tmpnum), "spy"); }
-					case 9:
-					{ strcopy(tmpnum, sizeof(tmpnum), "engineer"); }
+				TFClassType class = view_as<TFClassType>(value);
+				switch(class) {
+					case TFClass_Scout:
+					{ strcopy(value_str, value_len, "scout"); }
+					case TFClass_Sniper:
+					{ strcopy(value_str, value_len, "sniper"); }
+					case TFClass_Soldier:
+					{ strcopy(value_str, value_len, "soldier"); }
+					case TFClass_DemoMan:
+					{ strcopy(value_str, value_len, "demoman"); }
+					case TFClass_Medic:
+					{ strcopy(value_str, value_len, "medic"); }
+					case TFClass_Heavy:
+					{ strcopy(value_str, value_len, "heavy"); }
+					case TFClass_Pyro:
+					{ strcopy(value_str, value_len, "pyro"); }
+					case TFClass_Spy:
+					{ strcopy(value_str, value_len, "spy"); }
+					case TFClass_Engineer:
+					{ strcopy(value_str, value_len, "engineer"); }
 				}
 			}
 		}
 
-		char num[10];
-		Format(num, sizeof(num), "$%i", i+1);
-		ReplaceString(desc, size, num, tmpnum);
+		Format(param, sizeof(param), "$%i", i+1);
+		ReplaceString(desc, size, param, value_str);
 	}
 }
 
@@ -106,15 +111,15 @@ int MenuHandler_Missi(Menu menu, MenuAction action, int param1, int param2)
 
 		int midx = missi_cache.Find(mission_id);
 
-		char title[MAX_MISSION_NAME + 10];
-		missi_cache.GetName(mission_id, title, sizeof(title), midx);
+		char title[MISSI_TITLE_MAX];
+		missi_cache.GetName(mission_id, title, MISSI_TITLE_MAX, midx);
 
 		if(PlayerMissiCache[param1].IsCompleted(-1, idx)) {
-			StrCat(title, sizeof(title), " *");
+			StrCat(title, MISSI_TITLE_MAX, " *");
 		}
 
-		char desc[MAX_MISSION_DESCRIPTION];
-		format_missi_desc(param1, idx, midx, desc, sizeof(desc));
+		char desc[MISSI_DESC_FORMATED_MAX];
+		format_missi_desc(param1, idx, midx, desc, MISSI_DESC_FORMATED_MAX);
 
 		Panel info = new Panel();
 		info.SetTitle(title);
@@ -144,8 +149,8 @@ void DisplayMissiMenu(int client, int item = -1)
 	Menu menu = new Menu(MenuHandler_Missi);
 	menu.SetTitle("Missions");
 
-	char num[5];
-	char name[MAX_MISSION_NAME + 4];
+	char desc[MISSI_DESC_FORMATED_MAX];
+	char num[INT_STR_MAX];
 
 	int len = PlayerMissiCache[client].Length;
 	for(int i = 0; i < len; ++i) {
@@ -153,14 +158,14 @@ void DisplayMissiMenu(int client, int item = -1)
 
 		int midx = missi_cache.Find(mission_id);
 
-		format_missi_desc(client, i, midx, name, sizeof(name));
+		format_missi_desc(client, i, midx, desc, MISSI_DESC_FORMATED_MAX);
 
 		if(PlayerMissiCache[client].IsCompleted(-1, i)) {
-			StrCat(name, sizeof(name), " *");
+			StrCat(desc, sizeof(desc), " *");
 		}
 
 		IntToString(i, num, sizeof(num));
-		menu.AddItem(num, name);
+		menu.AddItem(num, desc);
 	}
 
 	if(item == -1) {

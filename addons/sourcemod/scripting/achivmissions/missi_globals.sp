@@ -1,15 +1,15 @@
-Database dbMissi = null;
-StringMap mapMissiIds = null;
+Database dbMissi;
+StringMap mapMissiIds;
 
-bool bMissiCacheLoaded[MAXPLAYERS+1] = {false, ...};
+bool bMissiCacheLoaded[MAXPLAYERS+1];
 
-ArrayList missi_names = null;
-ArrayList missi_descs = null;
+ArrayList missi_names;
+ArrayList missi_descs;
 
-int num_missis = 0;
+int num_missis;
 
-GlobalForward hOnMissionDataLoaded = null;
-GlobalForward hOnMissionsLoaded = null;
+GlobalForward hOnMissionDataLoaded;
+GlobalForward hOnMissionsLoaded;
 
-GlobalForward hOnMissionProgressChanged = null;
-GlobalForward hOnMissionStatusChanged = null;
+GlobalForward hOnMissionProgressChanged;
+GlobalForward hOnMissionStatusChanged;

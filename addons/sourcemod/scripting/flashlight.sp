@@ -4,8 +4,8 @@
 
 #define EF_DIMLIGHT 0x004
 
-bool bFlashlightEnabled[MAXPLAYERS+1] = {false, ...};
-bool bFlashlightSupported[MAXPLAYERS+1] = {false, ...};
+bool bFlashlightEnabled[MAXPLAYERS+1];
+bool bFlashlightSupported[MAXPLAYERS+1];
 
 public void OnPluginStart()
 {
@@ -47,9 +47,11 @@ void RemoveFlashlight(int client)
 {
 	bFlashlightEnabled[client] = false;
 
-	int effects = GetEntProp(client, Prop_Send, "m_fEffects");
-	effects &= ~EF_DIMLIGHT;
-	SetEntProp(client, Prop_Send, "m_fEffects", effects);
+	if(IsValidEntity(client)) {
+		int effects = GetEntProp(client, Prop_Send, "m_fEffects");
+		effects &= ~EF_DIMLIGHT;
+		SetEntProp(client, Prop_Send, "m_fEffects", effects);
+	}
 }
 
 void player_death(Event event, const char[] name, bool dontBroadcast)

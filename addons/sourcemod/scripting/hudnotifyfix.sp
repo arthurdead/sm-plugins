@@ -1,12 +1,12 @@
 #include <sourcemod>
 
-Handle hud = null;
-Handle hud_timer[MAXPLAYERS+1] = {null, ...};
+Handle hud;
+Handle hud_timer[MAXPLAYERS+1];
 
-ConVar hudnotifyfix_max_icon = null;
-ConVar hudnotifyfix_max_text = null;
-ConVar hudnotifyfix_duration = null;
-ConVar hudnotifyfix_mode = null;
+ConVar hudnotifyfix_max_icon;
+ConVar hudnotifyfix_max_text;
+ConVar hudnotifyfix_duration;
+ConVar hudnotifyfix_mode;
 
 void on_mode_change(ConVar convar, const char[] oldValue, const char[] newValue)
 {

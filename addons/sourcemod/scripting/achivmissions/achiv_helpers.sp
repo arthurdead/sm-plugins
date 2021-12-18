@@ -40,10 +40,10 @@ void AnnouceAchievement(int client, int id, int idx = -1)
 	usrmsg.WriteString("#Achievement_Earned");
 
 	char plname[MAX_NAME_LENGTH];
-	GetClientName(client, plname, sizeof(plname));
+	GetClientName(client, plname, MAX_NAME_LENGTH);
 
 	char name[MAX_ACHIEVEMENT_NAME];
-	achiv_cache.GetName(id, name, sizeof(name), idx);
+	achiv_cache.GetName(id, name, MAX_ACHIEVEMENT_NAME, idx);
 
 	usrmsg.WriteString(plname);
 	usrmsg.WriteString(name);

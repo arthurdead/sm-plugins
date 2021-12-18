@@ -4,18 +4,20 @@
 #include <tf2_stocks>
 #include <trainingmsg>
 
-bool msg_enabled[MAXPLAYERS+1] = {false, ...};
+#define INT_STR_MAX 4
+
+bool msg_enabled[MAXPLAYERS+1];
 
 TrainingMsgFlags msg_flags[MAXPLAYERS+1] = {TMSG_NOFLAGS, ...};
 
 #define MsgHasContinue(%1) (!!(msg_flags[%1] & TMSG_HAS_CONTINUE))
 
-bool has_continued[MAXPLAYERS+1] = {false, ...};
-int num_enabled = 0;
-bool gamerules_hooked = false;
-bool g_bLateLoaded = false;
-int player_wants_vgui[MAXPLAYERS+1] = {0, ...};
-Handle player_vgui_timer[MAXPLAYERS+1] = {null, ...};
+bool has_continued[MAXPLAYERS+1];
+int num_enabled;
+bool gamerules_hooked;
+bool g_bLateLoaded;
+int player_wants_vgui[MAXPLAYERS+1];
+Handle player_vgui_timer[MAXPLAYERS+1];
 int current_player_menu[MAXPLAYERS+1] = {-1, ...};
 
 UserMsg TrainingObjective = INVALID_MESSAGE_ID;
@@ -26,13 +28,14 @@ int m_bIsInTrainingOffset = -1;
 int m_bIsTrainingHUDVisibleOffset = -1;
 int m_bIsWaitingForTrainingContinueOffset = -1;
 
-ConVar tf_training_client_message = null;
-ConVar sm_trainingmsg_setprop = null;
+//ConVar tf_training_client_message;
+ConVar sm_trainingmsg_setprop;
 
-ArrayList TraningMsgMenus = null;
-ArrayList TraningMsgMenusFunctions = null;
+ArrayList TraningMsgMenus;
+ArrayList TraningMsgMenusFunctions;
+ArrayList TraningMsgPluginMap;
 
-GlobalForward hOnContinued = null;
+GlobalForward hOnContinued;
 
 enum struct TraningMsgMenuFunction
 {
@@ -51,15 +54,13 @@ enum struct TraningMsgMenuInfo
 	TrainingMsgFlags flags;
 }
 
-TraningMsgMenuFunction tmpmenufunc;
-TraningMsgMenuInfo tmpmenuinfo;
-
 ConVar sm_rsay_time = null;
 
 public void OnPluginStart()
 {
 	TraningMsgMenus = new ArrayList(sizeof(TraningMsgMenuInfo));
 	TraningMsgMenusFunctions = new ArrayList(sizeof(TraningMsgMenuFunction));
+	TraningMsgPluginMap = new ArrayList(2);
 
 	TrainingObjective = GetUserMessageId("TrainingObjective");
 	TrainingMsg = GetUserMessageId("TrainingMsg");
@@ -72,7 +73,7 @@ public void OnPluginStart()
 	AddCommandListener(command_menu, "menuclosed");
 	AddCommandListener(command_continue, "training_continue");
 
-	tf_training_client_message = FindConVar("tf_training_client_message");
+	//tf_training_client_message = FindConVar("tf_training_client_message");
 
 	sm_trainingmsg_setprop = CreateConVar("sm_trainingmsg_setprop", "0");
 
@@ -121,7 +122,7 @@ Action sm_rvote(int client, int args)
 	}
 
 	char title[TRAINING_MSG_MAX_WIDTH];
-	GetCmdArg(1, title, sizeof(title));
+	GetCmdArg(1, title, TRAINING_MSG_MAX_WIDTH);
 
 	ArrayList result = new ArrayList();
 
@@ -131,7 +132,7 @@ Action sm_rvote(int client, int args)
 	for(int i = 0; i < TRAINING_MSG_MAX_HEIGHT; ++i) {
 		int idx = i+2;
 		if(args >= idx) {
-			GetCmdArg(idx, title, sizeof(title));
+			GetCmdArg(idx, title, TRAINING_MSG_MAX_WIDTH);
 			menu.AddItem(title);
 			//result.Set(i, 0);
 		} else {
@@ -170,16 +171,16 @@ void DoRSay(int client, int args, bool has_continue)
 	}
 
 	char msg[TRAINING_MSG_MAX_LEN];
-	GetCmdArgString(msg, sizeof(msg));
+	GetCmdArgString(msg, TRAINING_MSG_MAX_LEN);
 
-	CleanTrainingMessageText(msg, sizeof(msg));
+	CleanTrainingMessageText(msg, TRAINING_MSG_MAX_LEN);
 
 	char msg_newline[TRAINING_MSG_MAX_LEN];
 	int len = strlen(msg);
 	WarpTrainingMessageText(msg_newline, msg, len);
 
 	char title[TRAINING_MSG_MAX_WIDTH];
-	Format(title, sizeof(title), "%N", client);
+	Format(title, TRAINING_MSG_MAX_WIDTH, "%N", client);
 
 	TrainingMsgFlags flags = has_continue ? TMSG_CONTINUE_AUTOREMOVE : TMSG_NOFLAGS;
 
@@ -262,22 +263,33 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	return APLRes_Success;
 }
 
+void RemoveTrainingMsgMenuFuncs(int index, Handle plugin)
+{
+	int idx = TraningMsgPluginMap.FindValue(plugin);
+	if(idx != -1) {
+		TraningMsgPluginMap.Erase(idx);
+	}
+
+	TraningMsgMenusFunctions.Erase(index);
+}
+
 bool CancelTrainingMsgMenu(int client, int reason = TrainingMsgMenuCancel_Interrupted)
 {
 	int index = current_player_menu[client];
 	current_player_menu[client] = -1;
 	if(index != -1) {
-		TraningMsgMenusFunctions.GetArray(index, tmpmenufunc, sizeof(TraningMsgMenuFunction));
+		TraningMsgMenuFunction menufunc;
+		TraningMsgMenusFunctions.GetArray(index, menufunc, sizeof(TraningMsgMenuFunction));
 
-		Call_StartFunction(tmpmenufunc.plugin, tmpmenufunc.func);
+		Call_StartFunction(menufunc.plugin, menufunc.func);
 		Call_PushCell(TrainingMsgMenuAction_Cancel);
 		Call_PushCell(client);
 		Call_PushCell(reason);
-		Call_PushCell(tmpmenufunc.data);
+		Call_PushCell(menufunc.data);
 		Call_PushCell(0);
 		Call_Finish();
 
-		TraningMsgMenusFunctions.Erase(index);
+		RemoveTrainingMsgMenuFuncs(index, menufunc.plugin);
 		return true;
 	}
 	return false;
@@ -297,17 +309,18 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 			DisableClient(param1, _, false);
 
 			if(index != -1) {
-				TraningMsgMenusFunctions.GetArray(index, tmpmenufunc, sizeof(TraningMsgMenuFunction));
+				TraningMsgMenuFunction menufunc;
+				TraningMsgMenusFunctions.GetArray(index, menufunc, sizeof(TraningMsgMenuFunction));
 
-				Call_StartFunction(tmpmenufunc.plugin, tmpmenufunc.func);
+				Call_StartFunction(menufunc.plugin, menufunc.func);
 				Call_PushCell(TrainingMsgMenuAction_Select);
 				Call_PushCell(param1);
 				Call_PushCell(param2);
-				Call_PushCell(tmpmenufunc.data);
+				Call_PushCell(menufunc.data);
 				Call_PushCell(0);
 				Call_Finish();
 
-				TraningMsgMenusFunctions.Erase(index);
+				RemoveTrainingMsgMenuFuncs(index, menufunc.plugin);
 			}
 		}
 		case MenuAction_Cancel: {
@@ -316,9 +329,10 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 			DisableClient(param1, _, false);
 
 			if(index != -1) {
-				TraningMsgMenusFunctions.GetArray(index, tmpmenufunc, sizeof(TraningMsgMenuFunction));
+				TraningMsgMenuFunction menufunc;
+				TraningMsgMenusFunctions.GetArray(index, menufunc, sizeof(TraningMsgMenuFunction));
 
-				Call_StartFunction(tmpmenufunc.plugin, tmpmenufunc.func);
+				Call_StartFunction(menufunc.plugin, menufunc.func);
 				Call_PushCell(TrainingMsgMenuAction_Cancel);
 				Call_PushCell(param1);
 
@@ -330,12 +344,15 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 					default: { Call_PushCell(-1); }
 				}
 
-				Call_PushCell(tmpmenufunc.data);
+				Call_PushCell(menufunc.data);
 				Call_PushCell(0);
 				Call_Finish();
 
-				TraningMsgMenusFunctions.Erase(index);
+				RemoveTrainingMsgMenuFuncs(index, menufunc.plugin);
 			}
+		}
+		case MenuAction_End: {
+			//????
 		}
 	}
 	return 0;
@@ -343,22 +360,26 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 
 int TrainingMsgMenuCtor(Handle plugin, int params)
 {
-	tmpmenuinfo.title[0] = '\0';
-	tmpmenuinfo.keys |= (1 << 9);
-	tmpmenuinfo.pan = new Panel();
-	tmpmenuinfo.pan.DrawText("");
-	tmpmenuinfo.pan.SetKeys(tmpmenuinfo.keys);
-	tmpmenuinfo.items = new ArrayList(ByteCountToCells(TRAINING_MSG_MAX_WIDTH));
-	tmpmenuinfo.flags = TMSG_NOFLAGS;
-	tmpmenuinfo.curritem = 0;
+	TraningMsgMenuInfo menuinfo;
+	menuinfo.title[0] = '\0';
+	menuinfo.keys |= (1 << 9);
+	menuinfo.pan = new Panel();
+	menuinfo.pan.DrawText("");
+	menuinfo.pan.SetKeys(menuinfo.keys);
+	menuinfo.items = new ArrayList(ByteCountToCells(TRAINING_MSG_MAX_WIDTH));
+	menuinfo.flags = TMSG_NOFLAGS;
+	menuinfo.curritem = 0;
 
-	tmpmenufunc.func = GetNativeFunction(1);
-	tmpmenufunc.plugin = plugin;
-	tmpmenufunc.data = GetNativeCell(2);
+	TraningMsgMenuFunction menufunc;
+	menufunc.func = GetNativeFunction(1);
+	menufunc.plugin = plugin;
+	menufunc.data = GetNativeCell(2);
 
-	TraningMsgMenusFunctions.PushArray(tmpmenufunc, sizeof(TraningMsgMenuFunction));
+	int idx = TraningMsgMenusFunctions.PushArray(menufunc, sizeof(TraningMsgMenuFunction));
+	idx = TraningMsgPluginMap.Push(idx);
+	TraningMsgPluginMap.Set(idx, menufunc.plugin);
 
-	return TraningMsgMenus.PushArray(tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	return TraningMsgMenus.PushArray(menuinfo, sizeof(TraningMsgMenuInfo));
 }
 
 void AddItemToString(ArrayList items, int keys, int i, int maxlen, char[] msg, int len, bool newline, bool pipe)
@@ -367,8 +388,8 @@ void AddItemToString(ArrayList items, int keys, int i, int maxlen, char[] msg, i
 	items.GetString(i, item, maxlen);
 
 	if(keys & (1 << i)) {
-		char num[2];
-		IntToString(i+1, num, sizeof(num));
+		char num[INT_STR_MAX];
+		IntToString(i+1, num, INT_STR_MAX);
 		StrCat(msg, len, num);
 		StrCat(msg, len, ". ");
 	}
@@ -400,21 +421,22 @@ int TrainingMsgMenuSendToClient(Handle plugin, int params)
 
 	int time = GetNativeCell(3);
 
-	TraningMsgMenus.GetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenuInfo menuinfo;
+	TraningMsgMenus.GetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
-	bool ret = tmpmenuinfo.pan.Send(client, GlobalTrainingMsgMenuHandler, time);
+	bool ret = menuinfo.pan.Send(client, GlobalTrainingMsgMenuHandler, time);
 	if(ret) {
 		CancelTrainingMsgMenu(client);
 		EnableClient(client);
-		msg_flags[client] = tmpmenuinfo.flags;
+		msg_flags[client] = menuinfo.flags;
 
 		current_player_menu[client] = index;
 
 		int clients[1];
 		clients[0] = client;
 
-		int block = tmpmenuinfo.items.BlockSize;
-		int itemnum = tmpmenuinfo.items.Length;
+		int block = menuinfo.items.BlockSize;
+		int itemnum = menuinfo.items.Length;
 		int len = (itemnum * block) + (3 * TRAINING_MSG_MAX_WIDTH);
 		char[] msg = new char[len];
 
@@ -423,14 +445,14 @@ int TrainingMsgMenuSendToClient(Handle plugin, int params)
 		}
 
 		for(int i = 0; i < itemnum; ++i) {
-			AddItemToString(tmpmenuinfo.items, tmpmenuinfo.keys, i, TRAINING_MSG_MAX_WIDTH, msg, len, true, false);
+			AddItemToString(menuinfo.items, menuinfo.keys, i, TRAINING_MSG_MAX_WIDTH, msg, len, true, false);
 		}
 
-		SendToClientsHelper(clients, sizeof(clients), tmpmenuinfo.title, msg);
+		SendToClientsHelper(clients, sizeof(clients), menuinfo.title, msg);
 	}
 
-	delete tmpmenuinfo.pan;
-	delete tmpmenuinfo.items;
+	delete menuinfo.pan;
+	delete menuinfo.items;
 
 	TraningMsgMenus.Erase(index);
 
@@ -445,16 +467,17 @@ int TrainingMsgMenuExitButton(Handle plugin, int params)
 		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
 	}
 
-	TraningMsgMenus.GetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenuInfo menuinfo;
+	TraningMsgMenus.GetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
 	if(GetNativeCell(2)) {
-		tmpmenuinfo.keys |= (1 << 9);
+		menuinfo.keys |= (1 << 9);
 	} else {
-		tmpmenuinfo.keys &= ~(1 << 9);
+		menuinfo.keys &= ~(1 << 9);
 	}
-	tmpmenuinfo.pan.SetKeys(tmpmenuinfo.keys);
+	menuinfo.pan.SetKeys(menuinfo.keys);
 
-	TraningMsgMenus.SetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenus.SetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
 	return 0;
 }
@@ -467,11 +490,12 @@ int TrainingMsgMenuFlags(Handle plugin, int params)
 		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
 	}
 
-	TraningMsgMenus.GetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenuInfo menuinfo;
+	TraningMsgMenus.GetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
-	tmpmenuinfo.flags = GetNativeCell(2);
+	menuinfo.flags = GetNativeCell(2);
 
-	TraningMsgMenus.SetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenus.SetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
 	return 0;
 }
@@ -484,30 +508,29 @@ int TrainingMsgMenuAddItem(Handle plugin, int params)
 		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
 	}
 
-	TraningMsgMenus.GetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenuInfo menuinfo;
+	TraningMsgMenus.GetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
-	if(tmpmenuinfo.curritem == TRAINING_MSG_MAX_HEIGHT) {
+	if(menuinfo.curritem == TRAINING_MSG_MAX_HEIGHT) {
 		return 0;
 	}
 
 	int length = 0;
 	GetNativeStringLength(2, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(2, title, length);
 
 	ReplaceString(title, length, "\n", "");
 
-	tmpmenuinfo.keys |= (1 << tmpmenuinfo.curritem);
-	tmpmenuinfo.pan.SetKeys(tmpmenuinfo.keys);
-	++tmpmenuinfo.curritem;
+	menuinfo.keys |= (1 << menuinfo.curritem);
+	menuinfo.pan.SetKeys(menuinfo.keys);
+	++menuinfo.curritem;
 
-	tmpmenuinfo.items.PushString(title);
+	menuinfo.items.PushString(title);
 
-	TraningMsgMenus.SetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenus.SetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
-	any data = GetNativeCell(3);
+	//any data = GetNativeCell(3);
 
 	return 1;
 }
@@ -520,25 +543,24 @@ int TrainingMsgMenuDrawItem(Handle plugin, int params)
 		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
 	}
 
-	TraningMsgMenus.GetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenuInfo menuinfo;
+	TraningMsgMenus.GetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
-	if(tmpmenuinfo.curritem == TRAINING_MSG_MAX_HEIGHT) {
+	if(menuinfo.curritem == TRAINING_MSG_MAX_HEIGHT) {
 		return 0;
 	}
 
 	int length = 0;
 	GetNativeStringLength(2, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(2, title, length);
 
 	ReplaceString(title, length, "\n", "");
 
-	++tmpmenuinfo.curritem;
-	tmpmenuinfo.items.PushString(title);
+	++menuinfo.curritem;
+	menuinfo.items.PushString(title);
 
-	TraningMsgMenus.SetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenus.SetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
 	return 1;
 }
@@ -551,27 +573,38 @@ int TrainingMsgMenuSetTitle(Handle plugin, int params)
 		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
 	}
 
-	TraningMsgMenus.GetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenuInfo menuinfo;
+	TraningMsgMenus.GetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
 	int length = 0;
 	GetNativeStringLength(2, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(2, title, length);
 
 	ReplaceString(title, length, "\n", "");
 
-	strcopy(tmpmenuinfo.title, sizeof(tmpmenuinfo.title), title);
+	strcopy(menuinfo.title, TRAINING_MSG_MAX_WIDTH, title);
 
-	TraningMsgMenus.SetArray(index, tmpmenuinfo, sizeof(TraningMsgMenuInfo));
+	TraningMsgMenus.SetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
 
 	return 0;
 }
 
-bool CheckPluginHandle(Handle hPlugin)
+public void OnNotifyPluginUnloaded(Handle plugin)
 {
-	return !(hPlugin == null || !IsValidHandle(hPlugin));
+	int idx = TraningMsgPluginMap.FindValue(plugin);
+	if(idx != -1) {
+		int index = TraningMsgPluginMap.Get(idx, 1);
+
+		for(int j = 1; j <= MaxClients; ++j) {
+			if(current_player_menu[j] == index) {
+				DisableClient(j, _, false);
+				current_player_menu[j] = -1;
+			}
+		}
+
+		TraningMsgMenusFunctions.Erase(index);
+	}
 }
 
 public void OnGameFrame()
@@ -584,27 +617,8 @@ public void OnGameFrame()
 		any_enabled = (num_enabled > 0);
 	}
 
-	if(any_enabled)
-	{
+	if(any_enabled) {
 		ChangeGameRulesState();
-
-		//TODO!!! refactor this using OnNotifyPluginUnloaded
-		/*for(int i = 0; i < TraningMsgMenusFunctions.Length; ++i) {
-			Handle plugin[1];
-			TraningMsgMenusFunctions.GetArray(i, plugin, 1);
-
-			if(!CheckPluginHandle(plugin[0]) || GetPluginStatus(plugin[0]) != Plugin_Running) {
-				for(int j = 1; j <= MaxClients; ++j) {
-					if(current_player_menu[j] == i) {
-						DisableClient(j, _, false);
-						current_player_menu[j] = -1;
-					}
-				}
-
-				TraningMsgMenusFunctions.Erase(i);
-				--i;
-			}
-		}*/
 	}
 }
 
@@ -665,6 +679,7 @@ Action Timer_ResetWantsVgui(Handle timer, int client)
 		player_wants_vgui[client] = 0;
 		ChangeGameRulesState();
 	}
+	return Plugin_Continue;
 }
 
 Action command_continue(int client, const char[] command, int args)
@@ -957,14 +972,13 @@ int ChangeTitleAll(Handle plugin, int params)
 
 	int length = 0;
 	GetNativeStringLength(1, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(1, title, length);
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingObjective, clients, numClients));
 	usrmsg.WriteString(title);
 	EndMessage();
+	return 0;
 }
 
 int ChangeTextAll(Handle plugin, int params)
@@ -985,14 +999,13 @@ int ChangeTextAll(Handle plugin, int params)
 
 	int length = 0;
 	GetNativeStringLength(1, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(1, title, length);
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, clients, numClients));
 	usrmsg.WriteString(title);
 	EndMessage();
+	return 0;
 }
 
 int ChangeTitle(Handle plugin, int params)
@@ -1011,14 +1024,13 @@ int ChangeTitle(Handle plugin, int params)
 
 	int length = 0;
 	GetNativeStringLength(3, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(3, title, length);
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingObjective, clients, numClients));
 	usrmsg.WriteString(title);
 	EndMessage();
+	return 0;
 }
 
 int ChangeText(Handle plugin, int params)
@@ -1037,14 +1049,13 @@ int ChangeText(Handle plugin, int params)
 
 	int length = 0;
 	GetNativeStringLength(3, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(3, title, length);
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, clients, numClients));
 	usrmsg.WriteString(title);
 	EndMessage();
+	return 0;
 }
 
 bool IsClientValid(int client)
@@ -1068,16 +1079,12 @@ int SendToClients(Handle plugin, int params)
 
 	int length = 0;
 	GetNativeStringLength(3, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(3, title, length);
 
 	length = 0;
 	GetNativeStringLength(4, length);
-	length++;
-
-	char[] msg = new char[length];
+	char[] msg = new char[++length];
 	GetNativeString(4, msg, length);
 
 	TrainingMsgFlags flags = GetNativeCell(5);
@@ -1135,16 +1142,12 @@ int SendToAll(Handle plugin, int params)
 {
 	int length = 0;
 	GetNativeStringLength(1, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(1, title, length);
 
 	length = 0;
 	GetNativeStringLength(2, length);
-	length++;
-
-	char[] msg = new char[length];
+	char[] msg = new char[++length];
 	GetNativeString(2, msg, length);
 
 	TrainingMsgFlags flags = GetNativeCell(3);
@@ -1176,16 +1179,12 @@ int SendToClient(Handle plugin, int params)
 
 	int length = 0;
 	GetNativeStringLength(2, length);
-	length++;
-
-	char[] title = new char[length];
+	char[] title = new char[++length];
 	GetNativeString(2, title, length);
 
 	length = 0;
 	GetNativeStringLength(3, length);
-	length++;
-
-	char[] msg = new char[length];
+	char[] msg = new char[++length];
 	GetNativeString(3, msg, length);
 
 	int clients[1];
