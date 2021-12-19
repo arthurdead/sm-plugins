@@ -26,7 +26,7 @@
 /* INCLUDES *******************************************************************/
 #include <sourcemod>
 #include <sdktools>
-#include <colorlib>
+#include <morecolors>
 
 #undef REQUIRE_EXTENSIONS
 #tryinclude <system2>

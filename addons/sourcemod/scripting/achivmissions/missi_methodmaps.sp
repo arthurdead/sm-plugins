@@ -70,7 +70,11 @@ methodmap MPlayerMissiCache < Handle
 
 	public int GetProgress(int id, int idx = -1)
 	{
-		return this.__GenericGet(id, MISSIPLAYERCACHE_PROG_IDX, idx);
+		int progress = this.__GenericGet(id, MISSIPLAYERCACHE_PROG_IDX, idx);
+		if(progress == -1) {
+			progress = 0;
+		}
+		return progress;
 	}
 
 	public void SetProgress(int id, int value, int idx = -1)
