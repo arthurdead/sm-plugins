@@ -46,7 +46,7 @@
 #define PLUGIN_URL		"http://j-factor.com/"
 
 // Debug -----------------------------------------------------------------------
-#define DEBUG		1 
+//#define DEBUG		1 
 
 // Configs ---------------------------------------------------------------------
 #define CONFIG_MAPS 		"configs/themes/maps.cfg"
@@ -1209,8 +1209,7 @@ void UpdateDownloadsTable()
 	char filename[96];
 	
 	// Handle Particles
-	//if (cvParticles.BoolValue)
-	{
+	if (cvParticles.BoolValue) {
 		HandleParticleFiles();
 		
 		AddFileToDownloadsTable("materials/particles/themes_leaf.vmt");

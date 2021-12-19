@@ -211,6 +211,7 @@ int NativeAchiv_AwardAchievement(Handle plugin, int args)
 			dbAchiv.Query(OnErrorQuery, query);
 		}
 		PlayerAchivCache[client].SetAchievedTime(id, time, pidx);
+
 		AnnouceAchievement(client, id);
 
 		Call_StartForward(hOnAchievementStatusChanged);

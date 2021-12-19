@@ -30,8 +30,10 @@ void OnAchievementAchieved(int client)
 
 void AnnouceAchievement(int client, int id, int idx = -1)
 {
-	if(ShouldAnnounceAchievement(client)) {
-		OnAchievementAchieved(client);
+	if(IsClientInGame(client)) {
+		if(ShouldAnnounceAchievement(client)) {
+			OnAchievementAchieved(client);
+		}
 	}
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageAll("SayText2"));
