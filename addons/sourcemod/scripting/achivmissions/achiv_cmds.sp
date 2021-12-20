@@ -169,13 +169,15 @@ int MenuHandler_Achiv(Menu menu, MenuAction action, int param1, int param2)
 		char achivtitle[ACHIV_INFO_TITLE_MAX];
 		achiv_cache.GetName(id, achivtitle, ACHIV_INFO_TITLE_MAX, idx);
 
+		bool achieved = PlayerAchivCache[param1].HasAchieved(id);
+
 		int max = achiv_cache.GetMax(id, idx);
 		if(max > 0) {
-			int progress = PlayerAchivCache[param1].GetProgress(id);
+			int progress = achieved ? max : PlayerAchivCache[param1].GetProgress(id);
 			Format(achivtitle, ACHIV_INFO_TITLE_MAX, "%s (%i/%i)", achivtitle, progress, max);
 		}
 
-		if(PlayerAchivCache[param1].HasAchieved(id)) {
+		if(achieved) {
 			StrCat(achivtitle, ACHIV_INFO_TITLE_MAX, " *");
 		}
 
