@@ -19,7 +19,9 @@ StringMap mapGroup = null;
 StringMap mapModelInfoIds = null;
 StringMap mapAnimInfoIds = null;
 StringMap mapGestures = null;
+#if defined _tauntmanager_included_
 StringMap mapTaunts = null;
+#endif
 
 #define MODEL_NAME_MAX 64
 #define OVERRIDE_MAX 64
@@ -373,6 +375,7 @@ void ParseModelsKV(KeyValues kvGroups, const char[] path, const char[] group, bo
 			}
 			tmpmodelinfo.gestures = animmap;
 
+		#if defined _tauntmanager_included_
 			kvModels.GetString("taunts", tmpstr1, sizeof(tmpstr1), "__unset");
 			if(StrEqual(tmpstr1, "__unset")) {
 				GetGroupString(kvGroups, tmpgroup, "gestures", tmpstr1, sizeof(tmpstr1), "none", !inside);
@@ -386,6 +389,7 @@ void ParseModelsKV(KeyValues kvGroups, const char[] path, const char[] group, bo
 				}
 			}
 			tmpmodelinfo.taunts = animmap;
+		#endif
 
 			kvModels.GetString("type", tmpstr1, sizeof(tmpstr1), "__unset");
 			if(StrEqual(tmpstr1, "__unset")) {
@@ -491,7 +495,9 @@ public void OnPluginStart()
 {
 	RegAdminCmd("sm_pm", ConCommand_PM, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_gt", ConCommand_GT, ADMFLAG_GENERIC);
+#if defined _tauntmanager_included_
 	RegAdminCmd("sm_pt", ConCommand_PT, ADMFLAG_GENERIC);
+#endif
 
 	HookEvent("post_inventory_application", post_inventory_application);
 
@@ -500,7 +506,9 @@ public void OnPluginStart()
 	mapModelInfoIds = new StringMap();
 	mapGroup = new StringMap();
 	mapGestures = new StringMap();
+#if defined _tauntmanager_included_
 	mapTaunts = new StringMap();
+#endif
 	mapAnimInfoIds = new StringMap();
 
 	arrModelInfos = new ArrayList(sizeof(ModelInfo));
@@ -544,6 +552,7 @@ public void OnPluginStart()
 	}
 	delete KvTemp;
 
+#if defined _tauntmanager_included_
 	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/taunts.txt");
 	KvTemp = new KeyValues("Playermodels_taunts");
 	if(FileExists(tmpstr2)) {
@@ -574,6 +583,7 @@ public void OnPluginStart()
 		}
 	}
 	delete KvTemp;
+#endif
 
 	BuildPath(Path_SM, tmpstr2, sizeof(tmpstr2), "configs/playermodels/animsets.txt");
 	KvTemp = new KeyValues("Playermodels_animsets");
@@ -1413,6 +1423,7 @@ Action ConCommand_GT(int client, int args)
 	return Plugin_Handled;
 }
 
+#if defined _tauntmanager_included_
 int MenuHandler_ModelTaunt(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
@@ -1480,6 +1491,7 @@ Action ConCommand_PT(int client, int args)
 	
 	return Plugin_Handled;
 }
+#endif
 
 Action ConCommand_PM(int client, int args)
 {
