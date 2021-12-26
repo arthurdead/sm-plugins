@@ -79,6 +79,53 @@ enum struct MissionParamInfo
 
 #define MissionParamInfoVar any[]
 
+methodmap MissionInstance
+{
+	public static native int Count(int client);
+
+	public static native MissionInstance Get(int client, int idx);
+
+	property MissionEntry Entry
+	{
+		public native get();
+	}
+
+	property int ID
+	{
+		public native get();
+	}
+
+	public native void AwardProgress(int value);
+	public native bool RemoveProgress(int value);
+	public native bool Complete();
+	public native void Cancel();
+	public native bool TurnIn();
+
+	public native void SetParamValue(int param, int value);
+	public native int GetParamValue(int param);
+
+	property any PluginData
+	{
+		public native get();
+		public native set(any value);
+	}
+
+	property int Progress
+	{
+		public native get();
+	}
+
+	property bool Completed
+	{
+		public native get();
+	}
+
+	property int Owner
+	{
+		public native get();
+	}
+};
+
 methodmap MissionEntry
 {
 	public static native int Count();
@@ -134,53 +181,6 @@ methodmap MissionEntry
 
 			this.Execute(i, func, data);
 		}
-	}
-};
-
-methodmap MissionInstance
-{
-	public static native int Count(int client);
-
-	public static native MissionInstance Get(int client, int idx);
-
-	property MissionEntry Entry
-	{
-		public native get();
-	}
-
-	property int ID
-	{
-		public native get();
-	}
-
-	public native void AwardProgress(int value);
-	public native bool RemoveProgress(int value);
-	public native bool Complete();
-	public native void Cancel();
-	public native bool TurnIn();
-
-	public native void SetParamValue(int param, int value);
-	public native int GetParamValue(int param);
-
-	property any PluginData
-	{
-		public native get();
-		public native set(any value);
-	}
-
-	property int Progress
-	{
-		public native get();
-	}
-
-	property bool Completed
-	{
-		public native get();
-	}
-
-	property int Owner
-	{
-		public native get();
 	}
 };
 

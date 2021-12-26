@@ -73,6 +73,8 @@ ConVar cvPluginEnable  = null;
 ConVar cvNextTheme	   = null;
 ConVar cvAnnounce	   = null;
 ConVar cvParticles     = null;
+ConVar cvPrecipitation = null;
+ConVar cvPrecipitationReplace = null;
 ConVar cvParticlesTempEnt = null;
 ConVar cvWind 		   = null;
 ConVar cvWindTimer     = null;
@@ -117,6 +119,8 @@ float mapFogDensity;
 char mapParticle[64];
 float mapParticleHeight;
 
+int mapPrecipitation = -1;
+
 // Soundscape
 char mapSoundscapeInside[32];
 char mapSoundscapeOutside[32];
@@ -133,6 +137,7 @@ bool mapNoSun;
 bool mapBigSun;
 bool mapWind;
 bool mapNoParticles;
+bool mapNoPrecipitation;
 bool mapIndoors;
 bool mapStageless;
 bool mapCold;
@@ -291,12 +296,14 @@ public void OnPluginStart()
 	cvPluginTimer  = CreateConVar("sm_themes_timer", "10.0");
 	cvNextTheme = 	 CreateConVar("sm_themes_next_theme", "", "Forces the next map to use the given theme");
 	cvAnnounce =     CreateConVar("sm_themes_announce", "1", "Whether or not to announce the current theme");
-	cvParticles =    CreateConVar("sm_themes_particles", "1", "Enables or disables custom particles for themes");
+	cvParticles =    CreateConVar("sm_themes_particles", "0", "Enables or disables custom particles for themes");
 	cvParticlesTempEnt = CreateConVar("sm_themes_particles_tempent", "0");
+	cvPrecipitation =    CreateConVar("sm_themes_precipitation", "1", "Enables or disables precipitation for themes");
+	cvPrecipitationReplace =    CreateConVar("sm_themes_precipitation_replace", "1", "Replaces particles with precipitation");
 	cvWind	    =    CreateConVar("sm_themes_wind", "1");
 	cvWindTimer	  =  CreateConVar("sm_themes_wind_timer", "0.2");
 
-	cvManifests = CreateConVar("sm_themes_create_manifests", "1");
+	cvManifests = CreateConVar("sm_themes_create_manifests", "0");
 	cvAutoBZ2 = CreateConVar("sm_themes_bz2_manifests", "1");
 	cvBZ2Compression = CreateConVar("sm_themes_bz2_compression", "9", "1,3,5,7,9");
 	cvUpload = CreateConVar("sm_themes_upload_ftp", "0");
@@ -305,20 +312,11 @@ public void OnPluginStart()
 	cvDeleteBZ2 = CreateConVar("sm_themes_delete_bz2", "1");
 	cvUrl = CreateConVar("sm_themes_ftp_url", "");
 	cvEstimateMethod = CreateConVar("sm_themes_region_method", "1", "0 == entities, 1 == m_WorldMaxs/Mins");
-#if defined DEBUG
 	cvDefaultThemeset = CreateConVar("sm_themes_default_themeset", "standard");
-#else
-	cvDefaultThemeset = CreateConVar("sm_themes_default_themeset", "");
-#endif
 	cvBZ2CopyFolder = CreateConVar("sm_themes_bz2_folder", "");
 
-#if !defined DEBUG
 	cvGlobalParticleLimit = CreateConVar("sm_themes_global_particle_limit", "64");
 	cvStageParticleLimit = CreateConVar("sm_themes_stage_particle_limit", "64");
-#else
-	cvGlobalParticleLimit = CreateConVar("sm_themes_global_particle_limit", "-1");
-	cvStageParticleLimit = CreateConVar("sm_themes_stage_particle_limit", "-1");
-#endif
 
 	RegAdminCmd("sm_themes_reload", ConCommand_ReloadTheme, ADMFLAG_GENERIC);
 	RegAdminCmd("sm_themes_getpos", ConCommand_GetPos, ADMFLAG_GENERIC);
@@ -632,6 +630,8 @@ void StartTheme(bool download=true)
 ** -------------------------------------------------------------------------- */
 public void OnMapStart()
 {
+	PrecacheModel("models/error.mdl");
+
 	ParticleEffectNames = FindStringTable("ParticleEffectNames");
 
 	int EffectDispatch = FindStringTable("EffectDispatch");
@@ -681,6 +681,8 @@ void InitConfig()
 	// Particles
 	mapParticle[0]	   = '\0';
 	mapParticleHeight  = 800.0;
+
+	mapPrecipitation = -1;
 	
 	// Soundscape
 	mapSoundscapeInside[0]  = '\0';
@@ -698,6 +700,7 @@ void InitConfig()
 	mapBigSun = false;
 	mapWind   = false;
 	mapNoParticles = false;
+	mapNoPrecipitation = false;
 	mapIndoors = false;
 	mapStageless = false;
 	mapCold = false;
@@ -1154,6 +1157,8 @@ void ReadThemeAttributes(KeyValues kv)
 		
 		kv.GoBack();
 	}
+
+	mapPrecipitation = kv.GetNum("precipitation", mapPrecipitation);
 	
 	// Read Soundscape
 	if (kv.JumpToKey("soundscape")) {
@@ -1191,6 +1196,8 @@ void ReadThemeAttributes(KeyValues kv)
 	// Read No Particles
 	mapNoParticles = (kv.GetNum("noparticles", mapNoParticles) == 1);
 	
+	mapNoPrecipitation = (kv.GetNum("noprecipitation", mapNoPrecipitation) == 1);
+
 	// Read Indoors
 	mapIndoors = (kv.GetNum("indoors", mapIndoors) == 1);
 	
@@ -1490,6 +1497,34 @@ void ApplyConfigMap()
 		}
 	}
 
+	if(mapNoPrecipitation) {
+		bool p = false;
+		ent = -1;
+		char targetname[64];
+
+		while ((ent = FindEntityByClassname(ent, "func_precipitation")) != -1) {
+			GetEntPropString(ent, Prop_Data, "m_iName", targetname, sizeof(targetname));
+			
+			if ((StrContains(targetname, "precipitation_rain") != -1) ||
+					(StrContains(targetname, "precipitation_snow") != -1) ||
+					(StrContains(targetname, "precipitation_waterdrops") != -1)) {
+				AcceptEntityInput(ent, "Kill");
+				p = true;
+			}
+		}
+
+		if (p) {
+			// Change the soundscape to stop rain sounds with no rain particles
+			if (StrEqual(mapSoundscapeInside, "")) {
+				mapSoundscapeInside = "Lumberyard.Inside";
+			}
+			
+			if (StrEqual(mapSoundscapeOutside, "")) {
+				mapSoundscapeOutside = "Lumberyard.Outside";
+			}
+		}
+	}
+
 	// Apply Soundscape
 	if (!StrEqual(mapSoundscapeInside, "") || !StrEqual(mapSoundscapeOutside, "")) {
 		ApplySoundscape();
@@ -1502,15 +1537,17 @@ void ApplyConfigMap()
 		SetLightStyle(0, "m");
 	}
 	
+	char olddetailsprite[PLATFORM_MAX_PATH];
+	GetEntPropString(0, Prop_Data, "m_iszDetailSpriteMaterial", olddetailsprite, sizeof(olddetailsprite));
+
 	// Apply Detail Sprites
 	if (!StrEqual(mapDetailSprites, "")) {
 		Format(detailMaterial, sizeof(detailMaterial), "detail/detailsprites_%s", mapDetailSprites);
 		DispatchKeyValue(0, "detailmaterial", mapDetailSprites);
-		ChangeEdictState(0, m_iszDetailSpriteMaterialOffset);
 	} else {
 		DispatchKeyValue(0, "detailmaterial", "");
-		ChangeEdictState(0, m_iszDetailSpriteMaterialOffset);
 	}
+	ChangeEdictState(0, m_iszDetailSpriteMaterialOffset);
 	
 	if(mapCold) {
 		SetEntProp(0, Prop_Send, "m_bColdWorld", 1);
@@ -1661,20 +1698,56 @@ void ApplyConfigRound()
 			}
 		}
 	}
-	
-	// Apply Indoors
-	if (mapIndoors) {
-		if (StrEqual(mapParticle, "env_themes_rain") ||
-				StrEqual(mapParticle, "env_themes_rain_light") ||
-				StrEqual(mapParticle, "env_themes_snow") ||
-				StrEqual(mapParticle, "env_themes_snow_light") ||
-				StrEqual(mapParticle, "env_themes_leaves")) {
-			StrCat(mapParticle, sizeof(mapParticle), "_noclip");
+
+	if(mapNoPrecipitation) {
+		ent = -1;
+		
+		while ((ent = FindEntityByClassname(ent, "func_precipitation")) != -1) {
+			GetEntPropString(ent, Prop_Data, "m_iName", filename, sizeof(filename));
+			
+			if ((StrContains(filename, "precipitation_rain") != -1) ||
+					(StrContains(filename, "precipitation_snow") != -1) ||
+					(StrContains(filename, "precipitation_waterdrops") != -1)) {
+				AcceptEntityInput(ent, "Kill");
+			}
 		}
 	}
 	
+	int mapparticletype = -1;
+
+	if (StrEqual(mapParticle, "env_themes_rain") ||
+			StrEqual(mapParticle, "env_themes_rain_light")) {
+		mapparticletype = 0;
+	} else if (StrEqual(mapParticle, "env_themes_snow") ||
+			StrEqual(mapParticle, "env_themes_snow_light")) {
+		mapparticletype = 1;
+	}
+
+	// Apply Indoors
+	if (mapIndoors) {
+		if (mapparticletype != -1 ||
+			StrEqual(mapParticle, "env_themes_leaves")) {
+			StrCat(mapParticle, sizeof(mapParticle), "_noclip");
+		}
+	}
+
 	// Apply Particles
-	CreateParticles(-1);
+	if(cvPrecipitation.BoolValue && cvPrecipitationReplace.BoolValue) {
+		switch(mapparticletype) {
+			case 0:
+			{ CreatePrecipitation(0); }
+			case 1:
+			{ CreatePrecipitation(3); }
+			case -1:
+			{ CreateParticles(-1); }
+		}
+	} else {
+		CreateParticles(-1);
+	}
+
+	if(cvPrecipitation.BoolValue && mapPrecipitation != -1) {
+		CreatePrecipitation(mapPrecipitation);
+	}
 	
 	// Apply Bloom
 	if (mapBloom != -1.0) {
@@ -1929,6 +2002,61 @@ public void OnClientPutInServer(int client)
 	QueryClientConVar(client, "tf_particles_disable_weather", tf_particles_disable_weather);
 }
 
+void DestroyPrecipitation()
+{
+	int ent = -1;
+		
+	char name[32];
+
+	while ((ent = FindEntityByClassname(ent, "func_precipitation")) != -1) {
+		if (IsValidEntity(ent)) {
+			
+			GetEntPropString(ent, Prop_Data, "m_iName", name, sizeof(name));
+			
+			if (StrContains(name, "themes_precipitation") != -1) {
+				AcceptEntityInput(ent, "Kill");
+			}
+		}
+	}
+}
+
+void CreatePrecipitation(int type)
+{
+	DestroyPrecipitation();
+
+	/*int precipitation = CreateEntityByName("func_precipitation");
+
+	char model[PLATFORM_MAX_PATH];
+	Format(model, PLATFORM_MAX_PATH, "maps/%s.bsp", map);
+
+	char intstr[4];
+	IntToString(type, intstr, sizeof(intstr));
+
+	DispatchKeyValue(precipitation, "targetname", "themes_precipitation");
+	DispatchKeyValue(precipitation, "model", model);
+	DispatchKeyValue(precipitation, "preciptype", intstr);
+	DispatchKeyValue(precipitation, "renderamt", "26");
+	DispatchKeyValue(precipitation, "rendercolor", "255 255 255");
+
+	float mins[3];
+	GetEntPropVector(0, Prop_Data, "m_WorldMins", mins);
+	SetEntPropVector(precipitation, Prop_Send, "m_vecMins", mins);
+	float maxs[3];
+	GetEntPropVector(0, Prop_Data, "m_WorldMaxs", maxs);
+	SetEntPropVector(precipitation, Prop_Send, "m_vecMaxs", maxs);
+
+	float pos[3];
+	pos[0] = mins[0] + maxs[0];
+	pos[1] = mins[1] + maxs[1];
+	pos[2] = mins[2] + maxs[2];
+
+	TeleportEntity(precipitation, pos, NULL_VECTOR, NULL_VECTOR);
+
+	DispatchSpawn(precipitation);
+	ActivateEntity(precipitation);
+	*/
+}
+
 void CreateParticles(int client)
 {
 	DestroyParticles(client);
@@ -1975,12 +2103,9 @@ void CreateParticles(int client)
 }
 
 #if defined DEBUG
-stock void DrawHull(const float origin[3], int client)
+stock void DrawHull(const float origin[3], int client, const float mins[3]={-16.0, -16.0, 0.0}, const float maxs[3]={16.0, 16.0, 72.0})
 {
-	const float lifetime = 2.0;
-
-	float mins[3] = {-16.0, -16.0, 0.0};
-	float maxs[3] = {16.0, 16.0, 72.0};
+	const float lifetime = 50.0;
 
 	int drawcolor[4] = {255, 0, 0, 255};
 
@@ -2292,6 +2417,7 @@ void LogTheme()
 	LogMessage("No Sun: %d", mapNoSun);
 	LogMessage("Big Sun: %d", mapBigSun);
 	LogMessage("No Particles: %d", mapNoParticles);
+	LogMessage("No Precipitation: %d", mapNoPrecipitation);
 	LogMessage("Indoors: %d", mapIndoors);
 	LogMessage("Overlay: %s", mapOverlay);
 	LogMessage("Stageless: %d", mapStageless);
