@@ -582,6 +582,30 @@ static void load_gamemodes()
 	}
 }
 
+static void toggle_ff2_folder(bool value)
+{
+	static char ff2path1[PLATFORM_MAX_PATH];
+	if(ff2path1[0] == '\0') {
+		BuildPath(Path_SM, ff2path1, PLATFORM_MAX_PATH, "plugins/freaks");
+	}
+	static char ff2path2[PLATFORM_MAX_PATH];
+	if(ff2path2[0] == '\0') {
+		BuildPath(Path_SM, ff2path2, PLATFORM_MAX_PATH, "plugins/disabled/freaks");
+	}
+
+	if(!value) {
+		RenameFile(ff2path2, ff2path1);
+	} else {
+		RenameFile(ff2path1, ff2path2);
+	}
+}
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	toggle_ff2_folder(false);
+	return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
 	load_gamemodes();
@@ -641,7 +665,7 @@ public void OnClientDisconnect(int client)
 
 	votes_needed = RoundToCeil(float(num_voters) * gmm_votes_needed.FloatValue);
 
-	if(num_votes >= votes_needed) {
+	if(votes_needed > 0 && num_votes >= votes_needed) {
 		if(votes_allowed) {
 			gamemodemenu.DisplayVoteToAll(MENU_TIME_FOREVER);
 		}
@@ -731,6 +755,10 @@ static void do_plugins(GamemodeInfo modeinfo, bool unload)
 
 			modeinfo.plugins.GetString(i, pluginpath1, PLATFORM_MAX_PATH);
 
+			if(!unload && StrContains(pluginpath1, "freak_fortress_2") != -1) {
+				toggle_ff2_folder(true);
+			}
+
 			Format(pluginpath2, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, pluginpath1);
 			Format(pluginpath3, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, pluginpath1);
 
@@ -762,6 +790,10 @@ static void do_plugins(GamemodeInfo modeinfo, bool unload)
 		if(autoreload != null) {
 			autoreload.BoolValue = oldautoreload;
 		}
+	}
+
+	if(unload) {
+		toggle_ff2_folder(false);
 	}
 }
 
