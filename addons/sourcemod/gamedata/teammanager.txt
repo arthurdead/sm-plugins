@@ -113,19 +113,42 @@
 			}
 			"CTFWeaponBase::DeflectPlayer"
 			{
-				"linux" "420"
+				"linux" "423"
 			}
 			"CTFWeaponBase::DeflectEntity"
 			{
-				"linux" "421"
+				"linux" "424"
 			}
 			"CBaseObject::Killed"
 			{
 				"linux" "350"
 			}
+			"CTFBaseRocket::Explode"
+			{
+				"linux" "237"
+			}
 		}
 		"Functions"
 		{
+			"CTFBaseRocket::Explode"
+			{
+				"offset" "CTFBaseRocket::Explode"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"trace"
+					{
+						"type" "objectptr"
+					}
+					"other"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
 			"CBaseEntity::InSameTeam"
 			{
 				"signature" "CBaseEntity::InSameTeam"
@@ -256,7 +279,7 @@
 				"offset" "CTeamplayRules::FPlayerCanTakeDamage"
 				"callconv" "thiscall"
 				"return" "bool"
-				"this" "entity"
+				"this" "address"
 				"hooktype" "gamerules"
 				"arguments"
 				{
@@ -268,6 +291,10 @@
 					{
 						"type" "cbaseentity"
 					}
+					"dmg"
+					{
+						"type" "objectptr"
+					}
 				}
 			}
 			"CTeamplayRules::PlayerRelationship"
@@ -275,7 +302,7 @@
 				"offset" "CTeamplayRules::PlayerRelationship"
 				"callconv" "thiscall"
 				"return" "int"
-				"this" "entity"
+				"this" "address"
 				"hooktype" "gamerules"
 				"arguments"
 				{
@@ -294,7 +321,7 @@
 				"offset" "CTeamplayRules::GetTeamID"
 				"callconv" "thiscall"
 				"return" "charptr"
-				"this" "entity"
+				"this" "address"
 				"hooktype" "gamerules"
 				"arguments"
 				{

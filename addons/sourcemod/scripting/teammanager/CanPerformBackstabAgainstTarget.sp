@@ -21,9 +21,13 @@ void CanPerformBackstabAgainstTargetCreate(GameData gamedata)
 void CanPerformBackstabAgainstTargetEntityCreated(int entity, const char[] classname)
 {
 	if(StrEqual(classname, "tf_weapon_knife")) {
-		DHookEntity(dhDoSwingTrace, true, entity, INVALID_FUNCTION, DoSwingTracePost);
-		DHookEntity(dhPrimaryAttack, false, entity, INVALID_FUNCTION, PrimaryAttackPre);
-		DHookEntity(dhPrimaryAttack, true, entity, INVALID_FUNCTION, PrimaryAttackPost);
+		if(dhDoSwingTrace) {
+			DHookEntity(dhDoSwingTrace, true, entity, INVALID_FUNCTION, DoSwingTracePost);
+		}
+		if(dhPrimaryAttack) {
+			DHookEntity(dhPrimaryAttack, false, entity, INVALID_FUNCTION, PrimaryAttackPre);
+			DHookEntity(dhPrimaryAttack, true, entity, INVALID_FUNCTION, PrimaryAttackPost);
+		}
 	}
 }
 
@@ -35,8 +39,6 @@ int DoSwingTraceTempEntity = -1;
 
 MRESReturn DoSwingTracePost(int pThis, Handle hReturn, Handle hParams)
 {
-	int owner = GetOwner(pThis);
-
 	if(!InBackstabVMThink && !InPrimaryAttack) {
 		return MRES_Ignored;
 	}
@@ -52,21 +54,25 @@ MRESReturn DoSwingTracePost(int pThis, Handle hReturn, Handle hParams)
 	}
 
 	Call_StartForward(fwCanBackstab);
-	Call_PushCell(owner);
+	Call_PushCell(pThis);
 	Call_PushCell(entity);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
 
+#if defined DEBUG
+	PrintToServer("fwCanBackstab %i", result);
+#endif
+
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;
 	} else if(result == Plugin_Changed) {
-		int owner_team = GetEntityTeam(owner);
+		int owner_team = GetEntityTeam(pThis);
 		DoSwingTraceTempTeam = GetEntityTeam(entity);
 		SetEntityTeam(entity, GetOppositeTeam(owner_team), true);
 	} else {
 		DoSwingTraceTempTeam = GetEntityTeam(entity);
-		SetEntityTeam(entity, GetEntityTeam(owner), true);
+		SetEntityTeam(entity, GetEntityTeam(pThis), true);
 	}
 
 	DoSwingTraceTempEntity = entity;

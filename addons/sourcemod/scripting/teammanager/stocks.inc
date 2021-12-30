@@ -78,62 +78,6 @@ stock bool IsPlayer(int entity)
 	return (entity >= 1 && entity <= MaxClients);
 }
 
-stock int GetOwner(int entity)
-{
-	if(IsPlayer(entity)) {
-		return entity;
-	}
-
-	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
-	if(owner != -1) {
-		return GetOwner(owner);
-	}
-
-	if(HasEntProp(entity, Prop_Send, "m_hBuilder")) {
-		owner = GetEntPropEnt(entity, Prop_Send, "m_hBuilder");
-		if(owner != -1) {
-			return owner;
-		}
-	}
-
-	if(HasEntProp(entity, Prop_Send, "m_hLauncher")) {
-		owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
-		if(owner != -1) {
-			return GetOwner(owner);
-		}
-	}
-
-	if(HasEntProp(entity, Prop_Send, "m_hOriginalLauncher")) {
-		owner = GetEntPropEnt(entity, Prop_Send, "m_hOriginalLauncher");
-		if(owner != -1) {
-			return GetOwner(owner);
-		}
-	}
-
-	if(HasEntProp(entity, Prop_Send, "m_hThrower")) {
-		owner = GetEntPropEnt(entity, Prop_Send, "m_hThrower");
-		if(owner != -1) {
-			return owner;
-		}
-	}
-
-	if(HasEntProp(entity, Prop_Send, "m_hDeflectOwner")) {
-		owner = GetEntPropEnt(entity, Prop_Send, "m_hDeflectOwner");
-		if(owner != -1) {
-			return owner;
-		}
-	}
-
-	if(HasEntProp(entity, Prop_Send, "m_hOwner")) {
-		owner = GetEntPropEnt(entity, Prop_Send, "m_hOwner");
-		if(owner != -1) {
-			return owner;
-		}
-	}
-
-	return entity;
-}
-
 stock bool TraceFilterPlayers(int entity, int contentsMask, any data)
 {
 	return !IsPlayer(entity);

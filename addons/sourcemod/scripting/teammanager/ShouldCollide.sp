@@ -8,7 +8,9 @@ void ShouldCollideCreate(GameData gamedata)
 void ShouldCollideEntityCreated(int entity, const char[] classname)
 {
 	//SDKHook(entity, SDKHook_ShouldCollide, ShouldCollideSDKHook);
-	//DHookEntity(dhShouldCollide, false, entity, INVALID_FUNCTION, ShouldCollideDHookPre);
+	if(dhShouldCollide) {
+		//DHookEntity(dhShouldCollide, false, entity, INVALID_FUNCTION, ShouldCollideDHookPre);
+	}
 }
 
 #define COLLISION_GROUP_PLAYER_MOVEMENT 8
@@ -18,54 +20,51 @@ void ShouldCollideEntityCreated(int entity, const char[] classname)
 
 int ShouldCollideHelper(int owner, int other, int collisiongroup, int contentsmask)
 {
-	/*if(IsPlayer(owner)) {
+	if(IsPlayer(owner)) {
 		if(collisiongroup != -1 && contentsmask != -1) {
 			if(collisiongroup == COLLISION_GROUP_PLAYER_MOVEMENT) {
-				if(PlayerFF[owner]) {
-					int team = GetEntityTeam(owner);
-					switch(team) {
-						case 2: {
-							if(!(contentsmask & CONTENTS_REDTEAM)) {
-								return 1;
-							}
+				int team = GetEntityTeam(owner);
+				switch(team) {
+					case 2: {
+						if(!(contentsmask & CONTENTS_REDTEAM)) {
+							return 1;
 						}
-						case 3: {
-							if(!(contentsmask & CONTENTS_BLUETEAM)) {
-								return 1;
-							}
+					}
+					case 3: {
+						if(!(contentsmask & CONTENTS_BLUETEAM)) {
+							return 1;
 						}
 					}
 				}
 			}
 		}
-	}*/
+	}
 
 	return -1;
 }
 
-MRESReturn ShouldCollideDHookPre(int pThis, Handle hReturn, Handle hParams)
+/*MRESReturn ShouldCollideDHookPre(int pThis, Handle hReturn, Handle hParams)
 {
-	int owner = GetOwner(pThis);
 	int group = DHookGetParam(hParams, 1);
 	int mask = DHookGetParam(hParams, 2);
 
-	int val = ShouldCollideHelper(owner, -1, group, mask);
+	int val = ShouldCollideHelper(pThis, -1, group, mask);
 	if(val != -1) {
 		DHookSetReturn(hReturn, val);
 		return MRES_Supercede;
 	}
 
 	return MRES_Ignored;
-}
+}*/
 
 /*public Action CH_PassFilter(int ent1, int ent2, bool &result)
 {
 	return Plugin_Continue;
-}
+}*/
 
-public Action CH_ShouldCollide(int ent1, int ent2, bool &result)
+/*public Action CH_ShouldCollide(int ent1, int ent2, bool &result)
 {
-	int val = ShouldCollideHelper(GetOwner(ent1), GetOwner(ent2), -1, -1);
+	int val = ShouldCollideHelper(ent1, ent2, -1, -1);
 	if(val != -1) {
 		result = (val == 1);
 		return Plugin_Changed;
@@ -74,14 +73,12 @@ public Action CH_ShouldCollide(int ent1, int ent2, bool &result)
 	return Plugin_Continue;
 }*/
 
-bool ShouldCollideSDKHook(int entity, int collisiongroup, int contentsmask, bool originalResult)
+/*bool ShouldCollideSDKHook(int entity, int collisiongroup, int contentsmask, bool originalResult)
 {
-	int owner = GetOwner(entity);
-
-	int val = ShouldCollideHelper(owner, -1, collisiongroup, contentsmask);
+	int val = ShouldCollideHelper(entity, -1, collisiongroup, contentsmask);
 	if(val != -1) {
 		return (val == 1);
 	}
 
 	return originalResult;
-}
+}*/

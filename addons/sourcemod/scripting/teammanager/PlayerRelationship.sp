@@ -7,7 +7,9 @@ void PlayerRelationshipCreate(GameData gamedata)
 
 void PlayerRelationshipMapStart()
 {
-	DHookGamerules(dhPlayerRelationship, false, INVALID_FUNCTION, PlayerRelationshipPre);
+	if(dhPlayerRelationship) {
+		DHookGamerules(dhPlayerRelationship, false, INVALID_FUNCTION, PlayerRelationshipPre);
+	}
 }
 
 #define GR_NOTTEAMMATE 0
@@ -16,10 +18,10 @@ void PlayerRelationshipMapStart()
 #define GR_ALLY 3
 #define GR_NEUTRAL 4
 
-MRESReturn PlayerRelationshipPre(int pThis, Handle hReturn, Handle hParams)
+MRESReturn PlayerRelationshipPre(Address pThis, Handle hReturn, Handle hParams)
 {
-	int owner = GetOwner(DHookGetParam(hParams, 2));
-	int other = GetOwner(DHookGetParam(hParams, 1));
+	int owner = DHookGetParam(hParams, 2);
+	int other = DHookGetParam(hParams, 1);
 
 	Call_StartForward(fwInSameTeam);
 	Call_PushCell(owner);
@@ -27,6 +29,10 @@ MRESReturn PlayerRelationshipPre(int pThis, Handle hReturn, Handle hParams)
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
+
+#if defined DEBUG && 0
+	PrintToServer("fwInSameTeam relationship %i", result);
+#endif
 
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;

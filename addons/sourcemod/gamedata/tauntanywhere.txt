@@ -1,0 +1,38 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CTFPlayer::IsAllowedToTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer16IsAllowedToTauntEv"
+				"windows" "\x55\x8B\xEC\x51\x56\x8B\xF1\x8B\x06\x8B\x80\x2A\x2A\x2A\x2A\xFF\xD0\x84\xC0\x75\x05"
+			}
+			"CTFPlayer::ShouldStopTaunting"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer18ShouldStopTauntingEv"
+				"windows" "\x80\xB9\x2A\x2A\x2A\x2A\x02\x76"
+			}
+		}
+		"Functions"
+		{
+			"CTFPlayer::IsAllowedToTaunt"
+			{
+				"signature" "CTFPlayer::IsAllowedToTaunt"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+			}
+			"CTFPlayer::ShouldStopTaunting"
+			{
+				"signature" "CTFPlayer::ShouldStopTaunting"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+			}
+		}
+	}
+}

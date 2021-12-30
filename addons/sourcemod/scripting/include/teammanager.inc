@@ -15,24 +15,60 @@ enum HealSource
 	HEAL_PROJECTILE,
 };
 
+enum DamageSource
+{
+	DAMAGE_NORMAL,
+	DAMAGE_PROJECTILE,
+};
+
 /*
+unless otherwise specified
+
 Plugin_Continue == ignore
 Plugin_Changed == true
 Plugin_Handled/Stop == false
 */
 
-//if source is dispenser,medigun,airblast entity will be the owner
-//if source is wrench,projectile both entity and other will be owner
+/*
+HEAL_MEDIGUN, entity = weapon, other = entity
+HEAL_DISPENSER, entity = building, other = entity
+HEAL_WRENCH, entity = weapon, other = building
+HEAL_PROJECTILE, entity = player, other = player
+*/
 forward Action TeamManager_CanHeal(int entity, int other, HealSource source);
-forward Action TeamManager_CanDamage(int entity, int other);
+
+/*
+DAMAGE_NORMAL, attacker = entity, victim = player
+DAMAGE_PROJECTILE, attacker = projectile, victim = player
+*/
+forward Action TeamManager_CanDamage(int attacker, int victim, DamageSource source);
+
+//entity = player, other = building
 forward Action TeamManager_CanPickupBuilding(int entity, int other);
+
 forward Action TeamManager_InSameTeam(int entity, int other);
+
 forward Action TeamManager_CanChangeTeam(int entity, int team);
+
 forward Action TeamManager_CanChangeClass(int entity, int class);
-forward Action TeamManager_CanAirblast(int entity, int other);
-forward Action TeamManager_CanBackstab(int entity, int other);
+
+forward Action TeamManager_CanAirblast(int weapon, int owner, int other);
+
+//not implemented
+forward Action TeamManager_CanPush(int weapon, int other);
+
+forward Action TeamManager_CanBackstab(int weapon, int other);
+
+/*
+Plugin_Continue == ignore
+Plugin_Changed == extinguish
+Plugin_Handled == jarate
+Plugin_Stop == nothing
+*/
+forward Action TeamManager_CanGetJarated(int attacker, int victim);
 
 native int TeamManager_GetEntityTeam(int entity);
+
 native void TeamManager_SetEntityTeam(int entity, int team, bool raw);
 
 stock int GetTeamIndex(const char[] name)

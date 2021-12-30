@@ -1,0 +1,110 @@
+"Playermodels"
+{
+	"Rappy Demo"
+	{
+		"original_class" "demo"
+		"model" "models/kustomfleetings/demo/rappy_b1.mdl"
+		"flags" "nevermerge"
+	}
+
+	"Easter Demo"
+	{
+		"original_class" "demo"
+		"model" "models/player/new_saxton_hale/easter_demo/new_easter_demo_v2.mdl"
+	}
+
+	"Saxton Hale"
+	{
+		"original_class" "soldier"
+		"model" "models/player/saxton_test4/saxton_hale_test4.mdl"
+	}
+
+	"Glaceon"
+	{
+		"type" "custom_model"
+		"model" "models/spundarce/glaceon2.mdl"
+		"flags" "nevermerge"
+	}
+
+	"CJ"
+	{
+		"original_class" "scout"
+		"model" "models/player/ceejay/cj.mdl"
+	}
+
+	"Big Smoke"
+	{
+		"original_class" "heavy"
+		"model" "models/player/bigsmoke/smoke.mdl"
+	}
+
+	"Garfield"
+	{
+		"original_class" "engineer"
+		"model" "models/player/fatcat/garfield.mdl"
+	}
+
+	"Hatkid"
+	{
+		"original_class" "scout"
+		"model" "models/dfs/thataveragejoe/ahatintime/hatkid_dfs.mdl"
+		"variations"
+		{
+			"no bonemerge"
+			{
+				"flags" "nevermerge"
+			}
+		}
+	}
+
+	"Isabelle"
+	{
+		"original_class" "heavy"
+		"model" "models/dfs/player/isabelle/isabelle_dfs.mdl"
+		"variations"
+		{
+			"no bonemerge"
+			{
+				"flags" "nevermerge"
+			}
+		}
+	}
+
+	"Shrek"
+	{
+		"original_class" "heavy"
+		"model" "models/freak_fortress_2/shrek/shrek2.mdl"
+	}
+	
+	"Heavy (wheelchair)"
+	{
+		"original_class" "heavy"
+		"model" "models/player/wheelie/heavy.mdl"
+		"flags" "~nogameplay"
+	}
+
+	"Goose"
+	{
+		"original_class" "sniper"
+		"model" "models/dfs/thataveragejoe/goose/goose.mdl"
+		"variations"
+		{
+			"no bonemerge"
+			{
+				"flags" "nevermerge"
+			}
+		}
+	}
+
+	"HL1 Scientist"
+	{
+		"original_class" "spy"
+		"model" "models/dfs/thataveragejoe/halflife/scientist.mdl"
+	}
+
+	"Minecraft Steve"
+	{
+		"original_class" "sniper"
+		"model" "models/freak_fortress_2/herobrine/blockdudev2.mdl"
+	}
+}

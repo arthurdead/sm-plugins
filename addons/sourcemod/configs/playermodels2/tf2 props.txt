@@ -1,0 +1,187 @@
+"Playermodels"
+{
+	"Barrel"
+	{
+		"model" "models/props_farm/wooden_barrel.mdl"
+	}
+
+	"Frog"
+	{
+		"model" "models/props_2fort/frog.mdl"
+	}
+
+	"Cart"
+	{
+		"model" "models/props_well/computer_cart02.mdl"
+	}
+
+	"Cow"
+	{
+		"model" "models/props_2fort/cow001_reference.mdl"
+	}
+
+	"Crocodile"
+	{
+		"model" "models/props_island/crocodile/crocodile.mdl"
+	}
+
+	"Sentry Gun"
+	{
+		"model" "models/buildables/sentry3.mdl"
+	}
+
+	"Dispenser"
+	{
+		"model" "models/buildables/dispenser_lvl3_light.mdl"
+	}
+
+	"Teleporter"
+	{
+		"model" "models/buildables/teleporter_light.mdl"
+	}
+
+	"Cone"
+	{
+		"model" "models/props_gameplay/orange_cone001.mdl"	
+	}
+
+	"Control Point"
+	{
+		"model" "models/props_gameplay/cap_point_base.mdl"
+	}
+
+	"Palm Tree"
+	{
+		"model" "models/egypt/palm_tree/palm_tree_medium.mdl"
+	}
+
+	"Briefcase"
+	{
+		"model" "models/flag/briefcase.mdl"
+	}
+
+	"Halloween Gift"
+	{
+		"model" "models/props_halloween/halloween_gift.mdl"
+	}
+
+	"Christmas Gift"
+	{
+		"model" "models/items/tf_gift.mdl"
+	}
+
+	"Monoculus"
+	{
+		"model" "models/props_halloween/halloween_demoeye.mdl"
+	}
+
+	"Ghost"
+	{
+		"model" "models/props_halloween/ghost.mdl"
+	}
+
+	"Merasmus"
+	{
+		"model" "models/bots/merasmus/merasmus.mdl"
+	}
+
+	"Horsemann"
+	{
+		"model" "models/bots/headless_hatman.mdl"
+	}
+
+	"Jack Lantern"
+	{
+		"model" "models/props_halloween/jackolantern_01.mdl"
+	}
+
+	"Ammo Kit"
+	{
+		"model" "models/items/ammopack_large.mdl"
+	}
+
+	"Med Kit"
+	{
+		"model" "models/items/medkit_large.mdl"
+	}
+
+	"Training Dummy"
+	{
+		"model" "models/props_medieval/training_dummy.mdl"
+	}
+
+	"Target - Scout"
+	{
+		"model" "models/props_training/target_scout.mdl"
+	}
+
+	"Target - Soldier"
+	{
+		"model" "models/props_training/target_soldier.mdl"
+	}
+
+	"Target - Pyro"
+	{
+		"model" "models/props_training/target_pyro.mdl"
+	}
+
+	"Target - Demoman"
+	{
+		"model" "models/props_training/target_demoman.mdl"
+	}	
+
+	"Target - Heavy"
+	{
+		"model" "models/props_training/target_heavy.mdl"
+	}
+
+	"Target - Engineer"
+	{
+		"model" "models/props_training/target_engineer.mdl"
+	}
+
+	"Target - Medic"
+	{
+		"model" "models/props_training/target_medic.mdl"
+	}
+
+	"Target - Sniper"
+	{
+		"model" "models/props_training/target_sniper.mdl"
+	}
+
+	"Target - Spy"
+	{
+		"model" "models/props_training/target_spy.mdl"
+	}
+
+	"Human Skull"
+	{
+		"model" "models/props_mvm/mvm_human_skull.mdl"
+	}
+
+	"Tractor"
+	{
+		"model" "models/props_manor/tractor_01.mdl"
+	}
+
+	"Vase"
+	{
+		"model" "models/props_manor/vase_01.mdl"
+	}
+
+	"Gravestone"
+	{
+		"model" "models/props_manor/gravestone_03.mdl"
+	}
+
+	"Currency Pack (large)"
+	{
+		"model" "models/items/currencypack_large.mdl"
+	}
+
+	"Resupply Locker"
+	{
+		"model" "models/props_gameplay/resupply_locker.mdl"
+	}
+}

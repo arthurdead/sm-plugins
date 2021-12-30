@@ -12,23 +12,26 @@ int AllowedToHealTargetTempTeam = -1;
 
 MRESReturn AllowedToHealTargetPre(int pThis, Handle hReturn, Handle hParams)
 {
-	int owner = GetOwner(pThis);
 	int other = DHookGetParam(hParams, 1);
 
 	Call_StartForward(fwCanHeal);
-	Call_PushCell(owner);
+	Call_PushCell(pThis);
 	Call_PushCell(other);
 	Call_PushCell(HEAL_MEDIGUN);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
 
+#if defined DEBUG && 0
+	PrintToServer("fwCanHeal HEAL_MEDIGUN %i", result);
+#endif
+
 	AllowedToHealTargetTempTeam = -1;
 
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;
 	} else if(result == Plugin_Changed) {
-		int owner_team = GetEntityTeam(owner);
+		int owner_team = GetEntityTeam(pThis);
 
 		AllowedToHealTargetTempTeam = GetEntityTeam(other);
 		SetEntityTeam(other, owner_team, true);

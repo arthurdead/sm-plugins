@@ -12,11 +12,13 @@ void JarExplodeCreate(GameData gamedata)
 
 void JarExplodeEntityCreated(int entity, const char[] classname)
 {
-	if(StrContains(classname, "tf_projectile_jar") != -1 ||
-		StrEqual(classname, "tf_projectile_cleaver") ||
-		StrContains(classname, "tf_projectile_spell") != -1) {
-		DHookEntity(dhJarOnHit, false, entity, INVALID_FUNCTION, JarOnHitPre);
-		DHookEntity(dhJarOnHit, true, entity, INVALID_FUNCTION, JarOnHitPost);
+	if(dhJarOnHit) {
+		if(StrContains(classname, "tf_projectile_jar") != -1 ||
+			StrEqual(classname, "tf_projectile_cleaver") ||
+			StrContains(classname, "tf_projectile_spell") != -1) {
+			DHookEntity(dhJarOnHit, false, entity, INVALID_FUNCTION, JarOnHitPre);
+			DHookEntity(dhJarOnHit, true, entity, INVALID_FUNCTION, JarOnHitPost);
+		}
 	}
 }
 
@@ -24,28 +26,31 @@ int JarOnHitTempTeam = -1;
 
 MRESReturn JarOnHitPre(int pThis, Handle hParams)
 {
-	int owner = GetOwner(pThis);
 	int other = DHookGetParam(hParams, 1);
-	int other_owner = GetOwner(other);
 
 	JarOnHitTempTeam = -1;
 
 	Call_StartForward(fwCanDamage);
-	Call_PushCell(owner);
-	Call_PushCell(other_owner);
+	Call_PushCell(pThis);
+	Call_PushCell(other);
+	Call_PushCell(DAMAGE_PROJECTILE);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
 
+#if defined DEBUG
+	PrintToServer("fwCanDamage jar %i", result);
+#endif
+
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;
 	} else if(result == Plugin_Changed) {
-		int enemy_team = GetOppositeTeam(owner);
-		JarOnHitTempTeam = GetEntityTeam(other_owner);
+		int enemy_team = GetOppositeTeam(pThis);
+		JarOnHitTempTeam = GetEntityTeam(other);
 		SetEntityTeam(other, enemy_team, true);
 	} else {
-		int owner_team = GetEntityTeam(owner);
-		JarOnHitTempTeam = GetEntityTeam(other_owner);
+		int owner_team = GetEntityTeam(pThis);
+		JarOnHitTempTeam = GetEntityTeam(other);
 		SetEntityTeam(other, owner_team, true);
 	}
 
@@ -94,7 +99,7 @@ MRESReturn JarExplodePre(Handle hParams)
 
 	int team = DHookGetParam(hParams, 6);
 
-	JarExplodeTempPlayers = new ArrayList(2);
+	JarExplodeTempPlayers = new ArrayList(4);
 
 	TR_EnumerateEntitiesSphere(pos, radius, PARTITION_SOLID_EDICTS, EnumPlayers, JarExplodeTempPlayers);
 
@@ -123,13 +128,16 @@ MRESReturn JarExplodePre(Handle hParams)
 			continue;
 		}
 
-		Call_StartForward(fwCanHeal);
+		Call_StartForward(fwCanGetJarated);
 		Call_PushCell(attacker);
 		Call_PushCell(player);
-		Call_PushCell(HEAL_PROJECTILE);
 
 		Action result = Plugin_Continue;
 		Call_Finish(result);
+
+	#if defined DEBUG
+		PrintToServer("fwCanGetJarated %i", result);
+	#endif
 
 		if(result == Plugin_Continue) {
 			JarExplodeTempPlayers.Erase(i--);
@@ -139,11 +147,20 @@ MRESReturn JarExplodePre(Handle hParams)
 
 		int oldteam = GetEntityTeam(player);
 		JarExplodeTempPlayers.Set(i, oldteam, 1);
+		JarExplodeTempPlayers.Set(i, TF2_IsPlayerInCondition(player, TFCond_PasstimeInterception), 2);
+		JarExplodeTempPlayers.Set(i, TF2_IsPlayerInCondition(player, TFCond_OnFire), 3);
 
-		if(result == Plugin_Changed) {
-			SetEntityTeam(player, team, true);
-		} else {
-			SetEntityTeam(player, GetOppositeTeam(team), true);
+		switch(result) {
+			case Plugin_Changed: {
+				SetEntityTeam(player, team, true);
+			}
+			case Plugin_Handled: {
+				SetEntityTeam(player, GetOppositeTeam(team), true);
+			}
+			case Plugin_Stop: {
+				TF2_AddCondition(player, TFCond_PasstimeInterception);
+				TF2_RemoveCondition(player, TFCond_OnFire);
+			}
 		}
 	}
 
@@ -160,8 +177,18 @@ MRESReturn JarExplodePost(int pThis, Handle hReturn, Handle hParams)
 		for(int i = 0, len = JarExplodeTempPlayers.Length; i < len; ++i) {
 			int player = JarExplodeTempPlayers.Get(i);
 			int oldteam = JarExplodeTempPlayers.Get(i, 1);
+			bool waspasstime = JarExplodeTempPlayers.Get(i, 2);
+			bool wasburning = JarExplodeTempPlayers.Get(i, 3);
 
 			SetEntityTeam(player, oldteam, true);
+
+			if(!waspasstime) {
+				TF2_RemoveCondition(player, TFCond_PasstimeInterception);
+			}
+
+			if(wasburning) {
+				TF2_AddCondition(player, TFCond_OnFire);
+			}
 		}
 
 		delete JarExplodeTempPlayers;

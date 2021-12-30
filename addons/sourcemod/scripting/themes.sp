@@ -26,11 +26,17 @@
 /* INCLUDES *******************************************************************/
 #include <sourcemod>
 #include <sdktools>
+#include <sdkhooks>
 #include <morecolors>
 
-#undef REQUIRE_EXTENSIONS
-#tryinclude <system2>
-#tryinclude <bzip2>
+#if 0
+	#undef REQUIRE_EXTENSIONS
+	#tryinclude <system2>
+	#tryinclude <bzip2>
+#else
+	#include <system2>
+	#include <bzip2>
+#endif
 
 /* PREPROCESSOR ***************************************************************/
 #pragma semicolon 1
@@ -46,7 +52,7 @@
 #define PLUGIN_URL		"http://j-factor.com/"
 
 // Debug -----------------------------------------------------------------------
-//#define DEBUG		1 
+#define DEBUG		1 
 
 // Configs ---------------------------------------------------------------------
 #define CONFIG_MAPS 		"configs/themes/maps.cfg"
@@ -160,6 +166,7 @@ ArrayList mapCoordenates = null;
 // Extra
 int mapCCEntity1;
 int mapCCEntity2;
+ConVar sv_allow_color_correction;
 
 // Theme -----------------------------------------------------------------------
 char themes[MAX_THEMES][32];
@@ -193,11 +200,22 @@ enum struct FishInfo
 
 ArrayList fishes = null;
 
+int ParticleEffectNamesMax;
 int ParticleEffectNames = INVALID_STRING_TABLE;
 int ParticleEffectStop = INVALID_STRING_INDEX;
 int m_iszDetailSpriteMaterialOffset = -1;
 
-bool bWeatherEnabled[MAXPLAYERS+1] = {false, ...};
+float vecLastWeatherPos[MAXPLAYERS+1][3];
+bool bTempEntsAllowed[MAXPLAYERS+1];
+
+bool bWeatherEnabled[MAXPLAYERS+1] = {true, ...};
+
+float r_RainRadius[MAXPLAYERS+1] = {1500.0, ...};
+float r_rainspeed[MAXPLAYERS+1] = {600.0, ...};
+bool r_RainHack[MAXPLAYERS+1] = {false, ...};
+float cl_winddir[MAXPLAYERS+1] = {0.0, ...};
+float cl_windspeed[MAXPLAYERS+1] = {0.0, ...};
+float m_Remainder[MAXPLAYERS+1] = {0.0, ...};
 
 bool bSystem2 = false;
 bool bBZip2 = false;
@@ -278,6 +296,11 @@ stock void ClampCompression(ConVar convar, const char[] oldValue, const char[] n
 	}
 }
 
+public void OnConfigsExecuted()
+{
+	sv_allow_color_correction.BoolValue = true;
+}
+
 /* METHODS ********************************************************************/
 
 /* OnPluginStart()
@@ -296,17 +319,17 @@ public void OnPluginStart()
 	cvPluginTimer  = CreateConVar("sm_themes_timer", "10.0");
 	cvNextTheme = 	 CreateConVar("sm_themes_next_theme", "", "Forces the next map to use the given theme");
 	cvAnnounce =     CreateConVar("sm_themes_announce", "1", "Whether or not to announce the current theme");
-	cvParticles =    CreateConVar("sm_themes_particles", "0", "Enables or disables custom particles for themes");
-	cvParticlesTempEnt = CreateConVar("sm_themes_particles_tempent", "0");
+	cvParticles =    CreateConVar("sm_themes_particles", "1", "Enables or disables custom particles for themes");
+	cvParticlesTempEnt = CreateConVar("sm_themes_particles_tempent", "1");
 	cvPrecipitation =    CreateConVar("sm_themes_precipitation", "1", "Enables or disables precipitation for themes");
-	cvPrecipitationReplace =    CreateConVar("sm_themes_precipitation_replace", "1", "Replaces particles with precipitation");
+	cvPrecipitationReplace =    CreateConVar("sm_themes_precipitation_replace", "0", "Replaces particles with precipitation");
 	cvWind	    =    CreateConVar("sm_themes_wind", "1");
 	cvWindTimer	  =  CreateConVar("sm_themes_wind_timer", "0.2");
 
-	cvManifests = CreateConVar("sm_themes_create_manifests", "0");
+	cvManifests = CreateConVar("sm_themes_create_manifests", "1");
 	cvAutoBZ2 = CreateConVar("sm_themes_bz2_manifests", "1");
 	cvBZ2Compression = CreateConVar("sm_themes_bz2_compression", "9", "1,3,5,7,9");
-	cvUpload = CreateConVar("sm_themes_upload_ftp", "0");
+	cvUpload = CreateConVar("sm_themes_upload_ftp", "1");
 	cvUsername = CreateConVar("sm_themes_ftp_user", "");
 	cvPass = CreateConVar("sm_themes_ftp_pass", "");
 	cvDeleteBZ2 = CreateConVar("sm_themes_delete_bz2", "1");
@@ -329,6 +352,7 @@ public void OnPluginStart()
 	cvBZ2Compression.AddChangeHook(ClampCompression);
 
 	sv_skyname = FindConVar("sv_skyname");
+	sv_allow_color_correction = FindConVar("sv_allow_color_correction");
 
 	// Configuration
 	kvMaps = new KeyValues("Maps");
@@ -348,10 +372,148 @@ public void OnPluginStart()
 	Initialize(cvPluginEnable.BoolValue);
 
 	m_iszDetailSpriteMaterialOffset = FindSendPropInfo("CWorld", "m_iszDetailSpriteMaterial");
+
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
+			OnClientPutInServer(i);
+			bTempEntsAllowed[i] = true;
+		}
+	}
 }
 
 float tmpposses[4][3];
 int currentpos = -1;
+
+void GetWindVector(int client, float windvector[3])
+{
+	float windangle[3];
+	windangle[0] = 0.0;
+	windangle[1] = cl_winddir[client];
+	windangle[2] = 0.0;
+
+	windangle[1] += GetRandomFloat(-10.0, 10.0);
+
+	float windspeed = cl_windspeed[client] * (1.0 + GetRandomFloat(-0.2, 0.2));
+
+	GetAngleVectors(windangle, windvector, NULL_VECTOR, NULL_VECTOR);
+	ScaleVector(windvector, windspeed);
+}
+
+#define MIN(%1,%2) (%1 < %2 ? %1 : %2)
+#define MAX(%1,%2) (%1 > %2 ? %1 : %2)
+
+bool ComputeEmissionArea(int client, float origin[3], float size[2])
+{
+	float emissionSize = r_RainRadius[client];
+
+	float vMins[3];
+	float vMaxs[3];
+
+	GetEntPropVector(0, Prop_Data, "m_WorldMins", vMins);
+	GetEntPropVector(0, Prop_Data, "m_WorldMaxs", vMaxs);
+
+	float player_origin[3];
+	GetClientAbsOrigin(client, player_origin);
+
+	float emissionHeight = MIN(vMaxs[2], player_origin[2] + 512);
+	float distToFall = emissionHeight - player_origin[2];
+	float fallTime = distToFall / r_rainspeed[client];
+
+	float windvector[3];
+	GetWindVector(client, windvector);
+
+	float center[2];
+	center[0] = player_origin[0] - fallTime * windvector[0];
+	center[1] = player_origin[1] - fallTime * windvector[1];
+
+	float lobound[2];
+	lobound[0] = center[0] - emissionSize * 0.5;
+	lobound[1] = center[1] - emissionSize * 0.5;
+
+	float hibound[2];
+	hibound[0] = lobound[0] + emissionSize;
+	hibound[1] = lobound[1] + emissionSize;
+
+	if((vMaxs[0] < lobound[0]) || (vMaxs[1] < lobound[1]) ||
+		(vMins[0] > hibound[0]) || (vMins[1] > hibound[1])) {
+		return false;
+	}
+
+	origin[0] = MAX(vMins[0], lobound[0]);
+	origin[1] = MAX(vMins[1], lobound[1]);
+	origin[2] = emissionHeight;
+
+	hibound[0] = MIN(vMaxs[0], hibound[0]);
+	hibound[1] = MIN(vMaxs[1], hibound[1]);
+
+	size[0] = hibound[0] - origin[0];
+	size[1] = hibound[1] - origin[1];
+
+	return true;
+}
+
+float RemapVal(float val, float A, float B, float C, float D)
+{
+	if(A == B) {
+		return val >= B ? D : C;
+	} else {
+		return C + (D - C) * (val - A) / (B - A);
+	}
+}
+
+void SpawnWeatherParticles(int i, const char[] name)
+{
+	float origin[3];
+	float size[2];
+	if(ComputeEmissionArea(i, origin, size)) {
+		float fTimeDelta = GetGameFrameTime();
+		if(fTimeDelta > 0.075) {
+			fTimeDelta = 0.075;
+		}
+
+		int alpha = 255;
+
+		float density = RemapVal(float(alpha), 0.0, 255.0, 0.0, 0.001);
+		if(density > 0.01) {
+			density = 0.01;
+		}
+
+		float fParticles = size[0] * size[1] * density * fTimeDelta + m_Remainder[i];
+		int cParticles = RoundToFloor(fParticles);
+		m_Remainder[i] = (fParticles - cParticles);
+
+		float maxs[3];
+		GetClientMaxs(i, maxs);
+
+		for(int j = 0; j < cParticles; ++j) {
+			float particlepos[3];
+			particlepos[0] = origin[0];
+			particlepos[1] = origin[1];
+			particlepos[2] = origin[2];
+
+			particlepos[0] += size[0] * GetRandomFloat(0.0, 1.0);
+			particlepos[1] += size[1] * GetRandomFloat(0.0, 1.0);
+
+			float playerheight[3];
+			playerheight[0] = particlepos[0];
+			playerheight[1] = particlepos[1];
+			playerheight[2] = particlepos[2];
+
+			playerheight[2] = (maxs[2] / 2);
+
+			TR_TraceRay(playerheight, particlepos, MASK_SOLID_BRUSHONLY, RayType_EndPoint);
+			if(TR_GetFraction() < 1.0) {
+				if(TR_GetSurfaceFlags() & SURF_SKY) {
+					TR_GetEndPosition(particlepos);
+				} else {
+					continue;
+				}
+			}
+
+			SendWeatherParticle(i, particlepos, name, j == 0);
+		}
+	}
+}
 
 public void OnGameFrame()
 {
@@ -497,7 +659,7 @@ void Initialize(bool enable, bool print=true)
 		HookEvent("teamplay_round_win", Event_RoundEnd);
 		HookEvent("teamplay_round_stalemate", Event_RoundEnd);
 		HookEvent("player_team", Event_PlayerTeam);
-		//HookEvent("player_initial_spawn", Event_InitialSpawn);
+		HookEvent("player_changeclass", Event_PlayerClass);
 	
 		pluginTimer = CreateTimer(cvPluginTimer.FloatValue, Timer_Plugin, 0, TIMER_REPEAT);
 		windTimer = CreateTimer(cvWindTimer.FloatValue, Timer_Wind, 0, TIMER_REPEAT);
@@ -512,7 +674,7 @@ void Initialize(bool enable, bool print=true)
 		UnhookEvent("teamplay_round_win", Event_RoundEnd);
 		UnhookEvent("teamplay_round_stalemate", Event_RoundEnd);
 		UnhookEvent("player_team", Event_PlayerTeam);
-		//UnhookEvent("player_initial_spawn", Event_InitialSpawn);
+		UnhookEvent("player_changeclass", Event_PlayerClass);
 		
 		KillTimer(pluginTimer);
 		pluginTimer = null;
@@ -633,11 +795,22 @@ public void OnMapStart()
 	PrecacheModel("models/error.mdl");
 
 	ParticleEffectNames = FindStringTable("ParticleEffectNames");
+	ParticleEffectNamesMax = GetStringTableMaxStrings(ParticleEffectNames);
 
 	int EffectDispatch = FindStringTable("EffectDispatch");
 	ParticleEffectStop = FindStringIndex(EffectDispatch, "ParticleEffectStop");
 
 	StartTheme();
+}
+
+public void OnMapEnd()
+{
+	if (cvParticles.BoolValue) {
+		char nextmap[PLATFORM_MAX_PATH];
+		if(GetNextMap(nextmap, PLATFORM_MAX_PATH)) {
+			HandleMapParticleManifest(nextmap);
+		}
+	}
 }
 
 /* InitConfig()
@@ -1204,7 +1377,19 @@ void ReadThemeAttributes(KeyValues kv)
 	// Read Overlay
 	kv.GetString("overlay", mapOverlay, sizeof(mapOverlay), mapOverlay);
 
-	mapCold = (kv.GetNum("cold", mapCold) == 1);
+	int cold = kv.GetNum("cold", -1);
+	if(cold == -1) {
+		if(mapPrecipitation == 3 ||
+			mapPrecipitation == 1 ||
+			StrEqual(mapColorCorrection1, "winter.raw") ||
+			StrEqual(mapColorCorrection2, "winter.raw") ||
+			StrEqual(mapParticle, "env_themes_snow") ||
+			StrEqual(mapParticle, "env_themes_snow_light")) {
+			mapCold = true;
+		}
+	} else {
+		mapCold = view_as<bool>(cold);
+	}
 }
 
 /* UpdateDownloadsTable()
@@ -1285,17 +1470,18 @@ void OnCompressMapParticles(DataPack data, bool success)
 			char url[64];
 			cvUrl.GetString(url, sizeof(url));
 
-			System2FTPRequest ftp = new System2FTPRequest(OnMapManifestFTP, "%s/tf/maps/", url);
-
 			char usrname[32];
 			cvUsername.GetString(usrname, sizeof(usrname));
 
 			char pass[32];
 			cvPass.GetString(pass, sizeof(pass));
 
-			ftp.SetAuthentication(usrname, pass);
-			ftp.SetInputFile(filename);
-			ftp.StartRequest();
+			if(url[0] != '\0' && usrname[0] != '\0' && pass[0] != '\0') {
+				System2FTPRequest ftp = new System2FTPRequest(OnMapManifestFTP, "%s/maps/", url);
+				ftp.SetAuthentication(usrname, pass);
+				ftp.SetInputFile(filename);
+				ftp.StartRequest();
+			}
 		}
 
 		char folder[PLATFORM_MAX_PATH];
@@ -1311,17 +1497,17 @@ void OnCompressMapParticles(DataPack data, bool success)
 	}
 }
 
-void OnCompressMapParticlesSystem2(bool success, const char[] command, System2ExecuteOutput output, DataPack data)
+void OnCompressMapParticlesSystem2(bool success, const char[] command, System2ExecuteOutput output, any data)
 {
-	OnCompressMapParticles(data, success);
+	OnCompressMapParticles(view_as<DataPack>(data), success);
 }
 
 #if defined _bzip2_included
-void OnCompressMapParticlesBZip2(BZ_Error iError, char[] inFile, char[] outFile, DataPack data)
+void OnCompressMapParticlesBZip2(BZ_Error iError, char[] inFile, char[] outFile, any data)
 {
 	bool success = (iError == BZ_OK);
 
-	OnCompressMapParticles(data, success);
+	OnCompressMapParticles(view_as<DataPack>(data), success);
 }
 #endif
 
@@ -1396,7 +1582,9 @@ void HandleMapParticleManifest(const char[] mapname)
 void HandleParticleFiles()
 {
 	char file[96];
-	
+	GetCurrentMap(file, sizeof(file));
+	HandleMapParticleManifest(file);
+
 	// Add ALL map particle manifest files (due to waffle bug)
 	/*if (kvMaps.GotoFirstSubKey()) {
 		do {
@@ -1406,9 +1594,6 @@ void HandleParticleFiles()
 		
 		kvMaps.GoBack();
 	}*/
-
-	GetCurrentMap(file, sizeof(file));
-	HandleMapParticleManifest(file);
 
 	// Add particle files
 	for (int i = 1; i <= NUM_PARTICLE_FILES; i++) {
@@ -1739,10 +1924,10 @@ void ApplyConfigRound()
 			case 1:
 			{ CreatePrecipitation(3); }
 			case -1:
-			{ CreateParticles(-1); }
+			{ CreateParticles(); }
 		}
 	} else {
-		CreateParticles(-1);
+		CreateParticles();
 	}
 
 	if(cvPrecipitation.BoolValue && mapPrecipitation != -1) {
@@ -1896,20 +2081,21 @@ enum
 	PATTACH_ROOTBONE_FOLLOW
 };
 
-void RemoveWeatherParticle(int client)
+void RemoveWeatherParticles(int client)
 {
+	TE_Start("TFParticleEffect");
+	TE_WriteNum("m_iParticleSystemIndex", -(ParticleEffectNamesMax+1));
+	TE_WriteNum("entindex", 0);
+	TE_WriteNum("m_bResetParticles", 1);
+	TE_SendToClient(client);
+
 	TE_Start("EffectDispatch");
 	TE_WriteNum("m_iEffectName", ParticleEffectStop);
 	TE_WriteNum("entindex", 0);
-
-	if(client == -1) {
-		TE_SendToAll();
-	} else {
-		TE_SendToClient(client);
-	}
+	TE_SendToClient(client);
 }
 
-void SendWeatherParticle(const char[] name, float pos[3], int client)
+void SendWeatherParticle(int client, const float pos[3], const char[] name, bool reset)
 {
 	int index = FindStringIndex(ParticleEffectNames, name);
 	if(index == INVALID_STRING_INDEX) {
@@ -1924,82 +2110,128 @@ void SendWeatherParticle(const char[] name, float pos[3], int client)
 	TE_WriteFloat("m_vecOrigin[1]", pos[1]);
 	TE_WriteFloat("m_vecOrigin[2]", pos[2]);
 
-	float zero[3];
-	TE_WriteVector("m_vecAngles", zero);
-
-	TE_WriteFloat("m_vecStart[0]", zero[0]);
-	TE_WriteFloat("m_vecStart[1]", zero[1]);
-	TE_WriteFloat("m_vecStart[2]", zero[2]);
-
 #if defined DEBUG
-	PrintToServer("sent to %N [%f, %f, %f]", client == -1 ? 0 : client, pos[0], pos[1], pos[2]);
+	//PrintToServer("sent to %N [%f, %f, %f]", client == -1 ? 0 : client, pos[0], pos[1], pos[2]);
 #endif
 
 	TE_WriteNum("entindex", 0);
 	TE_WriteNum("m_iAttachType", PATTACH_CUSTOMORIGIN);
 
-	if(client == -1) {
-		TE_SendToAll();
-	} else {
-		TE_SendToClient(client);
-	}
+	TE_WriteNum("m_bResetParticles", reset);
+
+	TE_SendToClient(client);
 }
 
-void DestroyParticles(int client)
+void DestroyParticles()
 {
-	if(client == -1) {
-		// Remove old particles
-		int ent = -1;
-		
-		char name[32];
+	// Remove old particles
+	int ent = -1;
+	
+	char name[32];
 
-		while ((ent = FindEntityByClassname(ent, "info_particle_system")) != -1) {
-			if (IsValidEntity(ent)) {
-				
-				GetEntPropString(ent, Prop_Data, "m_iName", name, sizeof(name));
-				
-				if (StrContains(name, "themes_particle") != -1) {
-					AcceptEntityInput(ent, "Kill");
-				}
+	while ((ent = FindEntityByClassname(ent, "info_particle_system")) != -1) {
+		if (IsValidEntity(ent)) {
+			
+			GetEntPropString(ent, Prop_Data, "m_iName", name, sizeof(name));
+			
+			if (StrContains(name, "themes_particle") != -1) {
+				AcceptEntityInput(ent, "Kill");
 			}
 		}
 	}
-
-	RemoveWeatherParticle(client);
-}
-
-stock Action Timer_CreateParticles(Handle timer, int client)
-{
-	CreateParticles(client);
-	return Plugin_Continue;
-}
-
-stock Action Event_InitialSpawn(Handle event, const char[] name, bool dontBroadcast)
-{
-	if (pluginEnabled) {
-		int client = GetEventInt(event, "index");
-
-		
-	}
-	
-	return Plugin_Continue;
 }
 
 public void OnClientDisconnect(int client)
 {
-	bWeatherEnabled[client] = false;
+	if(!IsFakeClient(client)) {
+		RemoveWeatherParticles(client);
+	}
+
+	bTempEntsAllowed[client] = false;
+
+	vecLastWeatherPos[client][0] = 0.0;
+	vecLastWeatherPos[client][1] = 0.0;
+	vecLastWeatherPos[client][2] = 0.0;
+
+	bWeatherEnabled[client] = true;
+
+	r_RainRadius[client] = 1500.0;
+	r_rainspeed[client] = 600.0;
+	cl_winddir[client] = 0.0;
+	cl_windspeed[client] = 0.0;
+	r_RainHack[client] = false;
+	m_Remainder[client] = 0.0;
 }
 
 stock void tf_particles_disable_weather(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
 {
 	if(result == ConVarQuery_Okay && StrEqual(cvarValue, "1")) {
-		bWeatherEnabled[client] = true;
+		bWeatherEnabled[client] = false;
+	}
+}
+
+static void r_RainRadius_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay) {
+		r_RainRadius[client] = StringToFloat(cvarValue);
+	}
+}
+
+static void r_RainHack_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay) {
+		r_RainHack[client] = view_as<bool>(StringToInt(cvarValue));
+	}
+}
+
+static void r_rainspeed_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay) {
+		r_rainspeed[client] = StringToFloat(cvarValue);
+	}
+}
+
+static void cl_winddir_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay) {
+		cl_winddir[client] = StringToFloat(cvarValue);
+	}
+}
+
+static void cl_windspeed_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay) {
+		cl_windspeed[client] = StringToFloat(cvarValue);
 	}
 }
 
 public void OnClientPutInServer(int client)
 {
+	if(IsFakeClient(client)) {
+		return;
+	}
+
 	QueryClientConVar(client, "tf_particles_disable_weather", tf_particles_disable_weather);
+
+	QueryClientConVar(client, "r_RainRadius", r_RainRadius_query);
+	QueryClientConVar(client, "r_RainHack", r_RainHack_query);
+	QueryClientConVar(client, "r_rainspeed", r_rainspeed_query);
+	QueryClientConVar(client, "cl_winddir", cl_winddir_query);
+	QueryClientConVar(client, "cl_windspeed", cl_windspeed_query);
+
+	SDKHook(client, SDKHook_PostThinkPost, OnClientPostThinkPost);
+}
+
+void OnClientPostThinkPost(int client)
+{
+	if (bWeatherEnabled[client] && bTempEntsAllowed[client] && cvParticlesTempEnt.BoolValue && cvParticles.BoolValue && mapParticle[0] != '\0') {
+		float currentorigin[3];
+		GetClientAbsOrigin(client, currentorigin);
+		if(GetVectorDistance(vecLastWeatherPos[client], currentorigin) >= 256.0) {
+			SpawnWeatherParticles(client, mapParticle);
+			GetClientAbsOrigin(client, vecLastWeatherPos[client]);
+		}
+	}
 }
 
 void DestroyPrecipitation()
@@ -2024,7 +2256,7 @@ void CreatePrecipitation(int type)
 {
 	DestroyPrecipitation();
 
-	/*int precipitation = CreateEntityByName("func_precipitation");
+	int precipitation = CreateEntityByName("func_precipitation");
 
 	char model[PLATFORM_MAX_PATH];
 	Format(model, PLATFORM_MAX_PATH, "maps/%s.bsp", map);
@@ -2035,7 +2267,7 @@ void CreatePrecipitation(int type)
 	DispatchKeyValue(precipitation, "targetname", "themes_precipitation");
 	DispatchKeyValue(precipitation, "model", model);
 	DispatchKeyValue(precipitation, "preciptype", intstr);
-	DispatchKeyValue(precipitation, "renderamt", "26");
+	DispatchKeyValue(precipitation, "renderamt", "255");
 	DispatchKeyValue(precipitation, "rendercolor", "255 255 255");
 
 	float mins[3];
@@ -2054,14 +2286,13 @@ void CreatePrecipitation(int type)
 
 	DispatchSpawn(precipitation);
 	ActivateEntity(precipitation);
-	*/
 }
 
-void CreateParticles(int client)
+void CreateParticles()
 {
-	DestroyParticles(client);
+	DestroyParticles();
 
-	if (cvParticles.BoolValue && mapParticle[0] != '\0') {
+	if (!cvParticlesTempEnt.BoolValue && cvParticles.BoolValue && mapParticle[0] != '\0') {
 		if(mapStageless) {
 			int num_global = 0;
 			bool hit_limit = false;
@@ -2070,33 +2301,27 @@ void CreateParticles(int client)
 			#if defined DEBUG
 				int num_stage = 
 			#endif
-				SpawnParticles(currentStage, num_global, hit_limit, client);
+				SpawnParticles(currentStage, num_global, hit_limit);
 				if(hit_limit) {
 					break;
 				}
 
 			#if defined DEBUG
-				if(client == -1) {
-					LogMessage("Stage %i created %i particles of type %s", currentStage, num_stage, mapParticle);
-				}
+				LogMessage("Stage %i created %i particles of type %s", currentStage, num_stage, mapParticle);
 			#endif
 			}
 
 		#if defined DEBUG
-			if(client == -1) {
-				LogMessage("Created %i particles in total of type %s", num_global, mapParticle);
-			}
+			LogMessage("Created %i particles in total of type %s", num_global, mapParticle);
 		#endif
 		} else {
 			int num = 0;
 			bool hit_limit = false;
-			SpawnParticles(currentStage, num, hit_limit, client);
+			SpawnParticles(currentStage, num, hit_limit);
 
 		#if defined DEBUG
-			if(client == -1) {
-				LogMessage("Current stage: %i", currentStage);
-				LogMessage("Created %i particles of type %s", num, mapParticle);
-			}
+			LogMessage("Current stage: %i", currentStage);
+			LogMessage("Created %i particles of type %s", num, mapParticle);
 		#endif
 		}
 	}
@@ -2227,7 +2452,7 @@ stock void DrawHull(const float origin[3], int client, const float mins[3]={-16.
 }
 #endif
 
-int SpawnParticles(int stage, int &num_global, bool &hit_global_limit, int client)
+int SpawnParticles(int stage, int &num_global, bool &hit_global_limit)
 {
 	if(hit_global_limit) {
 		return 0;
@@ -2266,46 +2491,40 @@ int SpawnParticles(int stage, int &num_global, bool &hit_global_limit, int clien
 			pos[1] = tmpinfo.Y1 + y*1024.0 + 512.0 - oy;
 			pos[2] = mapParticleHeight + tmpinfo.Z;
 
-			if(!cvParticlesTempEnt.BoolValue && client == -1) {
-				int particle = CreateEntityByName("info_particle_system");
-				// Teleport, set up
-				TeleportEntity(particle, pos, NULL_VECTOR, NULL_VECTOR);
-				DispatchKeyValue(particle, "effect_name", mapParticle);
-				DispatchKeyValue(particle, "targetname", "themes_particle");
-				DispatchKeyValue(particle, "start_active", "1");
-				DispatchKeyValue(particle, "flag_as_weather", "1");
+			int particle = CreateEntityByName("info_particle_system");
+			// Teleport, set up
+			TeleportEntity(particle, pos, NULL_VECTOR, NULL_VECTOR);
+			DispatchKeyValue(particle, "effect_name", mapParticle);
+			DispatchKeyValue(particle, "targetname", "themes_particle");
+			DispatchKeyValue(particle, "start_active", "1");
+			DispatchKeyValue(particle, "flag_as_weather", "1");
 
-			#if defined DEBUG
-				PrintToServer("created %i [%f, %f, %f]", particle, pos[0], pos[1], pos[2]);
-			#endif
+		#if defined DEBUG
+			PrintToServer("created %i [%f, %f, %f]", particle, pos[0], pos[1], pos[2]);
+		#endif
 
-				// Spawn and start
-				DispatchSpawn(particle);
-				ActivateEntity(particle);
-			} else {
-				SendWeatherParticle(mapParticle, pos, client);
-			}
+			// Spawn and start
+			DispatchSpawn(particle);
+			ActivateEntity(particle);
 			
 			num_global++;
 			num_stage++;
 
 		#if defined DEBUG
-			//DrawHull(pos, client);
+			//DrawHull(pos, -1);
 		#endif
-			
-			if(!cvParticlesTempEnt.BoolValue) {
-				if(limit_global != -1) {
-					if (num_global >= limit_global) {
-						LogMessage("Warning: Hit global particle limit!");
-						hit_global_limit = true;
-					}
-				}
 
-				if(limit_stage != -1) {
-					if (num_stage >= limit_stage) {
-						LogMessage("Warning: Stage %i hit particle limit!", stage);
-						hit_stage_limit = true;
-					}
+			if(limit_global != -1) {
+				if (num_global >= limit_global) {
+					LogMessage("Warning: Hit global particle limit!");
+					hit_global_limit = true;
+				}
+			}
+
+			if(limit_stage != -1) {
+				if (num_stage >= limit_stage) {
+					LogMessage("Warning: Stage %i hit particle limit!", stage);
+					hit_stage_limit = true;
 				}
 			}
 
@@ -2498,7 +2717,23 @@ Action Event_PlayerTeam(Handle event, const char[] name, bool dontBroadcast)
 				SetEntPropFloat(client, Prop_Send, "m_skybox3d.fog.end", mapSkyboxFogEnd);
 			}
 
-			//CreateTimer(5.0, Timer_CreateParticles, client);
+			int team = GetEventInt(event, "team");
+			if(team == 1) {
+				bTempEntsAllowed[client] = true;
+			}
+		}
+	}
+	
+	return Plugin_Continue;
+}
+
+Action Event_PlayerClass(Handle event, const char[] name, bool dontBroadcast)
+{
+	if (pluginEnabled) {
+		int client = GetClientOfUserId(GetEventInt(event, "userid"));
+		
+		if (client && IsClientInGame(client)) {
+			bTempEntsAllowed[client] = true;
 		}
 	}
 	

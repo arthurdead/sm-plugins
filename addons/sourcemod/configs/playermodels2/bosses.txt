@@ -1,0 +1,36 @@
+"Playermodels"
+{
+	"merasmus"
+	{
+		"original_class" "sniper"
+		"model" "models/bots/merasmus/merasmus.mdl"
+		"bodygroup" "merasmus_book"
+		"skin" "2"
+		"variations"
+		{
+			"ghost"
+			{
+				"skin" "3"
+			}
+		}
+	}
+
+	"headless hatman"
+	{
+		"original_class" "demo"
+		"model" "models/bots/headless_hatman.mdl"
+	}
+
+	"skeleton"
+	{
+		"flags" "~nogameplay|~alwaysmerge"
+		"original_class" "sniper"
+		"model" "models/bots/skeleton_sniper/skeleton_sniper.mdl"
+	}
+
+	"yeti"
+	{
+		"original_class" "heavy"
+		"model" "models/player/items/taunts/yeti/yeti.mdl"
+	}
+}

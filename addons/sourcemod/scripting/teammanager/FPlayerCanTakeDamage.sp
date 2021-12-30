@@ -7,29 +7,29 @@ void FPlayerCanTakeDamageCreate(GameData gamedata)
 
 void FPlayerCanTakeDamageMapStart()
 {
-	DHookGamerules(dhFPlayerCanTakeDamage, false, INVALID_FUNCTION, FPlayerCanTakeDamagePre);
+	if(dhFPlayerCanTakeDamage) {
+		DHookGamerules(dhFPlayerCanTakeDamage, false, INVALID_FUNCTION, FPlayerCanTakeDamagePre);
+	}
 }
 
-MRESReturn FPlayerCanTakeDamagePre(int pThis, Handle hReturn, Handle hParams)
+MRESReturn FPlayerCanTakeDamagePre(Address pThis, Handle hReturn, Handle hParams)
 {
-	int owner = GetOwner(DHookGetParam(hParams, 2));
-	int other = GetOwner(DHookGetParam(hParams, 1));
+	int owner = DHookGetParam(hParams, 1);
+	int other = DHookGetParam(hParams, 2);
 
 	Call_StartForward(fwCanDamage);
-	Call_PushCell(owner);
 	Call_PushCell(other);
+	Call_PushCell(owner);
+	Call_PushCell(DAMAGE_NORMAL);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
 
+#if defined DEBUG && 0
+	PrintToServer("fwCanDamage gamerules %i", result);
+#endif
+
 	if(result == Plugin_Continue) {
-		//HACK!!! remove this once i figure out why its failing
-		int team1 = GetEntityTeam(owner);
-		int team2 = GetEntityTeam(other);
-		if(team1 == team2 && owner != other) {
-			DHookSetReturn(hReturn, 0);
-			return MRES_Supercede;
-		}
 		return MRES_Ignored;
 	} else {
 		DHookSetReturn(hReturn, result == Plugin_Changed);

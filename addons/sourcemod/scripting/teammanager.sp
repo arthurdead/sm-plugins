@@ -30,6 +30,7 @@ GlobalForward fwCanChangeTeam = null;
 GlobalForward fwCanChangeClass = null;
 GlobalForward fwCanBackstab = null;
 GlobalForward fwCanAirblast = null;
+GlobalForward fwCanGetJarated = null;
 
 #include "teammanager/AllowedToHealTarget.sp"
 #include "teammanager/CouldHealTarget.sp"
@@ -42,6 +43,7 @@ GlobalForward fwCanAirblast = null;
 #include "teammanager/ShouldCollide.sp"
 #include "teammanager/CanPerformBackstabAgainstTarget.sp"
 #include "teammanager/JarExplode.sp"
+#include "teammanager/Explode.sp"
 #include "teammanager/DeflectProjectiles.sp"
 
 bool g_bLateLoaded = false;
@@ -49,13 +51,14 @@ bool g_bLateLoaded = false;
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 {
 	fwCanHeal = new GlobalForward("TeamManager_CanHeal", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
-	fwCanDamage = new GlobalForward("TeamManager_CanDamage", ET_Hook, Param_Cell, Param_Cell);
+	fwCanDamage = new GlobalForward("TeamManager_CanDamage", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
 	fwInSameTeam = new GlobalForward("TeamManager_InSameTeam", ET_Hook, Param_Cell, Param_Cell);
 	fwCanPickupBuilding = new GlobalForward("TeamManager_CanPickupBuilding", ET_Hook, Param_Cell, Param_Cell);
 	fwCanChangeTeam = new GlobalForward("TeamManager_CanChangeTeam", ET_Hook, Param_Cell, Param_Cell);
 	fwCanChangeClass = new GlobalForward("TeamManager_CanChangeClass", ET_Hook, Param_Cell, Param_Cell);
 	fwCanBackstab = new GlobalForward("TeamManager_CanBackstab", ET_Hook, Param_Cell, Param_Cell);
-	fwCanAirblast = new GlobalForward("TeamManager_CanAirblast", ET_Hook, Param_Cell, Param_Cell);
+	fwCanAirblast = new GlobalForward("TeamManager_CanAirblast", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
+	fwCanGetJarated = new GlobalForward("TeamManager_CanGetJarated", ET_Hook, Param_Cell, Param_Cell);
 
 	CreateNative("TeamManager_GetEntityTeam", Native_TeamManager_GetEntityTeam);
 	CreateNative("TeamManager_SetEntityTeam", Native_TeamManager_SetEntityTeam);
@@ -109,6 +112,7 @@ public void OnPluginStart()
 	PlayerRelationshipCreate(gamedata);
 	ShouldCollideCreate(gamedata);
 	JarExplodeCreate(gamedata);
+	ExplodeCreate(gamedata);
 	CanPerformBackstabAgainstTargetCreate(gamedata);
 	DeflectProjectilesCreate(gamedata);
 
@@ -236,8 +240,13 @@ public void OnMapStart()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
+#if defined DEBUG && 0
+	PrintToServer("%s", classname);
+#endif
+
 	ShouldCollideEntityCreated(entity, classname);
 	JarExplodeEntityCreated(entity, classname);
+	ExplodeEntityCreated(entity, classname);
 	CanPerformBackstabAgainstTargetEntityCreated(entity, classname);
 	DeflectProjectilesEntityCreated(entity, classname);
 }

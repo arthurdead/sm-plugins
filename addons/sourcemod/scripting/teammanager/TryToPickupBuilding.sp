@@ -92,23 +92,22 @@ MRESReturn TryToPickupBuildingPre(int pThis, Handle hReturn)
 	TR_EnumerateEntities(start, end, PARTITION_SOLID_EDICTS, RayType_EndPoint, BuildingEnum);
 
 	if(TryToPickupBuildingTempEntity != -1) {
-		int owner = GetOwner(TryToPickupBuildingTempEntity);
-		if(!IsPlayer(owner)) {
-			TryToPickupBuildingTempEntity = -1;
-			return MRES_Ignored;
-		}
-
 		Call_StartForward(fwCanPickupBuilding);
 		Call_PushCell(pThis);
-		Call_PushCell(owner);
+		Call_PushCell(TryToPickupBuildingTempEntity);
 
 		Action result = Plugin_Continue;
 		Call_Finish(result);
+
+	#if defined DEBUG
+		PrintToServer("fwCanPickupBuilding %i", result);
+	#endif
 
 		if(result == Plugin_Continue) {
 			TryToPickupBuildingTempEntity = -1;
 			return MRES_Ignored;
 		} else if(result == Plugin_Changed) {
+			int owner = GetEntPropEnt(TryToPickupBuildingTempEntity, Prop_Send, "m_hBuilder");
 			if(owner != pThis) {
 				TryToPickupBuildingTempTeam = GetEntityTeam(pThis);
 				TryToPickupBuildingTempOwner[pThis] = owner;
@@ -155,14 +154,14 @@ int StartBuildingHackTempWasDisposable = -1;
 
 MRESReturn ObjectKilledPre(int pThis, Handle hReturn, Handle hParams)
 {
-	int fake_owner = GetOwner(pThis);
-
-	int real_owner = TryToPickupBuildingTempOwner[fake_owner];
-	if(real_owner != -1) {
-		SetEntPropEnt(pThis, Prop_Send, "m_hBuilder", real_owner);
+	int fake_owner = GetEntPropEnt(pThis, Prop_Send, "m_hBuilder");
+	if(fake_owner != -1) {
+		int real_owner = TryToPickupBuildingTempOwner[fake_owner];
+		if(real_owner != -1) {
+			SetEntPropEnt(pThis, Prop_Send, "m_hBuilder", real_owner);
+		}
 		TryToPickupBuildingTempOwner[fake_owner] = -1;
 	}
-
 	return MRES_Ignored;
 }
 
@@ -170,13 +169,15 @@ MRESReturn StartBuildingPre(int pThis, Handle hReturn, Handle hParams)
 {
 	StartBuildingHackTempWasDisposable = -1;
 
-	int fake_owner = GetOwner(pThis);
-	int real_owner = TryToPickupBuildingTempOwner[fake_owner];
-	if(real_owner != -1) {
-		TryToPickupBuildingTempOwner[real_owner] = fake_owner;
-		SetEntPropEnt(pThis, Prop_Send, "m_hBuilder", real_owner);
-		StartBuildingHackTempWasDisposable = GetEntProp(pThis, Prop_Send, "m_bDisposableBuilding");
-		SetEntProp(pThis, Prop_Send, "m_bDisposableBuilding", 1);
+	int fake_owner = GetEntPropEnt(pThis, Prop_Send, "m_hBuilder");
+	if(fake_owner != -1) {
+		int real_owner = TryToPickupBuildingTempOwner[fake_owner];
+		if(real_owner != -1) {
+			TryToPickupBuildingTempOwner[real_owner] = fake_owner;
+			SetEntPropEnt(pThis, Prop_Send, "m_hBuilder", real_owner);
+			StartBuildingHackTempWasDisposable = GetEntProp(pThis, Prop_Send, "m_bDisposableBuilding");
+			SetEntProp(pThis, Prop_Send, "m_bDisposableBuilding", 1);
+		}
 		TryToPickupBuildingTempOwner[fake_owner] = -1;
 	}
 
@@ -190,10 +191,12 @@ MRESReturn StartBuildingPost(int pThis, Handle hReturn, Handle hParams)
 		StartBuildingHackTempWasDisposable = -1;
 	}
 
-	int real_owner = GetOwner(pThis);
-	int fake_owner = TryToPickupBuildingTempOwner[real_owner];
-	if(fake_owner != -1) {
-		SDKCall(callRemoveObject, fake_owner, pThis);
+	int real_owner = GetEntPropEnt(pThis, Prop_Send, "m_hBuilder");
+	if(real_owner != -1) {
+		int fake_owner = TryToPickupBuildingTempOwner[real_owner];
+		if(fake_owner != -1) {
+			SDKCall(callRemoveObject, fake_owner, pThis);
+		}
 		TryToPickupBuildingTempOwner[real_owner] = -1;
 	}
 

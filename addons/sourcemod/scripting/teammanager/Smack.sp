@@ -13,7 +13,7 @@ int SmackTempEntity = -1;
 
 MRESReturn SmackPre(int pThis)
 {
-	int owner = GetOwner(pThis);
+	int owner = GetEntPropEnt(pThis, Prop_Send, "m_hOwner");
 
 	float eye[3];
 	GetClientEyeAngles(owner, eye);
@@ -55,7 +55,7 @@ MRESReturn SmackPre(int pThis)
 	if(frac < 1.0) {
 		int other = TR_GetEntityIndex();
 		if(other != -1) {
-			int owner_team = GetClientTeam(owner);
+			int owner_team = GetEntityTeam(pThis);
 			int other_team = GetEntityTeam(other);
 
 			char classname[32];
@@ -63,12 +63,16 @@ MRESReturn SmackPre(int pThis)
 
 			if(StrContains(classname, "obj_") != -1) {
 				Call_StartForward(fwCanHeal);
-				Call_PushCell(owner);
-				Call_PushCell(GetOwner(other));
+				Call_PushCell(pThis);
+				Call_PushCell(other);
 				Call_PushCell(HEAL_WRENCH);
 
 				Action result = Plugin_Continue;
 				Call_Finish(result);
+
+			#if defined DEBUG
+				PrintToServer("fwCanHeal HEAL_WRENCH %i", result);
+			#endif
 
 				if(result == Plugin_Continue) {
 					return MRES_Ignored;

@@ -27,9 +27,7 @@ MRESReturn StrikeTargetPre(int pThis, Handle hReturn, Handle hParams)
 	StrikeTargetTempTeam = -1;
 
 	if(IsHealingBolt(projtype) || IsBuildingBolt(projtype)) {
-		int owner = GetOwner(pThis);
 		int other = DHookGetParam(hParams, 2);
-		int other_owner = GetOwner(other);
 
 		if(IsBuildingBolt(projtype) && IsPlayer(other)) {
 			return MRES_Ignored;
@@ -40,22 +38,26 @@ MRESReturn StrikeTargetPre(int pThis, Handle hReturn, Handle hParams)
 		}
 
 		Call_StartForward(fwCanHeal);
-		Call_PushCell(owner);
-		Call_PushCell(other_owner);
+		Call_PushCell(pThis);
+		Call_PushCell(other);
 		Call_PushCell(HEAL_PROJECTILE);
 
 		Action result = Plugin_Continue;
 		Call_Finish(result);
 
+	#if defined DEBUG
+		PrintToServer("fwCanHeal HEAL_PROJECTILE arrow %i", result);
+	#endif
+
 		if(result == Plugin_Continue) {
 			return MRES_Ignored;
 		} else if(result == Plugin_Changed) {
-			int owner_team = GetEntityTeam(owner);
-			StrikeTargetTempTeam = GetEntityTeam(other_owner);
+			int owner_team = GetEntityTeam(pThis);
+			StrikeTargetTempTeam = GetEntityTeam(other);
 			SetEntityTeam(other, owner_team, true);
 		} else {
-			int enemy_team = GetOppositeTeam(owner);
-			StrikeTargetTempTeam = GetEntityTeam(other_owner);
+			int enemy_team = GetOppositeTeam(pThis);
+			StrikeTargetTempTeam = GetEntityTeam(other);
 			SetEntityTeam(other, enemy_team, true);
 		}
 	}

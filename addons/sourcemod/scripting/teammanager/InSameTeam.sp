@@ -9,15 +9,18 @@ void InSameTeamCreate(GameData gamedata)
 
 MRESReturn InSameTeamPre(int pThis, Handle hReturn, Handle hParams)
 {
-	int owner = GetOwner(pThis);
-	int other = GetOwner(DHookGetParam(hParams, 1));
+	int other = DHookGetParam(hParams, 1);
 
 	Call_StartForward(fwInSameTeam);
-	Call_PushCell(owner);
+	Call_PushCell(pThis);
 	Call_PushCell(other);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
+
+#if defined DEBUG && 0
+	PrintToServer("fwInSameTeam %i", result);
+#endif
 
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;

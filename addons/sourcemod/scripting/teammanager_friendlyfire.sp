@@ -5,8 +5,6 @@
 
 //TODO!!! pipes, sentries, diguises, taunt attacks
 
-#include "teammanager/stocks.inc"
-
 Handle dhCanCollideWithTeammates = null;
 Handle dhGetCollideWithTeammatesDelay = null;
 int m_bCanCollideWithTeammatesOffset = -1;
@@ -67,8 +65,14 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 void OnProjectileSpawnPost(int entity)
 {
-	int owner = GetOwner(entity);
-	if(IsPlayer(owner)) {
+	int owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
+	if(owner != -1) {
+		owner = GetEntPropEnt(owner, Prop_Send, "m_hOwner");
+	} else {
+		owner = -1;
+	}
+
+	if(owner != -1) {
 		if(mp_friendlyfire.BoolValue) {
 			DHookEntity(dhCanCollideWithTeammates, false, entity, INVALID_FUNCTION, CanCollideWithTeammatesPre);
 			DHookEntity(dhGetCollideWithTeammatesDelay, false, entity, INVALID_FUNCTION, GetCollideWithTeammatesDelayPre);
@@ -111,7 +115,25 @@ public Action TeamManager_CanHeal(int entity, int other, HealSource source)
 	return Plugin_Continue;
 }
 
-public Action TeamManager_CanDamage(int entity, int other)
+public Action TeamManager_CanGetJarated(int attacker, int victim)
+{
+	int team1 = GetEntProp(attacker, Prop_Send, "m_iTeamNum");
+	int team2 = GetEntProp(victim, Prop_Send, "m_iTeamNum");
+
+	if(team1 == team2) {
+		if(mp_friendlyfire.BoolValue) {
+			return Plugin_Handled;
+		}
+	} else {
+		if(!mp_enemyfire.BoolValue) {
+			return Plugin_Stop;
+		}
+	}
+
+	return Plugin_Continue;
+}
+
+public Action TeamManager_CanDamage(int entity, int other, DamageSource source)
 {
 	if(entity == other) {
 		return Plugin_Continue;

@@ -1,0 +1,77 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"CEconItemView::m_iAttributeDefinitionIndex"
+			{
+				"linux" "4"
+				"windows" "4"
+			}
+			"CBasePlayer::EquipWearable"
+			{
+				"windows" "431"
+				"linux" "432"
+			}
+		}
+		"Signatures"
+		{
+			"CTFPlayer::PlayTauntSceneFromItem"
+			{
+				"library" "server"
+				"windows" "\x55\x8B\xEC\x81\xEC\x0C\x01\x00\x00\x53\x8B\x5D\x08\x57\x8B"
+				"linux" "@_ZN9CTFPlayer22PlayTauntSceneFromItemEPK13CEconItemView"
+				"mac" "@_ZN9CTFPlayer22PlayTauntSceneFromItemEPK13CEconItemView"
+			}
+			"CTFPlayerShared::RecalculatePlayerBodygroups"
+			{
+				"library" "server"
+				"linux" "@_ZN15CTFPlayerShared27RecalculatePlayerBodygroupsEv"
+			}
+			"CTFPlayer::PlayTauntOutroScene"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer19PlayTauntOutroSceneEv"
+				"windows" "\x55\x8B\xEC\x83\xEC\x0C\x53\x56\x57\x8B\xF9\xC7\x45\xF8\x00\x00\x00\x00\x8B\x9F\x2A\x2A\x2A\x2A"
+			}
+			"CTFPlayer::EndLongTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer12EndLongTauntEv"
+				"windows" "\x56\x8B\xF1\x57\x8B\xBE\x2A\x2A\x2A\x2A\x8D\x8E"
+			}
+		}
+		"Functions"
+		{
+			"CTFPlayer::PlayTauntSceneFromItem"
+			{
+				"signature" "CTFPlayer::PlayTauntSceneFromItem"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+				"arguments"
+				{
+					"econItemView"
+					{
+						"type" "objectptr"
+					}
+				}
+			}
+			"CTFPlayer::PlayTauntOutroScene"
+			{
+				"signature" "CTFPlayer::PlayTauntOutroScene"
+				"callconv" "thiscall"
+				"return" "float"
+				"this" "entity"
+			}
+			"CTFPlayer::EndLongTaunt"
+			{
+				"signature" "CTFPlayer::EndLongTaunt"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+			}
+		}
+	}
+}

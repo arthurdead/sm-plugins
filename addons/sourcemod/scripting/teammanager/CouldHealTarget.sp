@@ -12,23 +12,26 @@ int CouldHealTargetTempTeam = -1;
 
 MRESReturn CouldHealTargetPre(int pThis, Handle hReturn, Handle hParams)
 {
-	int owner = GetOwner(pThis);
 	int other = DHookGetParam(hParams, 1);
 
 	Call_StartForward(fwCanHeal);
-	Call_PushCell(owner);
+	Call_PushCell(pThis);
 	Call_PushCell(other);
 	Call_PushCell(HEAL_DISPENSER);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
 
+#if defined DEBUG
+	PrintToServer("fwCanHeal HEAL_DISPENSER %i", result);
+#endif
+
 	CouldHealTargetTempTeam = -1;
 
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;
 	} else if(result == Plugin_Changed) {
-		int owner_team = GetEntityTeam(owner);
+		int owner_team = GetEntityTeam(pThis);
 
 		CouldHealTargetTempTeam = GetEntityTeam(other);
 		SetEntityTeam(other, owner_team, true);
