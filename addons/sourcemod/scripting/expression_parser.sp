@@ -4,7 +4,6 @@
 //https://github.com/jamesgregson/expression_parser
 
 #define MAX_ERROR_STR 64
-#define MAX_EXPR_STR 512
 
 #define double float
 #define fabs FloatAbs
@@ -31,7 +30,7 @@ float floor(float value)
 
 float round(float value)
 {
-	return float(RoundFloat(value));
+	return float(RoundToNearest(value));
 }
 
 float abs(int value)
@@ -57,7 +56,7 @@ float abs(int value)
 enum struct parser_data { 
 	
 	/** @brief input string to be parsed */
-	char str[MAX_EXPR_STR]; 
+	char str[EXPR_STR_MAX]; 
 	
 	/** @brief length of input string */
 	int        len;
@@ -138,7 +137,7 @@ int native_parse_expression(Handle plugin, int params)
 	pd.variable_cb = GetNativeFunction(2);
 	pd.function_cb = GetNativeFunction(3);
 	pd.user_data = GetNativeCell(4);
-	GetNativeString(1, pd.str, MAX_EXPR_STR);
+	GetNativeString(1, pd.str, EXPR_STR_MAX);
 	pd.pos = 0;
 	pd.len = strlen(pd.str)+1;
 	return view_as<int>(parser_parse(pd));
@@ -146,6 +145,7 @@ int native_parse_expression(Handle plugin, int params)
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+	RegPluginLibrary("expression_parser");
 	CreateNative("parse_expression", native_parse_expression);
 	return APLRes_Success;
 }

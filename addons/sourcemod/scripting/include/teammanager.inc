@@ -17,7 +17,7 @@ enum HealSource
 
 enum DamageSource
 {
-	DAMAGE_NORMAL,
+	DAMAGE_PLAYER,
 	DAMAGE_PROJECTILE,
 };
 
@@ -38,7 +38,7 @@ HEAL_PROJECTILE, entity = player, other = player
 forward Action TeamManager_CanHeal(int entity, int other, HealSource source);
 
 /*
-DAMAGE_NORMAL, attacker = entity, victim = player
+DAMAGE_PLAYER, attacker = entity, victim = player
 DAMAGE_PROJECTILE, attacker = projectile, victim = player
 */
 forward Action TeamManager_CanDamage(int attacker, int victim, DamageSource source);

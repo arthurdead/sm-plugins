@@ -48,26 +48,12 @@
 	{
 		"original_class" "scout"
 		"model" "models/dfs/thataveragejoe/ahatintime/hatkid_dfs.mdl"
-		"variations"
-		{
-			"no bonemerge"
-			{
-				"flags" "nevermerge"
-			}
-		}
 	}
 
 	"Isabelle"
 	{
 		"original_class" "heavy"
 		"model" "models/dfs/player/isabelle/isabelle_dfs.mdl"
-		"variations"
-		{
-			"no bonemerge"
-			{
-				"flags" "nevermerge"
-			}
-		}
 	}
 
 	"Shrek"
@@ -87,13 +73,6 @@
 	{
 		"original_class" "sniper"
 		"model" "models/dfs/thataveragejoe/goose/goose.mdl"
-		"variations"
-		{
-			"no bonemerge"
-			{
-				"flags" "nevermerge"
-			}
-		}
 	}
 
 	"HL1 Scientist"

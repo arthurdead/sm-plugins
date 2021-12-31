@@ -4,13 +4,13 @@
 	{
 		"original_class" "sniper"
 		"model" "models/bots/merasmus/merasmus.mdl"
-		"bodygroup" "merasmus_book"
-		"skin" "2"
+		"bodygroup" "merasmus_staff"
+		"skin" "0"
 		"variations"
 		{
 			"ghost"
 			{
-				"skin" "3"
+				"skin" "1"
 			}
 		}
 	}

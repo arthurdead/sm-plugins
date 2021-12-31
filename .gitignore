@@ -1,1 +1,5 @@
 .vscode/
+
+addons/sourcemod/scripting/economy.sp
+addons/sourcemod/scripting/include/economy.inc
+addons/sourcemod/scripting/economy/

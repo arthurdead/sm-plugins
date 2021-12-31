@@ -7,7 +7,7 @@
 //#define DEBUG
 
 #define Gameplay_Default view_as<GameplayGroupType>(-1)
-#define Gameplay_Unknown view_as<GameplayGroupType>(-2)
+#define Gameplay_Mismatch view_as<GameplayGroupType>(-2)
 
 enum struct GameplayInfo
 {
@@ -137,7 +137,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	gameplaygroups = new ArrayList(sizeof(GameplayInfo));
 	freeslots = new ArrayStack();
 	pluginmap = new ArrayList();
-	RegPluginLibrary("teammanager_nogameplay");
+	RegPluginLibrary("teammanager_gameplay");
 	CreateNative("TeamManager_NewGameplayGroup", native_TeamManager_NewGameplayGroup);
 	CreateNative("TeamManager_RemoveGameplayGroup", native_TeamManager_RemoveGameplayGroup);
 	CreateNative("TeamManager_AddPlayerToGameplayGroup", native_TeamManager_AddPlayerToGameplayGroup);
@@ -219,6 +219,25 @@ public void OnClientDisconnect(int client)
 	}
 }
 
+static int get_building_owner(int entity)
+{
+	return GetEntPropEnt(entity, Prop_Send, "m_hBuilder");
+}
+
+static int get_weapon_owner(int entity)
+{
+	return GetEntPropEnt(entity, Prop_Send, "m_hOwner");
+}
+
+static int get_projectile_owner(int entity)
+{
+	int owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
+	if(owner != -1) {
+		owner = get_weapon_owner(owner);
+	}
+	return owner;
+}
+
 static int get_entity_owner(int other)
 {
 	int other_owner = -1;
@@ -230,7 +249,11 @@ static int get_entity_owner(int other)
 		GetEntityClassname(other, classname, sizeof(classname));
 
 		if(StrContains(classname, "obj_") != -1) {
-			other_owner = GetEntPropEnt(other, Prop_Send, "m_hBuilder");
+			other_owner = get_building_owner(other);
+		} else if(StrContains(classname, "tf_projectile") != -1) {
+			other_owner = get_projectile_owner(other);
+		} else if(StrContains(classname, "tf_weapon") != -1) {
+			other_owner = get_weapon_owner(other);
 		}
 	}
 
@@ -257,29 +280,23 @@ static GameplayGroupType get_equal_group(int player1, int player2)
 		}
 	}
 
-	return Gameplay_Unknown;
+	return Gameplay_Mismatch;
 }
 
 public Action TeamManager_CanHeal(int entity, int other, HealSource source)
 {
 	int owner = -1;
-
 	int other_owner = get_entity_owner(other);
 
 	switch(source) {
 		case HEAL_MEDIGUN, HEAL_WRENCH: {
-			owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+			owner = get_weapon_owner(entity);
 		}
 		case HEAL_DISPENSER: {
-			owner = GetEntPropEnt(entity, Prop_Send, "m_hBuilder");
+			owner = get_building_owner(entity);
 		}
 		case HEAL_PROJECTILE: {
-			owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
-			if(owner != -1) {
-				owner = GetEntPropEnt(owner, Prop_Send, "m_hOwner");
-			} else {
-				owner = -1;
-			}
+			owner = get_projectile_owner(entity);
 		}
 	}
 
@@ -297,7 +314,7 @@ public Action TeamManager_CanHeal(int entity, int other, HealSource source)
 			case Gameplay_FriendlyFire: {
 				return Plugin_Handled;
 			}
-			case Gameplay_Unknown: {
+			case Gameplay_Mismatch: {
 				return Plugin_Handled;
 			}
 		}
@@ -312,20 +329,18 @@ public Action TeamManager_CanDamage(int attacker, int victim, DamageSource sourc
 	int other_owner = -1;
 
 	switch(source) {
-		case DAMAGE_NORMAL: {
+		case DAMAGE_PLAYER: {
 			owner = get_entity_owner(attacker);
 			other_owner = victim;
 		}
 		case DAMAGE_PROJECTILE: {
-			owner = GetEntPropEnt(attacker, Prop_Send, "m_hLauncher");
-			if(owner != -1) {
-				owner = GetEntPropEnt(owner, Prop_Send, "m_hOwner");
-			} else {
-				owner = -1;
-			}
-
+			owner = get_projectile_owner(attacker);
 			other_owner = get_entity_owner(victim);
 		}
+	}
+
+	if(owner == other_owner) {
+		return Plugin_Continue;
 	}
 
 	if(owner != -1 && other_owner != -1) {
@@ -342,7 +357,7 @@ public Action TeamManager_CanDamage(int attacker, int victim, DamageSource sourc
 			case Gameplay_FriendlyFire: {
 				return Plugin_Changed;
 			}
-			case Gameplay_Unknown: {
+			case Gameplay_Mismatch: {
 				return Plugin_Handled;
 			}
 		}
@@ -366,7 +381,7 @@ public Action TeamManager_CanGetJarated(int attacker, int victim)
 		case Gameplay_FriendlyFire: {
 			return Plugin_Handled;
 		}
-		case Gameplay_Unknown: {
+		case Gameplay_Mismatch: {
 			return Plugin_Stop;
 		}
 	}
@@ -393,7 +408,7 @@ public Action TeamManager_InSameTeam(int entity, int other)
 			case Gameplay_FriendlyFire: {
 				return Plugin_Handled;
 			}
-			case Gameplay_Unknown: {
+			case Gameplay_Mismatch: {
 				return Plugin_Changed;
 			}
 		}
@@ -420,7 +435,7 @@ public Action TeamManager_CanAirblast(int weapon, int owner, int other)
 			case Gameplay_FriendlyFire: {
 				return Plugin_Changed;
 			}
-			case Gameplay_Unknown: {
+			case Gameplay_Mismatch: {
 				return Plugin_Handled;
 			}
 		}
@@ -431,8 +446,7 @@ public Action TeamManager_CanAirblast(int weapon, int owner, int other)
 
 public Action TeamManager_CanBackstab(int weapon, int other)
 {
-	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwner");
-
+	int owner = get_weapon_owner(weapon);
 	int other_owner = get_entity_owner(other);
 
 	if(other_owner != -1) {
@@ -449,7 +463,7 @@ public Action TeamManager_CanBackstab(int weapon, int other)
 			case Gameplay_FriendlyFire: {
 				return Plugin_Changed;
 			}
-			case Gameplay_Unknown: {
+			case Gameplay_Mismatch: {
 				return Plugin_Handled;
 			}
 		}

@@ -20,7 +20,7 @@ MRESReturn FPlayerCanTakeDamagePre(Address pThis, Handle hReturn, Handle hParams
 	Call_StartForward(fwCanDamage);
 	Call_PushCell(other);
 	Call_PushCell(owner);
-	Call_PushCell(DAMAGE_NORMAL);
+	Call_PushCell(DAMAGE_PLAYER);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);

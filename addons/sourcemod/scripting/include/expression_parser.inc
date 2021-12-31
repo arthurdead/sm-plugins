@@ -3,6 +3,8 @@
 #endif
 #define __expression_parser_inc
 
+#define EXPR_STR_MAX 512
+
 typedef parser_variable_callback = function bool (any user_data, const char[] name, float &value);
 typedef parser_function_callback = function bool (any user_data, const char[] name, const int num_args, const float[] args, float &value);
 

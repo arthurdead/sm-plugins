@@ -116,14 +116,16 @@ void achievement_earned(Event event, const char[] name, bool dontBroadcast)
 
 public void OnClientPutInServer(int client)
 {
-	if(!IsFakeClient(client)) {
-		if(dbAchiv != null) {
-			QueryPlayerAchivData(dbAchiv, client);
-		}
+	if(IsFakeClient(client)) {
+		return;
+	}
 
-		if(dbMissi != null) {
-			QueryPlayerMissiData(dbMissi, client);
-		}
+	if(dbAchiv != null) {
+		QueryPlayerAchivData(dbAchiv, client);
+	}
+
+	if(dbMissi != null) {
+		QueryPlayerMissiData(dbMissi, client);
 	}
 }
 

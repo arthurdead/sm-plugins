@@ -80,16 +80,6 @@
 		"model" "models/props_halloween/ghost.mdl"
 	}
 
-	"Merasmus"
-	{
-		"model" "models/bots/merasmus/merasmus.mdl"
-	}
-
-	"Horsemann"
-	{
-		"model" "models/bots/headless_hatman.mdl"
-	}
-
 	"Jack Lantern"
 	{
 		"model" "models/props_halloween/jackolantern_01.mdl"
