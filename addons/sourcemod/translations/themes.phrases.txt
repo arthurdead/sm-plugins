@@ -1,0 +1,26 @@
+"Phrases"
+{
+	// Plugin ------------------------------------------------------------------
+	"Plugin_Enable"
+	{
+		"#format"	"{1:s}"
+		"en"		"[SM] {olive}{1}{default} has been enabled!"
+	}
+	"Plugin_Disable"
+	{
+		"#format"	"{1:s}"
+		"en"		"[SM] {olive}{1}{default} has been disabled!"
+	}
+	
+	// Announcements -----------------------------------------------------------
+	"Announce_Theme"
+	{
+		"#format"	"{1:s},{2:s}"
+		"en"		"* The current theme is {1}{2}"
+	}
+	"Announce_NextTheme"
+	{
+		"#format"	"{1:s},{2:s}"
+		"en"		"* The next theme will be {1}{2}"	
+	}
+}

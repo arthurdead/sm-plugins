@@ -4,7 +4,7 @@
 	{
 		"original_class" "demo"
 		"model" "models/kustomfleetings/demo/rappy_b1.mdl"
-		"flags" "nevermerge"
+		"flags" "nevermerge|hidehats"
 	}
 
 	"Easter Demo"
@@ -23,7 +23,7 @@
 	{
 		"type" "custom_model"
 		"model" "models/spundarce/glaceon2.mdl"
-		"flags" "nevermerge"
+		"flags" "nevermerge|hidehats"
 	}
 
 	"CJ"

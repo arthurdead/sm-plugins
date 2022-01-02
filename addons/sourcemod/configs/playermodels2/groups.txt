@@ -20,8 +20,7 @@
 
 	"tf2 props"
 	{
-		"type" "prop"
-		"flags" "nohats|noweapons"
+		"flags" "nogameplay|nohats|noweapons"
 		"override" "models_vip_bronze"
 	}
 }

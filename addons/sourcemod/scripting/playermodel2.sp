@@ -9,9 +9,18 @@
 #include <playermodel2>
 #tryinclude <tauntmanager>
 #tryinclude <sendproxy>
+#tryinclude <tauntmanager>
 #include <teammanager_gameplay>
+#include <tf2utils>
 
 //#define DEBUG
+
+/*
+TODO!!!
+
+support for hiding weapons in specific slots
+support for hiding hats in specific equip regions
+*/
 
 #define INT_STR_MAX 4
 #define MODEL_NAME_MAX 64
@@ -94,6 +103,15 @@ enum cleardatafrom
 	cleardatafrom_reapply,
 };
 
+enum handleswitchfrom
+{
+	handleswitchfrom_spawn,
+	handleswitchfrom_switch,
+	handleswitchfrom_unequip,
+	handleswitchfrom_equip,
+	handleswitchfrom_taunt_end,
+};
+
 #if defined GAME_TF2
 static Handle dummy_item_view;
 static Handle EquipWearable;
@@ -104,29 +122,32 @@ static int m_iAttributeDefinitionIndex_offset = -1;
 static ArrayList class_cache = null;
 static TFClassType tempclass;
 static TFClassType tmpplayerclass[MAXPLAYERS+1];
-static bool taunting[MAXPLAYERS+1];
+static bool attempting_to_taunt[MAXPLAYERS+1];
 static char currenttauntmodel[MAXPLAYERS+1][PLATFORM_MAX_PATH];
 static ConVar tf_always_loser;
 static int player_viewmodelentity[MAXPLAYERS+1][2];
+static bool tf_taunt_first_person[MAXPLAYERS+1];
+static bool cl_first_person_uses_world_model[MAXPLAYERS+1];
 #endif
 
 static int modelgameplay = -1;
-
 static ArrayList modelinfos;
 static StringMap modelinfoidmap;
-
 static ArrayList groupinfos;
-
 static int modelprecache = INVALID_STRING_TABLE;
-
 static char animation_override[PLATFORM_MAX_PATH];
-
+static int player_model_idx[MAXPLAYERS+1];
 static char player_model[MAXPLAYERS+1][PLATFORM_MAX_PATH];
 static int player_skin[MAXPLAYERS+1] = {-1, ...};
 static int player_bodygroup[MAXPLAYERS+1] = {-1, ...};
 static int player_modelentity[MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 static playermodelflags player_flags[MAXPLAYERS+1];
 static TFClassType player_modelclass[MAXPLAYERS+1];
+static DynamicHook ModifyOrAppendCriteria_hook;
+static Handle AppendCriteria;
+static Handle RemoveCriteria;
+static bool spawning[MAXPLAYERS+1] = {true, ...};
+static Handle spawn_timer[MAXPLAYERS+1] = {null, ...};
 
 #if defined GAME_TF2
 static void get_model_for_class(TFClassType class, char[] model, int length)
@@ -256,11 +277,12 @@ static playermodelflags flagsstr_to_flags(const char[] str, playermodelflags def
 		} else if(StrEqual(flagstrs[i][start], "nogameplay")) {
 			REMOVE_OR_ADD_FLAG(flags, playermodel_nogameplay)
 		} else if(StrEqual(flagstrs[i][start], "noweapons")) {
-			if(remove) {
-				flags &= ~(playermodel_noweapons);
-			} else {
-				flags |= playermodel_noweapons|playermodel_nogameplay;
+			REMOVE_OR_ADD_FLAG(flags, playermodel_noweapons)
+			if(!remove) {
+				flags |= playermodel_nogameplay;
 			}
+		} else if(StrEqual(flagstrs[i][start], "nohats")) {
+			REMOVE_OR_ADD_FLAG(flags, playermodel_nohats)
 		} else if(StrEqual(flagstrs[i][start], "hideweapons")) {
 			REMOVE_OR_ADD_FLAG(flags, playermodel_hideweapons)
 		} else if(StrEqual(flagstrs[i][start], "alwaysmerge")) {
@@ -295,6 +317,7 @@ static playermodelflags flagsstr_to_flags(const char[] str, playermodelflags def
 	#define BODYGROUP_SOLDIER_GRENADES (1 << 3)
 	#define BODYGROUP_PYRO_HEAD (1 << 0)
 	#define BODYGROUP_PYRO_GRENADES (1 << 1)
+	#define BODYGROUP_PYRO_PROPANE (1 << 2)
 	#define BODYGROUP_DEMO_SMILE (1 << 0)
 	#define BODYGROUP_DEMO_SHOES (1 << 1)
 	#define BODYGROUP_HEAVY_HANDS (1 << 0)
@@ -307,6 +330,97 @@ static playermodelflags flagsstr_to_flags(const char[] str, playermodelflags def
 	#define BODYGROUP_SPY_MASK (1 << 0)
 	#define BODYGROUP_MERASMUS_BOOK (1 << 1)
 	#define BODYGROUP_MERASMUS_STAFF (1 << 3)
+
+static int calculate_class_bodygroups(int old_body, TFClassType source, TFClassType target)
+{
+	int new_body = 0;
+
+	switch(target) {
+		case TFClass_Scout: {
+			new_body |= BODYGROUP_SCOUT_HAT|BODYGROUP_SCOUT_HEADPHONES|BODYGROUP_SCOUT_DOGTAGS;
+		}
+		case TFClass_Soldier: {
+			new_body |= BODYGROUP_SOLDIER_HELMET|BODYGROUP_SOLDIER_MEDAL|BODYGROUP_SOLDIER_GRENADES;
+		}
+		case TFClass_Engineer: {
+			new_body |= BODYGROUP_ENGINEER_HELMET;
+		}
+		case TFClass_Sniper: {
+			new_body |= BODYGROUP_SNIPER_HAT;
+		}
+		case TFClass_Pyro: {
+			new_body |= BODYGROUP_PYRO_GRENADES|BODYGROUP_PYRO_PROPANE;
+		}
+		case TFClass_Medic: {
+			new_body |= BODYGROUP_MEDIC_BACKPACK;
+		}
+	}
+
+	switch(source) {
+		case TFClass_Scout: {
+			if(old_body & BODYGROUP_SCOUT_HAT) {
+				switch(target) {
+					case TFClass_Soldier: {
+						new_body |= BODYGROUP_SOLDIER_HELMET;
+					}
+					case TFClass_Engineer: {
+						new_body |= BODYGROUP_ENGINEER_HELMET;
+					}
+					case TFClass_Sniper: {
+						new_body |= BODYGROUP_SNIPER_HAT;
+					}
+				}
+			}
+		}
+		case TFClass_Soldier: {
+			if(old_body & BODYGROUP_SOLDIER_HELMET) {
+				switch(target) {
+					case TFClass_Scout: {
+						new_body |= BODYGROUP_SCOUT_HAT;
+					}
+					case TFClass_Engineer: {
+						new_body |= BODYGROUP_ENGINEER_HELMET;
+					}
+					case TFClass_Sniper: {
+						new_body |= BODYGROUP_SNIPER_HAT;
+					}
+				}
+			}
+		}
+		case TFClass_Engineer: {
+			if(old_body & BODYGROUP_ENGINEER_HELMET) {
+				switch(target) {
+					case TFClass_Scout: {
+						new_body |= BODYGROUP_SCOUT_HAT;
+					}
+					case TFClass_Soldier: {
+						new_body |= BODYGROUP_SOLDIER_HELMET;
+					}
+					case TFClass_Sniper: {
+						new_body |= BODYGROUP_SNIPER_HAT;
+					}
+				}
+			}
+		}
+		case TFClass_Sniper: {
+			if(old_body & BODYGROUP_SNIPER_HAT) {
+				switch(target) {
+					case TFClass_Scout: {
+						new_body |= BODYGROUP_SCOUT_HAT;
+					}
+					case TFClass_Soldier: {
+						new_body |= BODYGROUP_SOLDIER_HELMET;
+					}
+					case TFClass_Engineer: {
+						new_body |= BODYGROUP_ENGINEER_HELMET;
+					}
+				}
+			}
+		}
+	}
+
+	return new_body;
+}
 #else
 	#error
 #endif
@@ -340,6 +454,8 @@ static int bodygroupstr_to_bodygroup(const char[] str)
 			bodygroup |= BODYGROUP_PYRO_HEAD;
 		} else if(StrEqual(flagstrs[i], "pyro_grenades")) {
 			bodygroup |= BODYGROUP_PYRO_GRENADES;
+		} else if(StrEqual(flagstrs[i], "pyro_propane")) {
+			bodygroup |= BODYGROUP_PYRO_PROPANE;
 		} else if(StrEqual(flagstrs[i], "demo_smile")) {
 			bodygroup |= BODYGROUP_DEMO_SMILE;
 		} else if(StrEqual(flagstrs[i], "demo_shoes")) {
@@ -579,6 +695,28 @@ public void OnPluginStart()
 		return;
 	}
 
+	StartPrepSDKCall(SDKCall_Raw);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "AI_CriteriaSet::AppendCriteria");
+	PrepSDKCall_AddParameter(SDKType_String, SDKPass_Pointer);
+	PrepSDKCall_AddParameter(SDKType_String, SDKPass_Pointer);
+	PrepSDKCall_AddParameter(SDKType_Float, SDKPass_Plain);
+	AppendCriteria = EndPrepSDKCall();
+	if(AppendCriteria == null) {
+		SetFailState("Failed to create SDKCall for AI_CriteriaSet::AppendCriteria.");
+		delete gamedata;
+		return;
+	}
+
+	StartPrepSDKCall(SDKCall_Raw);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "AI_CriteriaSet::RemoveCriteria");
+	PrepSDKCall_AddParameter(SDKType_String, SDKPass_Pointer);
+	RemoveCriteria = EndPrepSDKCall();
+	if(RemoveCriteria == null) {
+		SetFailState("Failed to create SDKCall for AI_CriteriaSet::RemoveCriteria.");
+		delete gamedata;
+		return;
+	}
+
 	DynamicDetour tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::PlayTauntSceneFromItem");
 	if(!tmp || !tmp.Enable(Hook_Pre, PlayTauntSceneFromItem)) {
 		SetFailState("Failed to enable pre detour for CTFPlayer::PlayTauntSceneFromItem");
@@ -587,6 +725,18 @@ public void OnPluginStart()
 	}
 	if(!tmp.Enable(Hook_Post, PlayTauntSceneFromItem_post)) {
 		SetFailState("Failed to enable post detour for CTFPlayer::PlayTauntSceneFromItem");
+		delete gamedata;
+		return;
+	}
+
+	tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::Taunt");
+	if(!tmp || !tmp.Enable(Hook_Pre, Taunt)) {
+		SetFailState("Failed to enable pre detour for CTFPlayer::Taunt");
+		delete gamedata;
+		return;
+	}
+	if(!tmp.Enable(Hook_Post, Taunt_post)) {
+		SetFailState("Failed to enable post detour for CTFPlayer::Taunt");
 		delete gamedata;
 		return;
 	}
@@ -614,6 +764,8 @@ public void OnPluginStart()
 		delete gamedata;
 		return;
 	}
+
+	ModifyOrAppendCriteria_hook = DynamicHook.FromConf(gamedata, "CBaseEntity::ModifyOrAppendCriteria");
 #endif
 
 	delete gamedata;
@@ -623,6 +775,7 @@ public void OnPluginStart()
 
 #if defined GAME_TF2
 	HookEvent("player_changeclass", player_changeclass);
+	HookEvent("post_inventory_application", post_inventory_application);
 
 	dummy_item_view = TF2Items_CreateItem(OVERRIDE_ALL|FORCE_GENERATION);
 	TF2Items_SetClassname(dummy_item_view, "tf_wearable");
@@ -631,7 +784,7 @@ public void OnPluginStart()
 	TF2Items_SetLevel(dummy_item_view, 0);
 	TF2Items_SetNumAttributes(dummy_item_view, 0);
 
-	class_cache = new ArrayList();
+	class_cache = new ArrayList(3);
 
 	m_Shared_offset = FindSendPropInfo("CTFPlayer", "m_Shared");
 	m_flInvisibility_offset = FindSendPropInfo("CTFPlayer", "m_flInvisChangeCompleteTime") - 8;
@@ -647,6 +800,7 @@ public void OnPluginStart()
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
+			spawning[i] = false;
 			OnClientPutInServer(i);
 		}
 	}
@@ -730,23 +884,77 @@ static Action sm_rpm(int client, int args)
 	return Plugin_Handled;
 }
 
-static void unequip_model(int client)
+static bool is_player_inrespawnroom(int client)
 {
+	float pos[3];
+	GetClientAbsOrigin(client, pos);
+
+	return TF2Util_IsPointInRespawnRoom(pos, client, true);
+}
+
+static void frame_unhide_hats(int client)
+{
+	hide_hats(client, false);
+}
+
+static void frame_unhide_weapons(int client)
+{
+	hide_weapons(client, false);
+}
+
+static void unequip_model(int client, bool unload = false)
+{
+	if(!unload) {
+		if(player_flags[client] & playermodel_nogameplay) {
+			if(!is_player_inrespawnroom(client)) {
+				CPrintToChat(client, PM2_CHAT_PREFIX ... "this model can only be unequipped inside a respawn room");
+				return;
+			}
+		}
+	}
+
+	delete_playerviewmodelentity(client);
+
 	clear_playerdata(client, playermodelslot_hack_all, cleardatafrom_remove);
 
 	if(player_flags[client] & playermodel_nogameplay) {
 		TeamManager_RemovePlayerFromGameplayGroup(client, modelgameplay);
 	}
 
+	if(player_flags[client] & playermodel_hidehats) {
+		RequestFrame(frame_unhide_hats, client);
+	}
+
+	if(player_flags[client] & playermodel_hideweapons) {
+		RequestFrame(frame_unhide_weapons, client);
+	}
+
+	player_model_idx[client] = -1;
 	player_model[client][0] = '\0';
 	player_skin[client] = -1;
 	player_bodygroup[client] = -1;
 	player_flags[client] = playermodel_noflags;
 	player_modelclass[client] = TFClass_Unknown;
+
+	if(!unload) {
+		int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		handle_weaponswitch(client, weapon, handleswitchfrom_unequip);
+	}
 }
 
-static void equip_model_helper(int client, ConfigModelInfo modelinfo)
+static bool equip_model_helper(int client, int idx, ConfigModelInfo modelinfo, bool is_var)
 {
+	if(player_model_idx[client] != idx && modelinfo.flags & playermodel_nogameplay) {
+		if(!is_player_inrespawnroom(client)) {
+			CPrintToChat(client, PM2_CHAT_PREFIX ... "this model can only be equipped inside a respawn room");
+			return false;
+		}
+	}
+
+	delete_playerviewmodelentity(client, 0);
+
+	player_model_idx[client] = idx;
+
 	if(modelinfo.model[0] != '\0') {
 		strcopy(player_model[client], PLATFORM_MAX_PATH, modelinfo.model);
 	}
@@ -765,19 +973,37 @@ static void equip_model_helper(int client, ConfigModelInfo modelinfo)
 
 	if(player_flags[client] & playermodel_nogameplay) {
 		TeamManager_AddPlayerToGameplayGroup(client, modelgameplay);
+		CPrintToChat(client, PM2_CHAT_PREFIX ... "the model you equipped can not participate in normal gameplay");
 	}
+
+	if(player_flags[client] & playermodel_noweapons) {
+		TF2_RemoveAllWeapons(client);
+	}
+
+	if(player_flags[client] & playermodel_nohats) {
+		remove_all_wearables(client);
+	}
+
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	handle_weaponswitch(client, weapon, handleswitchfrom_equip);
+
+	return true;
 }
 
-static void equip_model(int client, ConfigModelInfo modelinfo)
+static void equip_model(int client, int idx, ConfigModelInfo modelinfo)
 {
-	equip_model_helper(client, modelinfo);
+	if(!equip_model_helper(client, idx, modelinfo, false)) {
+		return;
+	}
 
 	handle_playerdata(client, playermodelslot_hack_all, handledatafrom_equip);
 }
 
-static void equip_model_variation(int client, ConfigModelInfo modelinfo, ConfigVariationInfo varinfo)
+static void equip_model_variation(int client, int idx, ConfigModelInfo modelinfo, ConfigVariationInfo varinfo)
 {
-	equip_model_helper(client, modelinfo);
+	if(!equip_model_helper(client, idx, modelinfo, true)) {
+		return;
+	}
 
 	player_flags[client] = varinfo.flags;
 
@@ -792,31 +1018,46 @@ static void equip_model_variation(int client, ConfigModelInfo modelinfo, ConfigV
 	handle_playerdata(client, playermodelslot_hack_all, handledatafrom_equip);
 }
 
-int menuhandler_variation(Menu menu, MenuAction action, int param1, int param2)
+static int menuhandler_variation(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
 		char intstr[INT_STR_MAX];
+		menu.GetItem(0, intstr, INT_STR_MAX);
+		int gidx = StringToInt(intstr);
+		menu.GetItem(1, intstr, INT_STR_MAX);
+		int midx = StringToInt(intstr);
 		menu.GetItem(param2, intstr, INT_STR_MAX);
 		int vidx = StringToInt(intstr);
-
-		if(vidx == -1) {
-			unequip_model(param1);
-			return 0;
-		}
-
-		menu.GetItem(0, intstr, INT_STR_MAX);
-		int midx = StringToInt(intstr);
 
 		ConfigModelInfo modelinfo;
 		modelinfos.GetArray(midx, modelinfo, sizeof(ConfigModelInfo));
 
-		if(vidx == -2) {
-			equip_model(param1, modelinfo);
-		} else {
-			ConfigVariationInfo varinfo;
-			modelinfo.variations.GetArray(vidx, varinfo, sizeof(ConfigVariationInfo));
+		switch(vidx) {
+			case -1: {
+				unequip_model(param1);
+				display_variation_menu(param1, modelinfo, midx, gidx);
+				return 0;
+			}
+			case -2: {
+				equip_model(param1, midx, modelinfo);
+				display_variation_menu(param1, modelinfo, midx, gidx);
+				return 0;
+			}
+			default: {
+				ConfigVariationInfo varinfo;
+				modelinfo.variations.GetArray(vidx, varinfo, sizeof(ConfigVariationInfo));
+				equip_model_variation(param1, midx, modelinfo, varinfo);
+				display_variation_menu(param1, modelinfo, midx, gidx);
+				return 0;
+			}
+		}
+	} else if(action == MenuAction_Cancel) {
+		if(param2 == MenuCancel_ExitBack) {
+			char intstr[INT_STR_MAX];
+			menu.GetItem(0, intstr, INT_STR_MAX);
+			int gidx = StringToInt(intstr);
 
-			equip_model_variation(param1, modelinfo, varinfo);
+			display_group_menu(param1, gidx);
 		}
 	} else if(action == MenuAction_End) {
 		delete menu;
@@ -825,44 +1066,65 @@ int menuhandler_variation(Menu menu, MenuAction action, int param1, int param2)
 	return 0;
 }
 
-int menuhandler_model(Menu menu, MenuAction action, int param1, int param2)
+static void display_variation_menu(int client, ConfigModelInfo modelinfo, int midx, int gidx)
+{
+	Menu vmenu = CreateMenu(menuhandler_variation);
+	vmenu.SetTitle(modelinfo.name);
+	vmenu.ExitBackButton = true;
+
+	char intstr[INT_STR_MAX];
+	IntToString(gidx, intstr, INT_STR_MAX);
+	vmenu.AddItem(intstr, "", ITEMDRAW_IGNORE);
+
+	IntToString(midx, intstr, INT_STR_MAX);
+	vmenu.AddItem(intstr, "", ITEMDRAW_IGNORE);
+
+	vmenu.AddItem("-1", "remove");
+
+	vmenu.AddItem("-2", "default");
+
+	ConfigVariationInfo varinfo;
+
+	int len = modelinfo.variations.Length;
+	for(int i = 0; i < len; ++i) {
+		modelinfo.variations.GetArray(i, varinfo, sizeof(ConfigVariationInfo));
+
+		IntToString(i, intstr, INT_STR_MAX);
+		vmenu.AddItem(intstr, varinfo.name);
+	}
+
+	vmenu.Display(client, MENU_TIME_FOREVER);
+}
+
+static int menuhandler_model(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
 		char intstr[INT_STR_MAX];
+		menu.GetItem(0, intstr, INT_STR_MAX);
+		int gidx = StringToInt(intstr);
 		menu.GetItem(param2, intstr, INT_STR_MAX);
-		int idx = StringToInt(intstr);
+		int midx = StringToInt(intstr);
 
-		if(idx == -1) {
+		if(midx == -1) {
 			unequip_model(param1);
+			display_group_menu(param1, gidx);
+			return 0;
 		} else {
 			ConfigModelInfo modelinfo;
-			modelinfos.GetArray(idx, modelinfo, sizeof(ConfigModelInfo));
+			modelinfos.GetArray(midx, modelinfo, sizeof(ConfigModelInfo));
 
 			if(modelinfo.variations) {
-				Menu vmenu = CreateMenu(menuhandler_variation);
-				vmenu.SetTitle(modelinfo.name);
-
-				IntToString(idx, intstr, INT_STR_MAX);
-				vmenu.AddItem(intstr, "", ITEMDRAW_IGNORE);
-
-				vmenu.AddItem("-1", "remove");
-
-				vmenu.AddItem("-2", "default");
-
-				ConfigVariationInfo varinfo;
-
-				int len = modelinfo.variations.Length;
-				for(int i = 0; i < len; ++i) {
-					modelinfo.variations.GetArray(i, varinfo, sizeof(ConfigVariationInfo));
-
-					IntToString(i, intstr, INT_STR_MAX);
-					vmenu.AddItem(intstr, varinfo.name);
-				}
-
-				vmenu.Display(param1, MENU_TIME_FOREVER);
+				display_variation_menu(param1, modelinfo, midx, gidx);
+				return 0;
 			} else {
-				equip_model(param1, modelinfo);
+				equip_model(param1, midx, modelinfo);
+				display_group_menu(param1, gidx);
+				return 0;
 			}
+		}
+	} else if(action == MenuAction_Cancel) {
+		if(param2 == MenuCancel_ExitBack) {
+			display_groups_menu(param1);
 		}
 	} else if(action == MenuAction_End) {
 		delete menu;
@@ -871,7 +1133,37 @@ int menuhandler_model(Menu menu, MenuAction action, int param1, int param2)
 	return 0;
 }
 
-int menuhandler_group(Menu menu, MenuAction action, int param1, int param2)
+static void display_group_menu(int client, int idx)
+{
+	ConfigGroupInfo groupinfo;
+	groupinfos.GetArray(idx, groupinfo, sizeof(ConfigGroupInfo));
+
+	Menu mmenu = CreateMenu(menuhandler_model);
+	mmenu.SetTitle(groupinfo.name);
+	mmenu.ExitBackButton = true;
+
+	char intstr[INT_STR_MAX];
+	IntToString(idx, intstr, INT_STR_MAX);
+	mmenu.AddItem(intstr, "", ITEMDRAW_IGNORE);
+
+	mmenu.AddItem("-1", "remove");
+
+	ConfigModelInfo modelinfo;
+
+	int len = groupinfo.models.Length;
+	for(int i = 0; i < len; ++i) {
+		idx = groupinfo.models.Get(i);
+
+		modelinfos.GetArray(idx, modelinfo, sizeof(ConfigModelInfo));
+
+		IntToString(idx, intstr, INT_STR_MAX);
+		mmenu.AddItem(intstr, modelinfo.name);
+	}
+
+	mmenu.Display(client, MENU_TIME_FOREVER);
+}
+
+static int menuhandler_group(Menu menu, MenuAction action, int param1, int param2)
 {
 	if(action == MenuAction_Select) {
 		char intstr[INT_STR_MAX];
@@ -880,28 +1172,11 @@ int menuhandler_group(Menu menu, MenuAction action, int param1, int param2)
 
 		if(idx == -1) {
 			unequip_model(param1);
+			display_groups_menu(param1);
+			return 0;
 		} else {
-			ConfigGroupInfo groupinfo;
-			groupinfos.GetArray(idx, groupinfo, sizeof(ConfigGroupInfo));
-
-			Menu mmenu = CreateMenu(menuhandler_model);
-			mmenu.SetTitle(groupinfo.name);
-
-			mmenu.AddItem("-1", "remove");
-
-			ConfigModelInfo modelinfo;
-
-			int len = groupinfo.models.Length;
-			for(int i = 0; i < len; ++i) {
-				idx = groupinfo.models.Get(i);
-
-				modelinfos.GetArray(idx, modelinfo, sizeof(ConfigModelInfo));
-
-				IntToString(idx, intstr, INT_STR_MAX);
-				mmenu.AddItem(intstr, modelinfo.name);
-			}
-
-			mmenu.Display(param1, MENU_TIME_FOREVER);
+			display_group_menu(param1, idx);
+			return 0;
 		}
 	} else if(action == MenuAction_End) {
 		delete menu;
@@ -910,10 +1185,8 @@ int menuhandler_group(Menu menu, MenuAction action, int param1, int param2)
 	return 0;
 }
 
-static Action sm_pm(int client, int args)
+static void display_groups_menu(int client)
 {
-	ConfigGroupInfo groupinfo;
-
 	char clientsteam[STEAMID_MAX];
 
 	Menu menu = CreateMenu(menuhandler_group);
@@ -922,6 +1195,8 @@ static Action sm_pm(int client, int args)
 	menu.AddItem("-1", "remove");
 
 	char intstr[INT_STR_MAX];
+
+	ConfigGroupInfo groupinfo;
 
 	int len = groupinfos.Length;
 	for(int i = 0; i < len; ++i) {
@@ -948,20 +1223,72 @@ static Action sm_pm(int client, int args)
 	}
 
 	menu.Display(client, MENU_TIME_FOREVER);
+}
 
+static Action sm_pm(int client, int args)
+{
+	display_groups_menu(client);
 	return Plugin_Handled;
 }
 
-static void frame_spawn(int client)
+Action timer_spawn(Handle timer, int client)
 {
+	client = GetClientOfUserId(client);
+	if(client == 0) {
+		return Plugin_Continue;
+	}
+
+	spawn_timer[client] = null;
+
+	if(TF2_GetPlayerClass(client) == TFClass_Unknown) {
+		return Plugin_Continue;
+	}
+
+	SDKHook(client, SDKHook_PostThinkPost, player_think_noweapon);
+
 	handle_playerdata(client, playermodelslot_hack_all, handledatafrom_spawn);
+
+	spawning[client] = false;
+
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	handle_weaponswitch(client, weapon, handleswitchfrom_spawn);
+
+	return Plugin_Continue;
 }
 
 static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int usrid = event.GetInt("userid");
+	int client = GetClientOfUserId(usrid);
 
-	RequestFrame(frame_spawn, client);
+	delete_playerviewmodelentity(client, 0);
+
+	spawning[client] = true;
+
+	if(spawn_timer[client] != null) {
+		KillTimer(spawn_timer[client]);
+	}
+	spawn_timer[client] = CreateTimer(0.5, timer_spawn, usrid);
+}
+
+static void frame_ragdoll(int entity)
+{
+	int owner = GetEntProp(entity, Prop_Send, "m_iPlayerIndex");
+
+#if defined DEBUG && 0
+	PrintToServer(PM2_CON_PREFIX ... "%i %i", entity, player_modelclass[owner]);
+#endif
+
+	if(player_modelclass[owner] != TFClass_Unknown) {
+		SetEntProp(entity, Prop_Send, "m_iClass", player_modelclass[owner]);
+	}
+}
+
+public void OnEntityCreated(int entity, const char[] classname)
+{
+	if(StrEqual(classname, "tf_ragdoll")) {
+		RequestFrame(frame_ragdoll, entity);
+	}
 }
 
 static void player_death(Event event, const char[] name, bool dontBroadcast)
@@ -973,6 +1300,8 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 	if(!(flags & TF_DEATHFLAG_DEADRINGER))
 #endif
 	{
+		SDKUnhook(client, SDKHook_PostThinkPost, player_think_noweapon);
+
 		clear_playerdata(client, playermodelslot_hack_all, cleardatafrom_death);
 
 		delete_playerviewmodelentity(client);
@@ -1043,35 +1372,25 @@ public Action TauntManager_RemoveTauntModel(int client)
 }
 #endif
 
-public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookParam hParams)
+public MRESReturn Taunt(int pThis, DHookParam hParams)
 {
-	int m_iAttributeDefinitionIndex = -1;
-	if(!hParams.IsNull(1)) {
-		m_iAttributeDefinitionIndex = hParams.GetObjectVar(1, m_iAttributeDefinitionIndex_offset, ObjectValueType_Int);
-	}
-
 	tempclass = TFClass_Unknown;
 	tmpplayerclass[pThis] = TFClass_Unknown;
-	taunting[pThis] = true;
+	attempting_to_taunt[pThis] = true;
 
 	bool valid = true;
 
-	if(m_iAttributeDefinitionIndex != -1) {
-		TFClassType class = TF2_GetPlayerClass(pThis);
+	TFClassType class = TF2_GetPlayerClass(pThis);
+	TFClassType desiredclass = TFClass_Unknown;
 
-		bool found = false;
+#if defined _tauntmanager_included_
+	TauntManager_CodeTaunt codetaunt = TauntManager_GetCurrentCodeTaunt(pThis);
+	if(codetaunt != TauntManager_InvalidCodeTaunt) {
+		ArrayList classes = new ArrayList();
+		TauntManager_GetCodeTauntUsableClasses(codetaunt, classes);
 
-		ArrayList classes = get_classes_for_taunt(m_iAttributeDefinitionIndex);
 		int len = classes.Length;
-		for(int i = 0; i < len; ++i) {
-			TFClassType supported = classes.Get(i);
-			if(class == supported) {
-				found = true;
-				break;
-			}
-		}
-
-		if(!found && len > 0) {
+		if(len > 0) {
 			if(class == TFClass_Spy) {
 				if(TF2_IsPlayerInCondition(pThis, TFCond_Cloaked) ||
 					TF2_IsPlayerInCondition(pThis, TFCond_CloakFlicker) ||
@@ -1084,7 +1403,81 @@ public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookPa
 			}
 
 			if(valid) {
-				TFClassType desiredclass = classes.Get(GetRandomInt(0, len-1));
+				if(classes.FindValue(class) != -1) {
+					desiredclass = class;
+				} else {
+					desiredclass = classes.Get(GetRandomInt(0, len-1));
+				}
+			#if defined DEBUG
+				PrintToServer(PM2_CON_PREFIX ... "Taunt %i %i", desiredclass, class);
+			#endif
+			}
+		}
+
+		delete classes;
+	} else
+#endif
+	{
+		int weapon = GetEntPropEnt(pThis, Prop_Send, "m_hActiveWeapon");
+		if(weapon != -1) {
+			desiredclass = get_class_for_weapon(weapon, class);
+		}
+	}
+
+	if(desiredclass != TFClass_Unknown) {
+		if(currenttauntmodel[pThis][0] == '\0') {
+			get_model_for_class(desiredclass, currenttauntmodel[pThis], PLATFORM_MAX_PATH);
+			handle_playerdata(pThis, playermodelslot_animation, handledatafrom_taunt_start);
+		}
+	#if defined DEBUG
+		PrintToServer(PM2_CON_PREFIX ... "Taunt %i %i", class, desiredclass);
+	#endif
+		TF2_SetPlayerClass(pThis, desiredclass);
+		tempclass = class;
+		tmpplayerclass[pThis] = desiredclass;
+	}
+
+	return MRES_Ignored;
+}
+
+public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookParam hParams)
+{
+	int m_iAttributeDefinitionIndex = -1;
+	if(!hParams.IsNull(1)) {
+		m_iAttributeDefinitionIndex = hParams.GetObjectVar(1, m_iAttributeDefinitionIndex_offset, ObjectValueType_Int);
+	}
+
+	tempclass = TFClass_Unknown;
+	tmpplayerclass[pThis] = TFClass_Unknown;
+	attempting_to_taunt[pThis] = true;
+
+	bool valid = true;
+
+	if(m_iAttributeDefinitionIndex != -1) {
+		TFClassType class = TF2_GetPlayerClass(pThis);
+
+		ArrayList classes = get_classes_for_taunt(m_iAttributeDefinitionIndex);
+
+		int len = classes.Length;
+		if(len > 0) {
+			if(class == TFClass_Spy) {
+				if(TF2_IsPlayerInCondition(pThis, TFCond_Cloaked) ||
+					TF2_IsPlayerInCondition(pThis, TFCond_CloakFlicker) ||
+					TF2_IsPlayerInCondition(pThis, TFCond_Stealthed) ||
+					TF2_IsPlayerInCondition(pThis, TFCond_StealthedUserBuffFade) ||
+					TF2_IsPlayerInCondition(pThis, TFCond_Disguised) ||
+					TF2_IsPlayerInCondition(pThis, TFCond_Disguising)) {
+					valid = false;
+				}
+			}
+
+			if(valid) {
+				TFClassType desiredclass = TFClass_Unknown;
+				if(classes.FindValue(class) != -1) {
+					desiredclass = class;
+				} else {
+					desiredclass = classes.Get(GetRandomInt(0, len-1));
+				}
 				if(currenttauntmodel[pThis][0] == '\0') {
 					get_model_for_class(desiredclass, currenttauntmodel[pThis], PLATFORM_MAX_PATH);
 					handle_playerdata(pThis, playermodelslot_animation, handledatafrom_taunt_start);
@@ -1101,12 +1494,20 @@ public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookPa
 		delete classes;
 	}
 
-	if(!valid) {
-		hReturn.Value = false;
-		return MRES_Supercede;
-	} else {
-		return MRES_Ignored;
+	return MRES_Ignored;
+}
+
+static MRESReturn Taunt_post(int pThis, DHookParam hParams)
+{
+	if(tempclass != TFClass_Unknown) {
+	#if defined DEBUG
+		PrintToServer(PM2_CON_PREFIX ... "Taunt_post %i", tempclass);
+	#endif
+		TF2_SetPlayerClass(pThis, tempclass);
 	}
+	tempclass = TFClass_Unknown;
+	tmpplayerclass[pThis] = TFClass_Unknown;
+	return MRES_Ignored;
 }
 
 static MRESReturn EndLongTaunt(int pThis, DHookReturn hReturn)
@@ -1184,10 +1585,11 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 		case TFCond_Disguised:
 		{ handle_playerdata(client, playermodelslot_animation, handledatafrom_disguise_end); }
 		case TFCond_Taunting: {
-			taunting[client] = false;
+			attempting_to_taunt[client] = false;
 			currenttauntmodel[client][0] = '\0';
-
 			handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_end);
+			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			handle_weaponswitch(client, weapon, handleswitchfrom_taunt_end);
 		}
 	}
 }
@@ -1247,8 +1649,8 @@ static ArrayList get_class_cache(int weapon, int item, int &bitmask = 0)
 {
 	int idx = class_cache.FindValue(item);
 	if(idx != -1) {
-		bitmask = class_cache.Get(++idx);
-		ArrayList tmp = class_cache.Get(++idx);
+		bitmask = class_cache.Get(idx, 2);
+		ArrayList tmp = class_cache.Get(idx, 1);
 		return tmp;
 	} else {
 		ArrayList tmp = new ArrayList();
@@ -1285,15 +1687,21 @@ static ArrayList get_class_cache(int weapon, int item, int &bitmask = 0)
 			int slot = TF2Econ_GetItemLoadoutSlot(item, icls);
 			if(slot != -1) {
 				tmp.Push(icls);
+			#if defined DEBUG && 0
+				PrintToServer(PM2_CON_PREFIX ... "%i", icls);
+			#endif
 				bitmask |= BIT_FOR_CLASS(icls);
 			}
 		}
 
 		int len = tmp.Length;
 		if(len > 0) {
-			class_cache.Push(item);
-			class_cache.Push(bitmask);
-			class_cache.Push(tmp);
+		#if defined DEBUG && 0
+			PrintToServer(PM2_CON_PREFIX ... "%i %i", item, bitmask);
+		#endif
+			idx = class_cache.Push(item);
+			class_cache.Set(idx, bitmask, 2);
+			class_cache.Set(idx, tmp, 1);
 		} else {
 			delete tmp;
 			len = 0;
@@ -1314,7 +1722,7 @@ static TFClassType get_class_for_weapon(int weapon, TFClassType player_class, in
 	TFClassType weapon_class = TFClass_Unknown;
 
 	ArrayList cache = get_class_cache(weapon, m_iItemDefinitionIndex, bitmask);
-	if(cache) {
+	if(cache != null) {
 		if(cache.FindValue(player_class) != -1) {
 			weapon_class = player_class;
 		} else {
@@ -1337,6 +1745,11 @@ static int get_viewmodelentity(int client, int i)
 	}
 
 	return entity;
+}
+
+static int get_bodygroup_for_arm(TFClassType class)
+{
+	return 0;
 }
 
 static void get_arm_model_for_class(int client, TFClassType class, char[] model, int length)
@@ -1393,15 +1806,28 @@ static void player_changeclass(Event event, const char[] name, bool dontBroadcas
 }
 #endif
 
-static void player_weaponequippost(int client, int weapon)
+static void player_think_noweapon(int client)
 {
-	player_weaponswitchpost(client, weapon);
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if(weapon != -1) {
+		tf_always_loser.ReplicateToClient(client, tf_always_loser.BoolValue ? "1" : "0");
+	} else {
+		tf_always_loser.ReplicateToClient(client, "1");
+	}
 }
 
-static void player_weaponswitchpost(int client, int weapon)
+static void handle_weaponswitch(int client, int weapon, handleswitchfrom from)
 {
+	//TODO!! optimize using handleswitchfrom
+
 #if defined GAME_TF2
-	if(taunting[client] || TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
+	bool weapon_valid = IsValidEntity(weapon);
+
+#if defined DEBUG && 1
+	PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch %i %i", from, spawning[client]);
+#endif
+
+	if(attempting_to_taunt[client] || TF2_IsPlayerInCondition(client, TFCond_Taunting) || spawning[client]) {
 		return;
 	}
 
@@ -1409,23 +1835,20 @@ static void player_weaponswitchpost(int client, int weapon)
 
 	TFClassType weapon_class = TFClass_Unknown;
 	int bitmask = 0;
-	if(IsValidEntity(weapon)) {
+	if(weapon_valid) {
 		weapon_class = get_class_for_weapon(weapon, player_class, bitmask);
 	}
 
-	if(weapon_class != TFClass_Unknown /*&& weapon_class != player_class*/) {
-		get_model_for_class(weapon_class, animation_override, PLATFORM_MAX_PATH);
-	}
-
-	handle_playerdata(client, playermodelslot_animation, handledatafrom_weaponswitch);
-
-	if(weapon_class != TFClass_Unknown) {
-		if((weapon_class == TFClass_Pyro) &&
-			!!(bitmask & BIT_FOR_CLASS(TFClass_Soldier)) &&
-			(player_class != TFClass_Pyro)) {
-			weapon_class = TFClass_Soldier;
+	if(from == handleswitchfrom_switch ||
+		from == handleswitchfrom_unequip) {
+		if(weapon_class != TFClass_Unknown /*&& weapon_class != player_class*/) {
+			get_model_for_class(weapon_class, animation_override, PLATFORM_MAX_PATH);
 		}
 
+		handle_playerdata(client, playermodelslot_animation, handledatafrom_weaponswitch);
+	}
+
+	if(weapon_class != TFClass_Unknown) {
 		char model[PLATFORM_MAX_PATH];
 		get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
 
@@ -1437,13 +1860,18 @@ static void player_weaponswitchpost(int client, int weapon)
 		SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
 		SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
 
-	#if defined DEBUG
-		PrintToServer(PM2_CON_PREFIX ... "%i %s %i", weapon_class, model, idx);
+	#if defined DEBUG && 1
+		PrintToServer(PM2_CON_PREFIX ... "viewmodel a %i %s %i", weapon_class, model, idx);
 	#endif
 
 		delete_playerviewmodelentity(client, 1);
 
-		bool different_class = (weapon_class != player_class);
+		TFClassType arm_class = player_class;
+		if(player_modelclass[client] != TFClass_Unknown) {
+			arm_class = player_modelclass[client];
+		}
+
+		bool different_class = (weapon_class != arm_class);
 
 		if(different_class) {
 			int entity = get_or_create_viewmodelentity(client, 0);
@@ -1455,22 +1883,32 @@ static void player_weaponswitchpost(int client, int weapon)
 			effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
 			SetEntProp(entity, Prop_Send, "m_fEffects", effects);
 
-			get_arm_model_for_class(client, player_class, model, PLATFORM_MAX_PATH);
+			get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
 			idx = PrecacheModel(model);
 
 			SetEntityModel(entity, model);
 			SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+			SetEntProp(entity, Prop_Send, "m_nBody", get_bodygroup_for_arm(arm_class));
 
 			SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
 
-		#if defined DEBUG
-			PrintToServer(PM2_CON_PREFIX ... "%i %s %i", player_class, model, idx);
+		#if defined DEBUG && 1
+			PrintToServer(PM2_CON_PREFIX ... "viewmodel f %i %s %i", arm_class, model, idx);
 		#endif
 
 			entity = get_or_create_viewmodelentity(client, 1);
 
 			idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
 			ReadStringTable(modelprecache, idx, model, PLATFORM_MAX_PATH);
+
+			int id = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
+			SetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex", id);
+			id = GetEntProp(weapon, Prop_Send, "m_iEntityLevel");
+			SetEntProp(entity, Prop_Send, "m_iEntityLevel", id);
+			id = GetEntProp(weapon, Prop_Send, "m_iItemIDHigh");
+			SetEntProp(entity, Prop_Send, "m_iItemIDHigh", id);
+			id = GetEntProp(weapon, Prop_Send, "m_iItemIDLow");
+			SetEntProp(entity, Prop_Send, "m_iItemIDLow", id);
 
 		#if defined DEBUG && 0
 			PrintToServer(PM2_CON_PREFIX ... "%s", model);
@@ -1500,13 +1938,32 @@ static void player_weaponswitchpost(int client, int weapon)
 #endif
 }
 
+static void player_weaponswitchpost(int client, int weapon)
+{
+	handle_weaponswitch(client, weapon, handleswitchfrom_switch);
+}
+
 public void OnPluginEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
-			unequip_model(i);
+			unequip_model(i, true);
 			OnClientDisconnect(i);
 		}
+	}
+}
+
+static void tf_taunt_first_person_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay && StrEqual(cvarValue, "1")) {
+		tf_taunt_first_person[client] = true;
+	}
+}
+
+static void cl_first_person_uses_world_model_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+{
+	if(result == ConVarQuery_Okay && StrEqual(cvarValue, "1")) {
+		cl_first_person_uses_world_model[client] = true;
 	}
 }
 
@@ -1515,21 +1972,33 @@ public void OnClientPutInServer(int client)
 	player_viewmodelentity[client][0] = INVALID_ENT_REFERENCE;
 	player_viewmodelentity[client][1] = INVALID_ENT_REFERENCE;
 
-	SDKHook(client, SDKHook_PostThinkPost, player_postthinkpost);
-	SDKHook(client, SDKHook_WeaponEquipPost, player_weaponequippost);
 	SDKHook(client, SDKHook_WeaponSwitchPost, player_weaponswitchpost);
+
+	ModifyOrAppendCriteria_hook.HookEntity(Hook_Post, client, ModifyOrAppendCriteria);
+
+	if(!IsFakeClient(client)) {
+		QueryClientConVar(client, "tf_taunt_first_person", tf_taunt_first_person_query);
+		QueryClientConVar(client, "cl_first_person_uses_world_model", cl_first_person_uses_world_model_query);
+	}
+}
+
+public MRESReturn ModifyOrAppendCriteria(int pThis, DHookParam hParams)
+{
+	Address criteriaSet = hParams.GetAddress(1);
+
+	return MRES_Ignored;
 }
 
 #if defined GAME_TF2
-static void delete_playerviewmodelentity(int client, int i = -1)
+static void delete_playerviewmodelentity(int client, int i = -1, int weapon = -1)
 {
 #if defined DEBUG && 0
 	PrintToServer(PM2_CON_PREFIX ... "delete_playerviewmodelentity(%i)", client);
 #endif
 
 	if(i == -1) {
-		delete_playerviewmodelentity(client, 0);
-		delete_playerviewmodelentity(client, 1);
+		delete_playerviewmodelentity(client, 0, weapon);
+		delete_playerviewmodelentity(client, 1, weapon);
 		return;
 	}
 
@@ -1541,6 +2010,20 @@ static void delete_playerviewmodelentity(int client, int i = -1)
 		AcceptEntityInput(entity, "ClearParent");
 		RemoveEntity(entity);
 		player_viewmodelentity[client][i] = INVALID_ENT_REFERENCE;
+
+		if(i == 0) {
+			if(weapon == -1) {
+				weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			}
+			if(weapon != -1) {
+				int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
+				int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
+
+				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+				effects &= ~EF_NODRAW;
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+			}
+		}
 	}
 }
 #endif
@@ -1570,16 +2053,25 @@ public void OnClientDisconnect(int client)
 	delete_playermodelentity(client);
 	delete_playerviewmodelentity(client);
 
+	spawning[client] = true;
+
 #if defined GAME_TF2
 	tmpplayerclass[client] = TFClass_Unknown;
-	taunting[client] = false;
+	attempting_to_taunt[client] = false;
 	currenttauntmodel[client][0] = '\0';
 #endif
 
+	if(spawn_timer[client] != null) {
+		KillTimer(spawn_timer[client]);
+	}
+	spawn_timer[client] = null;
+
+	player_model_idx[client] = -1;
 	player_model[client][0] = '\0';
 	player_skin[client] = -1;
 	player_bodygroup[client] = -1;
 	player_flags[client] = playermodel_noflags;
+	player_modelclass[client] = TFClass_Unknown;
 }
 
 #if defined GAME_TF2
@@ -1603,7 +2095,127 @@ int calc_spy_alpha(int client)
 }
 #endif
 
-static void player_postthinkpost(int client)
+static void remove_all_wearables(int client)
+{
+#if defined CAN_GET_UTLVECTOR
+	int len = GetEntPropArraySize(client, Prop_Send, "m_hMyWearables");
+	for(int i = 0; i < len; ++i) {
+		int entity = GetEntPropEnt(client, Prop_Send, "m_hMyWearables", i);
+		if(entity != -1) {
+			TF2_RemoveWearable(client, entity);
+			RemoveEntity(entity);
+		}
+	}
+#else
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1) {
+		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+		if(owner == client) {
+			TF2_RemoveWearable(owner, entity);
+			RemoveEntity(entity);
+		}
+	}
+#endif
+}
+
+#if !defined CAN_GET_UTLVECTOR
+public void OnGameFrame()
+{
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1) {
+		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+		if(owner != -1) {
+			if(player_flags[owner] & playermodel_hidehats) {
+				SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+				set_entity_alpha(entity, 0);
+			}
+		}
+	}
+}
+#endif
+
+static void hide_hats(int client, bool value)
+{
+#if defined CAN_GET_UTLVECTOR
+	int len = GetEntPropArraySize(client, Prop_Send, "m_hMyWearables");
+	for(int i = 0; i < len; ++i) {
+		int entity = GetEntPropEnt(client, Prop_Send, "m_hMyWearables", i);
+		if(entity != -1) {
+			SetEntityRenderMode(entity, value ? RENDER_TRANSCOLOR : RENDER_NORMAL);
+			set_entity_alpha(entity, value ? 0 : 255);
+		}
+	}
+#else
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1) {
+		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+		if(owner == client) {
+			SetEntityRenderMode(entity, value ? RENDER_TRANSCOLOR : RENDER_NORMAL);
+			set_entity_alpha(entity, value ? 0 : 255);
+		}
+	}
+#endif
+}
+
+static void frame_inventory(int client)
+{
+	if(player_flags[client] & playermodel_noweapons) {
+		TF2_RemoveAllWeapons(client);
+	}
+
+	if(player_flags[client] & playermodel_nohats) {
+		remove_all_wearables(client);
+	}
+}
+
+static void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+
+	RequestFrame(frame_inventory, client);
+}
+
+static void set_entity_alpha(int entity, int a)
+{
+	int r = 255;
+	int g = 255;
+	int b = 255;
+	int __a = 255;
+	GetEntityRenderColor(entity, r, g, b, __a);
+	__a = a;
+	SetEntityRenderColor(entity, r, g, b, a);
+}
+
+static void hide_weapons(int client, bool value)
+{
+	int len = GetEntPropArraySize(client, Prop_Send, "m_hMyWeapons");
+	for(int i = 0; i < len; ++i) {
+		int entity = GetEntPropEnt(client, Prop_Send, "m_hMyWeapons", i);
+		if(entity != -1) {
+			SetEntityRenderMode(entity, value ? RENDER_TRANSCOLOR : RENDER_NORMAL);
+			set_entity_alpha(entity, value ? 0 : 255);
+		}
+	}
+}
+
+static void player_think_hatsalpha(int client)
+{
+	if(player_flags[client] & playermodel_hideweapons) {
+		int entity = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		if(entity != -1) {
+			SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+			set_entity_alpha(entity, 0);
+		}
+	}
+
+#if defined CAN_GET_UTLVECTOR
+	if(player_flags[client] & playermodel_hidehats) {
+		hide_hats(client, true);
+	}
+#endif
+}
+
+static void player_think_modelalpha(int client)
 {
 	int entity = get_modelentity(client);
 	if(entity == -1) {
@@ -1732,6 +2344,16 @@ static void clear_playerdata(int client, playermodelslot which, cleardatafrom fr
 		#endif
 		}
 		case playermodelslot_animation, playermodelslot_model: {
+			if((reapply_from == handledatafrom_equip ||
+				from == cleardatafrom_remove) &&
+				TF2_IsPlayerInCondition(client, TFCond_Taunting))
+			{
+				return;
+			}
+
+			SDKUnhook(client, SDKHook_PostThinkPost, player_think_modelalpha);
+			SDKUnhook(client, SDKHook_PostThinkPost, player_think_hatsalpha);
+
 			reset_custommodel(client);
 
 			delete_playermodelentity(client);
@@ -1780,29 +2402,35 @@ static int get_modelentity_or_client(int client)
 	return entity;
 }
 
-Action model_transmit(int entity, int client)
+static bool is_player_thirdperson(int client)
 {
-	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
-	if(client == owner) {
-	#if defined GAME_TF2
-		bool thirdperson = (
-			TF2_IsPlayerInCondition(client, TFCond_Taunting) ||
+#if defined GAME_TF2
+	if(cl_first_person_uses_world_model[client] || tf_taunt_first_person[client]) {
+		return false;
+	}
+
+	return (TF2_IsPlayerInCondition(client, TFCond_Taunting) ||
+			TF2_IsPlayerInCondition(client, TFCond_HalloweenThriller) ||
+			TF2_IsPlayerInCondition(client, TFCond_Bonked) ||
+			!!(GetEntProp(client, Prop_Send, "m_iStunFlags") & TF_STUNFLAG_THIRDPERSON) ||
+			GetEntProp(client, Prop_Send, "m_bIsReadyToHighFive") == 1 ||
+			GetEntProp(client, Prop_Send, "m_nForceTauntCam") == 1 ||
+			TF2_IsPlayerInCondition(client, TFCond_HalloweenKart) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenBombHead) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenGiant) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenTiny) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenGhostMode) ||
-			TF2_IsPlayerInCondition(client, TFCond_HalloweenKart) ||
 			TF2_IsPlayerInCondition(client, TFCond_MeleeOnly) ||
 			TF2_IsPlayerInCondition(client, TFCond_SwimmingCurse) ||
-			!!(GetEntProp(owner, Prop_Send, "m_iStunFlags") & (TF_STUNFLAG_THIRDPERSON)) ||
-			tf_always_loser.BoolValue ||
-			GetEntProp(owner, Prop_Send, "m_bIsReadyToHighFive") == 1 ||
-			GetEntProp(owner, Prop_Send, "m_nForceTauntCam") == 1
-		);
-	#else
-		#error
-	#endif
-		if(!thirdperson) {
+			tf_always_loser.BoolValue);
+#endif
+}
+
+Action model_transmit(int entity, int client)
+{
+	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	if(client == owner) {
+		if(!is_player_thirdperson(client)) {
 			return Plugin_Handled;
 		}
 	} else {
@@ -1859,8 +2487,17 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 
 			if(new_bodygroup != -1) {
 				int entity = get_modelentity_or_client(client);
-
 				SetEntProp(entity, Prop_Send, "m_nBody", new_bodygroup);
+			} else {
+				if(player_modelclass[client] != TFClass_Unknown) {
+					int entity = get_modelentity(client);
+					if(entity != -1) {
+						TFClassType player_class = TF2_GetPlayerClass(client);
+						int old_body = GetEntProp(client, Prop_Send, "m_nBody");
+						new_bodygroup = calculate_class_bodygroups(old_body, player_class, player_modelclass[client]);
+						SetEntProp(entity, Prop_Send, "m_nBody", new_bodygroup);
+					}
+				}
 			}
 		}
 		case playermodelslot_animation, playermodelslot_model: {
@@ -1868,10 +2505,8 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 
 			if(animation_override[0] == '\0' && from != handledatafrom_weaponswitch) {
 				int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-
-				if(IsValidEntity(weapon)) {
+				if(weapon != -1) {
 					TFClassType weapon_class = get_class_for_weapon(weapon, player_class);
-
 					if(weapon_class != TFClass_Unknown && weapon_class != player_class) {
 						get_model_for_class(weapon_class, animation_override, PLATFORM_MAX_PATH);
 					}
@@ -1888,10 +2523,6 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 
 			char new_model[PLATFORM_MAX_PATH];
 			strcopy(new_model, PLATFORM_MAX_PATH, player_model[client]);
-
-			if(new_animation[0] == '\0' && new_model[0] == '\0') {
-				return;
-			}
 
 			playermodelmethod method = playermodelmethod_bonemerge;
 
@@ -1910,30 +2541,41 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 				method = playermodelmethod_bonemerge;
 			}
 
-			bool set_bodygroups = false;
+			bool copy_bodygroups = false;
 			if(method == playermodelmethod_bonemerge) {
 				if(new_model[0] == '\0') {
 					get_model_for_class(player_class, new_model, PLATFORM_MAX_PATH);
-					set_bodygroups = true;
+					copy_bodygroups = true;
 				}
 			}
 
-			if(StrEqual(new_model, new_animation)) {
-				clear_playerdata(client, which, cleardatafrom_reapply, from);
-				return;
-			}
-
-		#if defined DEBUG && 0
-			PrintToServer(PM2_CON_PREFIX ... "%s | %s | %i | %i", new_model, new_animation, from, set_bodygroups);
+		#if defined DEBUG && 1
+			PrintToServer(PM2_CON_PREFIX ... "handle_playerdata %s | %s | %i", new_model, new_animation, from);
 		#endif
+
+			if(StrEqual(new_model, new_animation)) {
+				if(from != handledatafrom_weaponswitch) {
+					clear_playerdata(client, which, cleardatafrom_reapply, from);
+					return;
+				}
+			}
 
 			bool do_clear_data = (
 				new_animation[0] != '\0' ||
-				from == handledatafrom_taunt_end
+				from == handledatafrom_taunt_end ||
+				from == handledatafrom_equip
 			);
 			if(do_clear_data) {
 				clear_playerdata(client, which, cleardatafrom_reapply, from);
 			}
+
+			if(from == handledatafrom_equip) {
+				if(TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
+					return;
+				}
+			}
+
+			SDKHook(client, SDKHook_PostThinkPost, player_think_hatsalpha);
 
 			switch(method) {
 				case playermodelmethod_bonemerge: {
@@ -2012,6 +2654,8 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 
 						player_modelentity[client] = EntIndexToEntRef(entity);
 
+						SDKHook(client, SDKHook_PostThinkPost, player_think_modelalpha);
+
 						if(do_clear_data) {
 							handle_playerdata(client, playermodelslot_bodygroup, from);
 							handle_playerdata(client, playermodelslot_skin, from);
@@ -2023,13 +2667,18 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 					#endif
 					}
 
-					if(set_bodygroups) {
+					if(copy_bodygroups) {
 						int body = GetEntProp(client, Prop_Send, "m_nBody");
 					#if defined DEBUG && 0
 						PrintToServer(PM2_CON_PREFIX ... "%i", body);
 					#endif
 						SetEntProp(entity, Prop_Send, "m_nBody", body);
 					}
+
+				#if defined DEBUG && 0
+					int body = GetEntProp(entity, Prop_Send, "m_nBody");
+					PrintToServer(PM2_CON_PREFIX ... "%i", body);
+				#endif
 				}
 				case playermodelmethod_setcustommodel: {
 				#if defined GAME_TF2

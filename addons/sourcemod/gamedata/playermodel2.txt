@@ -14,6 +14,11 @@
 				"windows" "431"
 				"linux" "432"
 			}
+			"CBaseEntity::ModifyOrAppendCriteria"
+			{
+				"windows" "121"
+				"linux" "122"
+			}
 		}
 		"Signatures"
 		{
@@ -41,15 +46,64 @@
 				"linux" "@_ZN9CTFPlayer12EndLongTauntEv"
 				"windows" "\x56\x8B\xF1\x57\x8B\xBE\x2A\x2A\x2A\x2A\x8D\x8E"
 			}
+			"AI_CriteriaSet::AppendCriteria"
+			{
+				"library" "server"
+				"linux" "@_ZN14AI_CriteriaSet14AppendCriteriaEPKcS1_f"
+			}
+			"AI_CriteriaSet::RemoveCriteria"
+			{
+				"library" "server"
+				"linux" "@_ZN14AI_CriteriaSet14RemoveCriteriaEPKc"
+			}
+			"CTFPlayer::Taunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer5TauntE8taunts_ti"
+			}
 		}
 		"Functions"
 		{
+			"CTFPlayer::Taunt"
+			{
+				"signature" "CTFPlayer::Taunt"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"arguments"
+				{
+					"iTauntIndex"
+					{
+						"type" "int"
+					}
+					"iTauntConcept"
+					{
+						"type" "int"
+					}
+				}
+			}
+			"CBaseEntity::ModifyOrAppendCriteria"
+			{
+				"offset" "CBaseEntity::ModifyOrAppendCriteria"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"criteriaSet"
+					{
+						"type" "objectptr"
+					}
+				}
+			}
 			"CTFPlayer::PlayTauntSceneFromItem"
 			{
 				"signature" "CTFPlayer::PlayTauntSceneFromItem"
 				"callconv" "thiscall"
 				"return" "bool"
 				"this" "entity"
+				"hooktype" "entity"
 				"arguments"
 				{
 					"econItemView"
@@ -64,6 +118,7 @@
 				"callconv" "thiscall"
 				"return" "float"
 				"this" "entity"
+				"hooktype" "entity"
 			}
 			"CTFPlayer::EndLongTaunt"
 			{
@@ -71,6 +126,7 @@
 				"callconv" "thiscall"
 				"return" "void"
 				"this" "entity"
+				"hooktype" "entity"
 			}
 		}
 	}

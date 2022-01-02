@@ -4,6 +4,7 @@
 	{
 		"original_class" "sniper"
 		"model" "models/bots/merasmus/merasmus.mdl"
+		"flags" "hidehats"
 		"bodygroup" "merasmus_staff"
 		"skin" "0"
 		"variations"
@@ -19,6 +20,7 @@
 	{
 		"original_class" "demo"
 		"model" "models/bots/headless_hatman.mdl"
+		"flags" "hidehats"
 	}
 
 	"skeleton"

@@ -23,8 +23,9 @@ enum playermodelflags
 	playermodel_hideweapons = (1 << 2),
 	playermodel_nogameplay = (1 << 3),
 	playermodel_noweapons = (1 << 4),
-	playermodel_nevermerge = (1 << 5),
-	playermodel_alwaysmerge = (1 << 6),
+	playermodel_nohats = (1 << 5),
+	playermodel_nevermerge = (1 << 6),
+	playermodel_alwaysmerge = (1 << 7),
 };
 
 native playermodelflags pm2_getflags(int client);
