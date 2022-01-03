@@ -12,6 +12,7 @@
 #tryinclude <tauntmanager>
 #include <teammanager_gameplay>
 #include <tf2utils>
+#tryinclude <shapeshift_funcs>
 
 //#define DEBUG
 
@@ -884,6 +885,7 @@ static Action sm_rpm(int client, int args)
 	return Plugin_Handled;
 }
 
+#if 0
 static bool is_player_inrespawnroom(int client)
 {
 	float pos[3];
@@ -891,6 +893,7 @@ static bool is_player_inrespawnroom(int client)
 
 	return TF2Util_IsPointInRespawnRoom(pos, client, true);
 }
+#endif
 
 static void frame_unhide_hats(int client)
 {
@@ -904,6 +907,7 @@ static void frame_unhide_weapons(int client)
 
 static void unequip_model(int client, bool unload = false)
 {
+#if 0
 	if(!unload) {
 		if(player_flags[client] & playermodel_nogameplay) {
 			if(!is_player_inrespawnroom(client)) {
@@ -912,6 +916,7 @@ static void unequip_model(int client, bool unload = false)
 			}
 		}
 	}
+#endif
 
 	delete_playerviewmodelentity(client);
 
@@ -944,12 +949,14 @@ static void unequip_model(int client, bool unload = false)
 
 static bool equip_model_helper(int client, int idx, ConfigModelInfo modelinfo, bool is_var)
 {
+#if 0
 	if(player_model_idx[client] != idx && modelinfo.flags & playermodel_nogameplay) {
 		if(!is_player_inrespawnroom(client)) {
 			CPrintToChat(client, PM2_CHAT_PREFIX ... "this model can only be equipped inside a respawn room");
 			return false;
 		}
 	}
+#endif
 
 	delete_playerviewmodelentity(client, 0);
 
@@ -1804,6 +1811,15 @@ static void player_changeclass(Event event, const char[] name, bool dontBroadcas
 
 	delete_playerviewmodelentity(client, 0);
 }
+
+#if defined _shapeshift_funcs_included_
+public Action OnShapeShift(int client, int currentClass, int &targetClass)
+{
+	delete_playerviewmodelentity(client, 0);
+
+	return Plugin_Continue;
+}
+#endif
 #endif
 
 static void player_think_noweapon(int client)
@@ -2645,7 +2661,7 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 						SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
 						SetEntityRenderColor(entity, 255, 255, 255, 255);
 
-						SDKHook(entity, SDKHook_SetTransmit, model_transmit);
+						//SDKHook(entity, SDKHook_SetTransmit, model_transmit);
 
 						effects = GetEntProp(entity, Prop_Send, "m_fEffects");
 						effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
