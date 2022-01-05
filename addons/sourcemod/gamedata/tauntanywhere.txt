@@ -2,6 +2,13 @@
 {
 	"tf"
 	{
+		"Offsets"
+		{
+			"CTFPlayer::m_flNextAllowTauntRemapInputTime"
+			{
+				"linux" "36"
+			}
+		}
 		"Signatures"
 		{
 			"CTFPlayer::IsAllowedToTaunt"

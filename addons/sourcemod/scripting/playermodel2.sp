@@ -2,19 +2,17 @@
 #include <sdkhooks>
 #include <dhooks>
 #include <morecolors>
-#if defined GAME_TF2
-	#include <tf2items>
-	#include <tf_econ_data>
-#endif
-#include <playermodel2>
+#include <tf2items>
+#include <tf_econ_data>
 #tryinclude <tauntmanager>
 #tryinclude <sendproxy>
-#tryinclude <tauntmanager>
 #include <teammanager_gameplay>
 #include <tf2utils>
 #tryinclude <shapeshift_funcs>
 
 //#define DEBUG
+
+//#define ENABLE_SENDPROXY
 
 /*
 TODO!!!
@@ -31,18 +29,12 @@ support for hiding hats in specific equip regions
 #define PM2_CON_PREFIX "[PM2] "
 #define PM2_CHAT_PREFIX "{dodgerblue}[PM2]{default} "
 
-#if defined GAME_TF2
-	#define CLASS_NAME_MAX 10
-	#define TF_CLASS_COUNT_ALL 10
+#define CLASS_NAME_MAX 10
+#define TF_CLASS_COUNT_ALL 10
 
-	#define BIT_FOR_CLASS(%1) (1 << (view_as<int>(%1)-1))
-#endif
+#define BIT_FOR_CLASS(%1) (1 << (view_as<int>(%1)-1))
 
-#if defined GAME_TF2
-	#define OBS_MODE_IN_EYE 4
-#else
-	#error
-#endif
+#define OBS_MODE_IN_EYE 4
 
 #define EF_BONEMERGE 0x001
 #define EF_BONEMERGE_FASTCULL 0x080
@@ -50,6 +42,33 @@ support for hiding hats in specific equip regions
 #define EF_NODRAW 0x020
 #define EF_NOSHADOW 0x010
 #define EF_NORECEIVESHADOW 0x040
+
+enum playermodelslot
+{
+	playermodelslot_animation,
+	playermodelslot_model,
+	playermodelslot_skin,
+	playermodelslot_bodygroup,
+};
+
+enum playermodelflags
+{
+	playermodel_noflags = 0,
+	playermodel_hidehats = (1 << 1),
+	playermodel_hideweapons = (1 << 2),
+	playermodel_nogameplay = (1 << 3),
+	playermodel_noweapons = (1 << 4),
+	playermodel_nohats = (1 << 5),
+	playermodel_nevermerge = (1 << 6),
+	playermodel_alwaysmerge = (1 << 7),
+};
+
+enum playermodelmethod
+{
+	playermodelmethod_none,
+	playermodelmethod_setcustommodel,
+	playermodelmethod_bonemerge,
+};
 
 #define playermodelslot_hack_all view_as<playermodelslot>(-1)
 
@@ -73,10 +92,8 @@ enum struct ConfigModelInfo
 {
 	char name[MODEL_NAME_MAX];
 	char model[PLATFORM_MAX_PATH];
-#if defined GAME_TF2
 	TFClassType orig_class;
 	int classes;
-#endif
 	playermodelflags flags;
 	int bodygroup;
 	int skin;
@@ -92,6 +109,7 @@ enum handledatafrom
 	handledatafrom_disguise_end,
 	handledatafrom_spawn,
 	handledatafrom_equip,
+	handledatafrom_shapeshift,
 };
 
 enum cleardatafrom
@@ -113,44 +131,47 @@ enum handleswitchfrom
 	handleswitchfrom_taunt_end,
 };
 
-#if defined GAME_TF2
-static Handle dummy_item_view;
-static Handle EquipWearable;
-static Handle RecalculatePlayerBodygroups;
+static Handle dummy_item_view = null;
+static Handle EquipWearable = null;
+static Handle RecalculatePlayerBodygroups = null;
 static int m_Shared_offset = -1;
 static int m_flInvisibility_offset = -1;
 static int m_iAttributeDefinitionIndex_offset = -1;
 static ArrayList class_cache = null;
-static TFClassType tempclass;
-static TFClassType tmpplayerclass[MAXPLAYERS+1];
+static ConVar tf_always_loser = null;
+
 static bool attempting_to_taunt[MAXPLAYERS+1];
-static char currenttauntmodel[MAXPLAYERS+1][PLATFORM_MAX_PATH];
-static ConVar tf_always_loser;
 static int player_viewmodelentity[MAXPLAYERS+1][2];
 static bool tf_taunt_first_person[MAXPLAYERS+1];
 static bool cl_first_person_uses_world_model[MAXPLAYERS+1];
-#endif
 
 static int modelgameplay = -1;
-static ArrayList modelinfos;
-static StringMap modelinfoidmap;
-static ArrayList groupinfos;
+static ArrayList modelinfos = null;
+static StringMap modelinfoidmap = null;
+static ArrayList groupinfos = null;
 static int modelprecache = INVALID_STRING_TABLE;
-static char animation_override[PLATFORM_MAX_PATH];
-static int player_model_idx[MAXPLAYERS+1];
+static DynamicHook ModifyOrAppendCriteria_hook = null;
+static Handle AppendCriteria = null;
+static Handle RemoveCriteria = null;
+static bool spawning[MAXPLAYERS+1] = {true, ...};
+static Handle spawn_timer[MAXPLAYERS+1] = {null, ...};
+
+static bool tauntmodel_hasbonemerge[MAXPLAYERS+1] = {true, ...};
+static TFClassType last_taunt_class = TFClass_Unknown;
+static TFClassType player_tauntclass[MAXPLAYERS+1] = {TFClass_Unknown, ...};
+
+static playermodelmethod player_modelmethod[MAXPLAYERS+1] = {playermodelmethod_none, ...};
+static char player_tauntanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
+static char player_weaponanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
+
+static int player_model_idx[MAXPLAYERS+1] = {-1, ...};
 static char player_model[MAXPLAYERS+1][PLATFORM_MAX_PATH];
 static int player_skin[MAXPLAYERS+1] = {-1, ...};
 static int player_bodygroup[MAXPLAYERS+1] = {-1, ...};
 static int player_modelentity[MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
-static playermodelflags player_flags[MAXPLAYERS+1];
-static TFClassType player_modelclass[MAXPLAYERS+1];
-static DynamicHook ModifyOrAppendCriteria_hook;
-static Handle AppendCriteria;
-static Handle RemoveCriteria;
-static bool spawning[MAXPLAYERS+1] = {true, ...};
-static Handle spawn_timer[MAXPLAYERS+1] = {null, ...};
+static playermodelflags player_flags[MAXPLAYERS+1] = {playermodel_noflags, ...};
+static TFClassType player_modelclass[MAXPLAYERS+1] = {TFClass_Unknown, ...};
 
-#if defined GAME_TF2
 static void get_model_for_class(TFClassType class, char[] model, int length)
 {
 	switch(class)
@@ -167,18 +188,10 @@ static void get_model_for_class(TFClassType class, char[] model, int length)
 		case TFClass_Pyro: { strcopy(model, length, "models/player/pyro.mdl"); }
 	}
 }
-#endif
-
-int native_pm2_getflags(Handle plugin, int params)
-{
-	int client = GetNativeCell(1);
-	return player_flags[client];
-}
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("playermodel2");
-	CreateNative("pm2_getflags", native_pm2_getflags);
 	return APLRes_Success;
 }
 
@@ -209,7 +222,6 @@ static void unload_models()
 	delete modelinfos;
 }
 
-#if defined GAME_TF2
 static bool parse_classes_str(int &classes, const char[] str, const char[] modelname)
 {
 	if(StrEqual(str, "all") || StrEqual(str, "any")) {
@@ -246,7 +258,6 @@ static bool parse_classes_str(int &classes, const char[] str, const char[] model
 	}
 	return true;
 }
-#endif
 
 #define FLAGS_NUM 7
 #define FLAGS_MAX 13
@@ -304,33 +315,32 @@ static playermodelflags flagsstr_to_flags(const char[] str, playermodelflags def
 	return flags;
 }
 
-#if defined GAME_TF2
-	#define BODYGROUP_MAX 16
-	#define BODYGROUP_NUM 23
+#define BODYGROUP_MAX 16
+#define BODYGROUP_NUM 23
 
-	#define BODYGROUP_SCOUT_HAT (1 << 0)
-	#define BODYGROUP_SCOUT_HEADPHONES (1 << 1)
-	#define BODYGROUP_SCOUT_SHOESSOCKS (1 << 2)
-	#define BODYGROUP_SCOUT_DOGTAGS (1 << 3)
-	#define BODYGROUP_SOLDIER_ROCKET (1 << 0)
-	#define BODYGROUP_SOLDIER_HELMET (1 << 1)
-	#define BODYGROUP_SOLDIER_MEDAL (1 << 2)
-	#define BODYGROUP_SOLDIER_GRENADES (1 << 3)
-	#define BODYGROUP_PYRO_HEAD (1 << 0)
-	#define BODYGROUP_PYRO_GRENADES (1 << 1)
-	#define BODYGROUP_PYRO_PROPANE (1 << 2)
-	#define BODYGROUP_DEMO_SMILE (1 << 0)
-	#define BODYGROUP_DEMO_SHOES (1 << 1)
-	#define BODYGROUP_HEAVY_HANDS (1 << 0)
-	#define BODYGROUP_ENGINEER_HELMET (1 << 0)
-	#define BODYGROUP_ENGINEER_ARM (1 << 1)
-	#define BODYGROUP_MEDIC_BACKPACK (1 << 0)
-	#define BODYGROUP_SNIPER_ARROWS (1 << 0)
-	#define BODYGROUP_SNIPER_HAT (1 << 1)
-	#define BODYGROUP_SNIPER_BULLETS (1 << 2)
-	#define BODYGROUP_SPY_MASK (1 << 0)
-	#define BODYGROUP_MERASMUS_BOOK (1 << 1)
-	#define BODYGROUP_MERASMUS_STAFF (1 << 3)
+#define BODYGROUP_SCOUT_HAT (1 << 0)
+#define BODYGROUP_SCOUT_HEADPHONES (1 << 1)
+#define BODYGROUP_SCOUT_SHOESSOCKS (1 << 2)
+#define BODYGROUP_SCOUT_DOGTAGS (1 << 3)
+#define BODYGROUP_SOLDIER_ROCKET (1 << 0)
+#define BODYGROUP_SOLDIER_HELMET (1 << 1)
+#define BODYGROUP_SOLDIER_MEDAL (1 << 2)
+#define BODYGROUP_SOLDIER_GRENADES (1 << 3)
+#define BODYGROUP_PYRO_HEAD (1 << 0)
+#define BODYGROUP_PYRO_GRENADES (1 << 1)
+#define BODYGROUP_PYRO_PROPANE (1 << 2)
+#define BODYGROUP_DEMO_SMILE (1 << 0)
+#define BODYGROUP_DEMO_SHOES (1 << 1)
+#define BODYGROUP_HEAVY_HANDS (1 << 0)
+#define BODYGROUP_ENGINEER_HELMET (1 << 0)
+#define BODYGROUP_ENGINEER_ARM (1 << 1)
+#define BODYGROUP_MEDIC_BACKPACK (1 << 0)
+#define BODYGROUP_SNIPER_ARROWS (1 << 0)
+#define BODYGROUP_SNIPER_HAT (1 << 1)
+#define BODYGROUP_SNIPER_BULLETS (1 << 2)
+#define BODYGROUP_SPY_MASK (1 << 0)
+#define BODYGROUP_MERASMUS_BOOK (1 << 1)
+#define BODYGROUP_MERASMUS_STAFF (1 << 3)
 
 static int calculate_class_bodygroups(int old_body, TFClassType source, TFClassType target)
 {
@@ -422,9 +432,6 @@ static int calculate_class_bodygroups(int old_body, TFClassType source, TFClassT
 
 	return new_body;
 }
-#else
-	#error
-#endif
 
 static int bodygroupstr_to_bodygroup(const char[] str)
 {
@@ -434,7 +441,6 @@ static int bodygroupstr_to_bodygroup(const char[] str)
 	int bodygroup = 0;
 
 	for(int i = 0; i < num; ++i) {
-	#if defined GAME_TF2
 		if(StrEqual(flagstrs[i], "scout_hat")) {
 			bodygroup |= BODYGROUP_SCOUT_HAT;
 		} else if(StrEqual(flagstrs[i], "scout_headphones")) {
@@ -481,9 +487,7 @@ static int bodygroupstr_to_bodygroup(const char[] str)
 			bodygroup |= BODYGROUP_MERASMUS_BOOK;
 		} else if(StrEqual(flagstrs[i], "merasmus_staff")) {
 			bodygroup |= BODYGROUP_MERASMUS_STAFF;
-		} else
-	#endif
-		{
+		} else {
 			bodygroup |= StringToInt(flagstrs[i]);
 		}
 	}
@@ -491,7 +495,7 @@ static int bodygroupstr_to_bodygroup(const char[] str)
 	return bodygroup;
 }
 
-void parse_models_kv(const char[] path, ConfigGroupInfo groupinfo, playermodelflags flags)
+static void parse_models_kv(const char[] path, ConfigGroupInfo groupinfo, playermodelflags flags)
 {
 	KeyValues kvModels = new KeyValues("Playermodels");
 	kvModels.ImportFromFile(path);
@@ -670,7 +674,6 @@ public void OnPluginStart()
 		return;
 	}
 
-#if defined GAME_TF2
 	StartPrepSDKCall(SDKCall_Entity);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CBasePlayer::EquipWearable");
 	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
@@ -754,6 +757,18 @@ public void OnPluginStart()
 		return;
 	}
 
+	tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::PlayTauntRemapInputScene");
+	if(!tmp || !tmp.Enable(Hook_Pre, PlayTauntRemapInputScene)) {
+		SetFailState("Failed to enable pre detour for CTFPlayer::PlayTauntRemapInputScene");
+		delete gamedata;
+		return;
+	}
+	if(!tmp.Enable(Hook_Post, PlayTauntRemapInputScene_post)) {
+		SetFailState("Failed to enable post detour for CTFPlayer::PlayTauntRemapInputScene");
+		delete gamedata;
+		return;
+	}
+
 	tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::EndLongTaunt");
 	if(!tmp || !tmp.Enable(Hook_Pre, EndLongTaunt)) {
 		SetFailState("Failed to enable pre detour for CTFPlayer::EndLongTaunt");
@@ -767,14 +782,12 @@ public void OnPluginStart()
 	}
 
 	ModifyOrAppendCriteria_hook = DynamicHook.FromConf(gamedata, "CBaseEntity::ModifyOrAppendCriteria");
-#endif
 
 	delete gamedata;
 
 	HookEvent("player_death", player_death);
 	HookEvent("player_spawn", player_spawn);
 
-#if defined GAME_TF2
 	HookEvent("player_changeclass", player_changeclass);
 	HookEvent("post_inventory_application", post_inventory_application);
 
@@ -791,7 +804,6 @@ public void OnPluginStart()
 	m_flInvisibility_offset = FindSendPropInfo("CTFPlayer", "m_flInvisChangeCompleteTime") - 8;
 
 	tf_always_loser = FindConVar("tf_always_loser");
-#endif
 
 	load_models();
 
@@ -878,7 +890,7 @@ static Action sm_rpm(int client, int args)
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
 			OnClientPutInServer(i);
-			handle_playerdata(i, playermodelslot_hack_all, handledatafrom_equip);
+			
 		}
 	}
 
@@ -918,7 +930,7 @@ static void unequip_model(int client, bool unload = false)
 	}
 #endif
 
-	delete_playerviewmodelentity(client);
+	delete_viewmodelentity(client);
 
 	clear_playerdata(client, playermodelslot_hack_all, cleardatafrom_remove);
 
@@ -927,10 +939,12 @@ static void unequip_model(int client, bool unload = false)
 	}
 
 	if(player_flags[client] & playermodel_hidehats) {
+		SDKUnhook(client, SDKHook_PostThinkPost, player_think_hatsalpha);
 		RequestFrame(frame_unhide_hats, client);
 	}
 
 	if(player_flags[client] & playermodel_hideweapons) {
+		SDKUnhook(client, SDKHook_PostThinkPost, player_think_weaponsalpha);
 		RequestFrame(frame_unhide_weapons, client);
 	}
 
@@ -949,6 +963,18 @@ static void unequip_model(int client, bool unload = false)
 
 static bool equip_model_helper(int client, int idx, ConfigModelInfo modelinfo, bool is_var)
 {
+	if(player_flags[client] & playermodel_nogameplay) {
+		TeamManager_RemovePlayerFromGameplayGroup(client, modelgameplay);
+	}
+
+	if(player_flags[client] & playermodel_hidehats) {
+		RequestFrame(frame_unhide_hats, client);
+	}
+
+	if(player_flags[client] & playermodel_hideweapons) {
+		RequestFrame(frame_unhide_weapons, client);
+	}
+
 #if 0
 	if(player_model_idx[client] != idx && modelinfo.flags & playermodel_nogameplay) {
 		if(!is_player_inrespawnroom(client)) {
@@ -958,7 +984,7 @@ static bool equip_model_helper(int client, int idx, ConfigModelInfo modelinfo, b
 	}
 #endif
 
-	delete_playerviewmodelentity(client, 0);
+	delete_viewmodelentity(client, 0);
 
 	player_model_idx[client] = idx;
 
@@ -991,8 +1017,13 @@ static bool equip_model_helper(int client, int idx, ConfigModelInfo modelinfo, b
 		remove_all_wearables(client);
 	}
 
-	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	handle_weaponswitch(client, weapon, handleswitchfrom_equip);
+	if(player_flags[client] & playermodel_hidehats) {
+		SDKHook(client, SDKHook_PostThinkPost, player_think_hatsalpha);
+	}
+
+	if(player_flags[client] & playermodel_hideweapons) {
+		SDKHook(client, SDKHook_PostThinkPost, player_think_weaponsalpha);
+	}
 
 	return true;
 }
@@ -1238,7 +1269,7 @@ static Action sm_pm(int client, int args)
 	return Plugin_Handled;
 }
 
-Action timer_spawn(Handle timer, int client)
+static Action timer_spawn(Handle timer, int client)
 {
 	client = GetClientOfUserId(client);
 	if(client == 0) {
@@ -1253,12 +1284,7 @@ Action timer_spawn(Handle timer, int client)
 
 	SDKHook(client, SDKHook_PostThinkPost, player_think_noweapon);
 
-	handle_playerdata(client, playermodelslot_hack_all, handledatafrom_spawn);
-
 	spawning[client] = false;
-
-	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	handle_weaponswitch(client, weapon, handleswitchfrom_spawn);
 
 	return Plugin_Continue;
 }
@@ -1268,7 +1294,7 @@ static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 	int usrid = event.GetInt("userid");
 	int client = GetClientOfUserId(usrid);
 
-	delete_playerviewmodelentity(client, 0);
+	delete_viewmodelentity(client, 0);
 
 	spawning[client] = true;
 
@@ -1282,7 +1308,7 @@ static void frame_ragdoll(int entity)
 {
 	int owner = GetEntProp(entity, Prop_Send, "m_iPlayerIndex");
 
-#if defined DEBUG && 0
+#if defined DEBUG && 1
 	PrintToServer(PM2_CON_PREFIX ... "%i %i", entity, player_modelclass[owner]);
 #endif
 
@@ -1301,21 +1327,17 @@ public void OnEntityCreated(int entity, const char[] classname)
 static void player_death(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-#if defined GAME_TF2
 	int flags = event.GetInt("death_flags");
 
-	if(!(flags & TF_DEATHFLAG_DEADRINGER))
-#endif
-	{
+	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_noweapon);
 
-		clear_playerdata(client, playermodelslot_hack_all, cleardatafrom_death);
+		
 
-		delete_playerviewmodelentity(client);
+		delete_viewmodelentity(client);
 	}
 }
 
-#if defined GAME_TF2
 static bool class_to_classname(TFClassType type, char[] name, int length)
 {
 	switch(type)
@@ -1360,143 +1382,98 @@ static ArrayList get_classes_for_taunt(int id)
 #if defined _tauntmanager_included_
 public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, bool hasBonemergeSupport)
 {
+	tauntmodel_hasbonemerge[client] = hasBonemergeSupport;
 	if(hasBonemergeSupport) {
-		strcopy(currenttauntmodel[client], PLATFORM_MAX_PATH, tauntModel);
+		strcopy(player_tauntanimation[client], PLATFORM_MAX_PATH, tauntModel);
 		handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
 		return Plugin_Handled;
 	} else {
 		//TODO!!! support for non-bonemerge
-		clear_playerdata(client, playermodelslot_hack_all, cleardatafrom_taunt_start);
+		clear_playerdata(client, playermodelslot_animation, cleardatafrom_taunt_start);
 		return Plugin_Continue;
 	}
 }
 
 public Action TauntManager_RemoveTauntModel(int client)
 {
-	currenttauntmodel[client][0] = '\0';
-	handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_end);
+	player_tauntanimation[client][0] = '\0';
+	tauntmodel_hasbonemerge[client] = true;
 	return Plugin_Handled;
 }
 #endif
 
+static void handle_tauntattempt(int client, ArrayList classes)
+{
+	TFClassType player_class = TF2_GetPlayerClass(client);
+
+	int len = classes.Length;
+	if(len > 0) {
+		TFClassType desiredclass = TFClass_Unknown;
+		if(classes.FindValue(player_class) != -1) {
+			desiredclass = player_class;
+		} else {
+			desiredclass = classes.Get(GetRandomInt(0, len-1));
+		}
+		if(player_tauntanimation[client][0] == '\0') {
+			get_model_for_class(desiredclass, player_tauntanimation[client], PLATFORM_MAX_PATH);
+		}
+	#if defined DEBUG
+		PrintToServer(PM2_CON_PREFIX ... "handle_tauntattempt");
+	#endif
+		if(tauntmodel_hasbonemerge[client]) {
+			handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
+		}
+		TF2_SetPlayerClass(client, desiredclass);
+		last_taunt_class = player_class;
+		player_tauntclass[client] = desiredclass;
+	}
+}
+
 public MRESReturn Taunt(int pThis, DHookParam hParams)
 {
-	tempclass = TFClass_Unknown;
-	tmpplayerclass[pThis] = TFClass_Unknown;
+	last_taunt_class = TFClass_Unknown;
+	player_tauntclass[pThis] = TFClass_Unknown;
 	attempting_to_taunt[pThis] = true;
 
-	bool valid = true;
-
-	TFClassType class = TF2_GetPlayerClass(pThis);
-	TFClassType desiredclass = TFClass_Unknown;
+	ArrayList classes = new ArrayList();
 
 #if defined _tauntmanager_included_
 	TauntManager_CodeTaunt codetaunt = TauntManager_GetCurrentCodeTaunt(pThis);
 	if(codetaunt != TauntManager_InvalidCodeTaunt) {
-		ArrayList classes = new ArrayList();
 		TauntManager_GetCodeTauntUsableClasses(codetaunt, classes);
-
-		int len = classes.Length;
-		if(len > 0) {
-			if(class == TFClass_Spy) {
-				if(TF2_IsPlayerInCondition(pThis, TFCond_Cloaked) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_CloakFlicker) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_Stealthed) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_StealthedUserBuffFade) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_Disguised) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_Disguising)) {
-					valid = false;
-				}
-			}
-
-			if(valid) {
-				if(classes.FindValue(class) != -1) {
-					desiredclass = class;
-				} else {
-					desiredclass = classes.Get(GetRandomInt(0, len-1));
-				}
-			#if defined DEBUG
-				PrintToServer(PM2_CON_PREFIX ... "Taunt %i %i", desiredclass, class);
-			#endif
-			}
-		}
-
-		delete classes;
 	} else
 #endif
 	{
 		int weapon = GetEntPropEnt(pThis, Prop_Send, "m_hActiveWeapon");
 		if(weapon != -1) {
-			desiredclass = get_class_for_weapon(weapon, class);
+			TFClassType player_class = TF2_GetPlayerClass(pThis);
+			TFClassType weapon_class = get_class_for_weapon(weapon, player_class);
+			classes.Push(weapon_class);
 		}
 	}
 
-	if(desiredclass != TFClass_Unknown) {
-		if(currenttauntmodel[pThis][0] == '\0') {
-			get_model_for_class(desiredclass, currenttauntmodel[pThis], PLATFORM_MAX_PATH);
-			handle_playerdata(pThis, playermodelslot_animation, handledatafrom_taunt_start);
-		}
-	#if defined DEBUG
-		PrintToServer(PM2_CON_PREFIX ... "Taunt %i %i", class, desiredclass);
-	#endif
-		TF2_SetPlayerClass(pThis, desiredclass);
-		tempclass = class;
-		tmpplayerclass[pThis] = desiredclass;
-	}
+	handle_tauntattempt(pThis, classes);
+
+	delete classes;
 
 	return MRES_Ignored;
 }
 
 public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
+	last_taunt_class = TFClass_Unknown;
+	player_tauntclass[pThis] = TFClass_Unknown;
+	attempting_to_taunt[pThis] = true;
+
 	int m_iAttributeDefinitionIndex = -1;
 	if(!hParams.IsNull(1)) {
 		m_iAttributeDefinitionIndex = hParams.GetObjectVar(1, m_iAttributeDefinitionIndex_offset, ObjectValueType_Int);
 	}
 
-	tempclass = TFClass_Unknown;
-	tmpplayerclass[pThis] = TFClass_Unknown;
-	attempting_to_taunt[pThis] = true;
-
-	bool valid = true;
-
 	if(m_iAttributeDefinitionIndex != -1) {
-		TFClassType class = TF2_GetPlayerClass(pThis);
-
 		ArrayList classes = get_classes_for_taunt(m_iAttributeDefinitionIndex);
 
-		int len = classes.Length;
-		if(len > 0) {
-			if(class == TFClass_Spy) {
-				if(TF2_IsPlayerInCondition(pThis, TFCond_Cloaked) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_CloakFlicker) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_Stealthed) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_StealthedUserBuffFade) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_Disguised) ||
-					TF2_IsPlayerInCondition(pThis, TFCond_Disguising)) {
-					valid = false;
-				}
-			}
-
-			if(valid) {
-				TFClassType desiredclass = TFClass_Unknown;
-				if(classes.FindValue(class) != -1) {
-					desiredclass = class;
-				} else {
-					desiredclass = classes.Get(GetRandomInt(0, len-1));
-				}
-				if(currenttauntmodel[pThis][0] == '\0') {
-					get_model_for_class(desiredclass, currenttauntmodel[pThis], PLATFORM_MAX_PATH);
-					handle_playerdata(pThis, playermodelslot_animation, handledatafrom_taunt_start);
-				}
-			#if defined DEBUG
-				PrintToServer(PM2_CON_PREFIX ... "PlayTauntSceneFromItem");
-			#endif
-				TF2_SetPlayerClass(pThis, desiredclass);
-				tempclass = class;
-				tmpplayerclass[pThis] = desiredclass;
-			}
-		}
+		handle_tauntattempt(pThis, classes);
 
 		delete classes;
 	}
@@ -1504,77 +1481,101 @@ public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookPa
 	return MRES_Ignored;
 }
 
+static MRESReturn PlayTauntRemapInputScene(int pThis, DHookReturn hReturn)
+{
+	if(player_tauntclass[pThis] != TFClass_Unknown) {
+		last_taunt_class = TF2_GetPlayerClass(pThis);
+	#if defined DEBUG && 0
+		PrintToServer(PM2_CON_PREFIX ... "PlayTauntRemapInputScene");
+	#endif
+		TF2_SetPlayerClass(pThis, player_tauntclass[pThis]);
+	}
+	return MRES_Ignored;
+}
+
 static MRESReturn Taunt_post(int pThis, DHookParam hParams)
 {
-	if(tempclass != TFClass_Unknown) {
+	if(last_taunt_class != TFClass_Unknown) {
 	#if defined DEBUG
-		PrintToServer(PM2_CON_PREFIX ... "Taunt_post %i", tempclass);
+		PrintToServer(PM2_CON_PREFIX ... "Taunt_post %i", last_taunt_class);
 	#endif
-		TF2_SetPlayerClass(pThis, tempclass);
+		TF2_SetPlayerClass(pThis, last_taunt_class);
 	}
-	tempclass = TFClass_Unknown;
-	tmpplayerclass[pThis] = TFClass_Unknown;
+	last_taunt_class = TFClass_Unknown;
+	player_tauntclass[pThis] = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
 static MRESReturn EndLongTaunt(int pThis, DHookReturn hReturn)
 {
-	if(tmpplayerclass[pThis] != TFClass_Unknown) {
-		tempclass = TF2_GetPlayerClass(pThis);
+	if(player_tauntclass[pThis] != TFClass_Unknown) {
+		last_taunt_class = TF2_GetPlayerClass(pThis);
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "EndLongTaunt");
 	#endif
-		TF2_SetPlayerClass(pThis, tmpplayerclass[pThis]);
+		TF2_SetPlayerClass(pThis, player_tauntclass[pThis]);
 	}
 	return MRES_Ignored;
 }
 
 static MRESReturn PlayTauntOutroScene(int pThis, DHookReturn hReturn)
 {
-	if(tmpplayerclass[pThis] != TFClass_Unknown) {
-		tempclass = TF2_GetPlayerClass(pThis);
+	if(player_tauntclass[pThis] != TFClass_Unknown) {
+		last_taunt_class = TF2_GetPlayerClass(pThis);
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntOutroScene");
 	#endif
-		TF2_SetPlayerClass(pThis, tmpplayerclass[pThis]);
+		TF2_SetPlayerClass(pThis, player_tauntclass[pThis]);
 	}
-	tmpplayerclass[pThis] = TFClass_Unknown;
+	player_tauntclass[pThis] = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
 static MRESReturn PlayTauntSceneFromItem_post(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-	if(tempclass != TFClass_Unknown) {
+	if(last_taunt_class != TFClass_Unknown) {
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntSceneFromItem_post");
 	#endif
-		TF2_SetPlayerClass(pThis, tempclass);
+		TF2_SetPlayerClass(pThis, last_taunt_class);
 	}
-	tempclass = TFClass_Unknown;
+	last_taunt_class = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
 static MRESReturn EndLongTaunt_post(int pThis, DHookReturn hReturn)
 {
-	if(tempclass != TFClass_Unknown) {
+	if(last_taunt_class != TFClass_Unknown) {
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "EndLongTaunt_post");
 	#endif
-		TF2_SetPlayerClass(pThis, tempclass);
+		TF2_SetPlayerClass(pThis, last_taunt_class);
 	}
-	tempclass = TFClass_Unknown;
+	last_taunt_class = TFClass_Unknown;
+	return MRES_Ignored;
+}
+
+static MRESReturn PlayTauntRemapInputScene_post(int pThis, DHookReturn hReturn)
+{
+	if(last_taunt_class != TFClass_Unknown) {
+	#if defined DEBUG && 0
+		PrintToServer(PM2_CON_PREFIX ... "PlayTauntRemapInputScene_post");
+	#endif
+		TF2_SetPlayerClass(pThis, last_taunt_class);
+	}
+	last_taunt_class = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
 static MRESReturn PlayTauntOutroScene_post(int pThis, DHookReturn hReturn)
 {
-	if(tempclass != TFClass_Unknown) {
+	if(last_taunt_class != TFClass_Unknown) {
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntOutroScene_post");
 	#endif
-		TF2_SetPlayerClass(pThis, tempclass);
+		TF2_SetPlayerClass(pThis, last_taunt_class);
 	}
-	tempclass = TFClass_Unknown;
+	last_taunt_class = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
@@ -1582,22 +1583,19 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 {
 	switch(condition) {
 		case TFCond_Disguised:
-		{ clear_playerdata(client, playermodelslot_animation, cleardatafrom_disguise_start); }
+		{  }
 	}
 }
 
 public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	switch(condition) {
-		case TFCond_Disguised:
-		{ handle_playerdata(client, playermodelslot_animation, handledatafrom_disguise_end); }
 		case TFCond_Taunting: {
-			attempting_to_taunt[client] = false;
-			currenttauntmodel[client][0] = '\0';
+			player_tauntanimation[client][0] = '\0';
 			handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_end);
-			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-			handle_weaponswitch(client, weapon, handleswitchfrom_taunt_end);
 		}
+		case TFCond_Disguised:
+		{  }
 	}
 }
 
@@ -1808,44 +1806,34 @@ static int get_or_create_viewmodelentity(int client, int i)
 static void player_changeclass(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-
-	delete_playerviewmodelentity(client, 0);
 }
 
 #if defined _shapeshift_funcs_included_
 public Action OnShapeShift(int client, int currentClass, int &targetClass)
 {
-	delete_playerviewmodelentity(client, 0);
-
 	return Plugin_Continue;
 }
-#endif
 #endif
 
 static void player_think_noweapon(int client)
 {
+#if 0
 	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 	if(weapon != -1) {
 		tf_always_loser.ReplicateToClient(client, tf_always_loser.BoolValue ? "1" : "0");
 	} else {
 		tf_always_loser.ReplicateToClient(client, "1");
 	}
+#endif
 }
 
 static void handle_weaponswitch(int client, int weapon, handleswitchfrom from)
 {
-	//TODO!! optimize using handleswitchfrom
+	bool weapon_valid = (weapon != -1);
 
-#if defined GAME_TF2
-	bool weapon_valid = IsValidEntity(weapon);
-
-#if defined DEBUG && 1
+#if defined DEBUG && 0
 	PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch %i %i", from, spawning[client]);
 #endif
-
-	if(attempting_to_taunt[client] || TF2_IsPlayerInCondition(client, TFCond_Taunting) || spawning[client]) {
-		return;
-	}
 
 	TFClassType player_class = TF2_GetPlayerClass(client);
 
@@ -1855,16 +1843,10 @@ static void handle_weaponswitch(int client, int weapon, handleswitchfrom from)
 		weapon_class = get_class_for_weapon(weapon, player_class, bitmask);
 	}
 
-	if(from == handleswitchfrom_switch ||
-		from == handleswitchfrom_unequip) {
-		if(weapon_class != TFClass_Unknown /*&& weapon_class != player_class*/) {
-			get_model_for_class(weapon_class, animation_override, PLATFORM_MAX_PATH);
-		}
-
-		handle_playerdata(client, playermodelslot_animation, handledatafrom_weaponswitch);
-	}
-
 	if(weapon_class != TFClass_Unknown) {
+		get_model_for_class(weapon_class, player_weaponanimation[client], PLATFORM_MAX_PATH);
+		handle_playerdata(client, playermodelslot_animation, handledatafrom_weaponswitch);
+
 		char model[PLATFORM_MAX_PATH];
 		get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
 
@@ -1876,11 +1858,11 @@ static void handle_weaponswitch(int client, int weapon, handleswitchfrom from)
 		SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
 		SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
 
-	#if defined DEBUG && 1
-		PrintToServer(PM2_CON_PREFIX ... "viewmodel a %i %s %i", weapon_class, model, idx);
+	#if defined DEBUG && 0
+		PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch viewmodel a %i %s %i", weapon_class, model, idx);
 	#endif
 
-		delete_playerviewmodelentity(client, 1);
+		delete_viewmodelentity(client, 1);
 
 		TFClassType arm_class = player_class;
 		if(player_modelclass[client] != TFClass_Unknown) {
@@ -1908,8 +1890,8 @@ static void handle_weaponswitch(int client, int weapon, handleswitchfrom from)
 
 			SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
 
-		#if defined DEBUG && 1
-			PrintToServer(PM2_CON_PREFIX ... "viewmodel f %i %s %i", arm_class, model, idx);
+		#if defined DEBUG && 0
+			PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch viewmodel f %i %s %i", arm_class, model, idx);
 		#endif
 
 			entity = get_or_create_viewmodelentity(client, 1);
@@ -1951,7 +1933,6 @@ static void handle_weaponswitch(int client, int weapon, handleswitchfrom from)
 			SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
 		}
 	}
-#endif
 }
 
 static void player_weaponswitchpost(int client, int weapon)
@@ -2005,24 +1986,17 @@ public MRESReturn ModifyOrAppendCriteria(int pThis, DHookParam hParams)
 	return MRES_Ignored;
 }
 
-#if defined GAME_TF2
-static void delete_playerviewmodelentity(int client, int i = -1, int weapon = -1)
+static void delete_viewmodelentity(int client, int i = -1, int weapon = -1)
 {
-#if defined DEBUG && 0
-	PrintToServer(PM2_CON_PREFIX ... "delete_playerviewmodelentity(%i)", client);
-#endif
-
 	if(i == -1) {
-		delete_playerviewmodelentity(client, 0, weapon);
-		delete_playerviewmodelentity(client, 1, weapon);
+		delete_viewmodelentity(client, 0, weapon);
+		delete_viewmodelentity(client, 1, weapon);
 		return;
 	}
 
 	int entity = get_viewmodelentity(client, i);
 	if(entity != -1) {
-	#if defined GAME_TF2
 		TF2_RemoveWearable(client, entity);
-	#endif
 		AcceptEntityInput(entity, "ClearParent");
 		RemoveEntity(entity);
 		player_viewmodelentity[client][i] = INVALID_ENT_REFERENCE;
@@ -2042,40 +2016,117 @@ static void delete_playerviewmodelentity(int client, int i = -1, int weapon = -1
 		}
 	}
 }
+
+static int get_or_create_modelentity(int client)
+{
+	int entity = get_modelentity(client);
+	if(entity != -1) {
+		return entity;
+	}
+
+	int effects = GetEntProp(client, Prop_Send, "m_fEffects");
+	effects |= (EF_NOSHADOW|EF_NORECEIVESHADOW);
+	SetEntProp(client, Prop_Send, "m_fEffects", effects);
+
+	TF2Items_SetClassname(dummy_item_view, "tf_wearable");
+	entity = TF2Items_GiveNamedItem(client, dummy_item_view);
+
+	float pos[3];
+	GetClientAbsOrigin(client, pos);
+
+	DispatchKeyValueVector(entity, "origin", pos);
+	DispatchKeyValue(entity, "model", "models/error.mdl");
+
+	SDKCall(EquipWearable, client, entity);
+	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
+
+	SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable");
+
+	SetEntProp(entity, Prop_Send, "m_bClientSideAnimation", 0);
+	SetEntProp(entity, Prop_Send, "m_bClientSideFrameReset", 0);
+
+	SetEntPropFloat(entity, Prop_Send, "m_flPlaybackRate", 1.0);
+
+	SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
+
+	SetVariantString("!activator");
+	AcceptEntityInput(entity, "SetParent", client);
+
+	SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
+
+	SDKHook(client, SDKHook_PostThinkPost, player_think_modelalpha);
+
+#if defined _SENDPROXYMANAGER_INC_ && defined ENABLE_SENDPROXY
+	SendProxy_Hook(client, "m_clrRender", Prop_Int, proxy_renderclr, true);
+	SendProxy_Hook(client, "m_nRenderMode", Prop_Int, proxy_rendermode, true);
 #endif
 
-static bool delete_playermodelentity(int client)
+	SetEntityRenderMode(client, RENDER_NONE);
+
+	SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+	SetEntityRenderColor(entity, 255, 255, 255, 255);
+
+	SDKHook(entity, SDKHook_SetTransmit, model_transmit);
+
+	effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+	effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+	effects &= ~EF_NOSHADOW;
+	effects &= ~EF_NORECEIVESHADOW;
+	SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+
+	player_modelentity[client] = EntIndexToEntRef(entity);
+
+	return entity;
+}
+
+static void delete_modelentity(int client)
 {
 #if defined DEBUG && 0
-	PrintToServer(PM2_CON_PREFIX ... "delete_playermodelentity(%i)", client);
+	PrintToServer(PM2_CON_PREFIX ... "delete_modelentity(%i)", client);
 #endif
 
 	int entity = get_modelentity(client);
 	if(entity != -1) {
-	#if defined GAME_TF2
 		TF2_RemoveWearable(client, entity);
-	#endif
 		AcceptEntityInput(entity, "ClearParent");
 		RemoveEntity(entity);
 		player_modelentity[client] = INVALID_ENT_REFERENCE;
-		return true;
 	}
 
-	return false;
+	SDKUnhook(client, SDKHook_PostThinkPost, player_think_modelalpha);
+
+#if defined _SENDPROXYMANAGER_INC_ && defined ENABLE_SENDPROXY
+	SendProxy_Unhook(client, "m_clrRender", proxy_renderclr);
+	SendProxy_Unhook(client, "m_nRenderMode", proxy_rendermode);
+#endif
+
+	SetEntityRenderMode(client, RENDER_NORMAL);
+
+	int r = 255;
+	int g = 255;
+	int b = 255;
+	int a = 255;
+	GetEntityRenderColor(client, r, g, b, a);
+	SetEntityRenderColor(client, r, g, b, a);
+
+	int effects = GetEntProp(client, Prop_Send, "m_fEffects");
+	effects &= ~EF_NOSHADOW;
+	effects &= ~EF_NORECEIVESHADOW;
+	SetEntProp(client, Prop_Send, "m_fEffects", effects);
 }
 
 public void OnClientDisconnect(int client)
 {
-	delete_playermodelentity(client);
-	delete_playerviewmodelentity(client);
+	clear_playerdata(client, playermodelslot_hack_all, cleardatafrom_disconnect);
 
 	spawning[client] = true;
+	tauntmodel_hasbonemerge[client] = true;
 
-#if defined GAME_TF2
-	tmpplayerclass[client] = TFClass_Unknown;
+	player_tauntclass[client] = TFClass_Unknown;
 	attempting_to_taunt[client] = false;
-	currenttauntmodel[client][0] = '\0';
-#endif
+	player_tauntanimation[client][0] = '\0';
+	player_weaponanimation[client][0] = '\0';
+	player_modelmethod[client] = playermodelmethod_none;
 
 	if(spawn_timer[client] != null) {
 		KillTimer(spawn_timer[client]);
@@ -2088,9 +2139,11 @@ public void OnClientDisconnect(int client)
 	player_bodygroup[client] = -1;
 	player_flags[client] = playermodel_noflags;
 	player_modelclass[client] = TFClass_Unknown;
+
+	tf_taunt_first_person[client] = false;
+	cl_first_person_uses_world_model[client] = false;
 }
 
-#if defined GAME_TF2
 int calc_spy_alpha(int client)
 {
 	if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
@@ -2109,7 +2162,6 @@ int calc_spy_alpha(int client)
 	}
 	return -1;
 }
-#endif
 
 static void remove_all_wearables(int client)
 {
@@ -2214,20 +2266,19 @@ static void hide_weapons(int client, bool value)
 	}
 }
 
+static void player_think_weaponsalpha(int client)
+{
+	int entity = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if(entity != -1) {
+		SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+		set_entity_alpha(entity, 0);
+	}
+}
+
 static void player_think_hatsalpha(int client)
 {
-	if(player_flags[client] & playermodel_hideweapons) {
-		int entity = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-		if(entity != -1) {
-			SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
-			set_entity_alpha(entity, 0);
-		}
-	}
-
 #if defined CAN_GET_UTLVECTOR
-	if(player_flags[client] & playermodel_hidehats) {
-		hide_hats(client, true);
-	}
+	hide_hats(client, true);
 #endif
 }
 
@@ -2244,26 +2295,32 @@ static void player_think_modelalpha(int client)
 	int a = 255;
 	GetEntityRenderColor(client, r, g, b, a);
 
-#if defined GAME_TF2
 	if(TF2_GetPlayerClass(client) == TFClass_Spy) {
 		int mod = calc_spy_alpha(client);
 		if(mod != -1 && mod < a) {
 			a = mod;
 		}
 	}
-#endif
 
 	SetEntityRenderColor(entity, r, g, b, a);
 
 	SetEntityRenderMode(client, RENDER_NONE);
 }
 
-#if defined _SENDPROXYMANAGER_INC_
+#if defined _SENDPROXYMANAGER_INC_ && defined ENABLE_SENDPROXY
 static Action proxy_renderclr(int iEntity, const char[] cPropName, int &iValue, int iElement, int iClient)
 {
 	if(iClient == iEntity) {
 		if(!TF2_IsPlayerInCondition(iEntity, TFCond_Disguised)) {
-			iValue = 0;
+			int r = (iValue & 255);
+			int g = ((iValue >> 8) & 255);
+			int b = ((iValue >> 16) & 255);
+			int a = 0;
+
+			iValue = a;
+			iValue = (iValue << 8) + b;
+			iValue = (iValue << 8) + g;
+			iValue = (iValue << 8) + r;
 			return Plugin_Changed;
 		}
 	}
@@ -2282,7 +2339,6 @@ static Action proxy_rendermode(int iEntity, const char[] cPropName, int &iValue,
 }
 #endif
 
-#if defined GAME_TF2
 static void set_custom_model(int client, const char[] model)
 {
 	SetVariantString(model);
@@ -2336,11 +2392,12 @@ static void recalculate_bodygroups(int client)
 	event.FireToClient(client);
 	event.Cancel();
 }
-#endif
 
 static void clear_playerdata(int client, playermodelslot which, cleardatafrom from, handledatafrom reapply_from = handledatafrom_unknown)
 {
-	//TODO!! optimize using cleardatafrom and handledatafrom
+#if defined DEBUG
+	PrintToServer(PM2_CON_PREFIX ... "clear_playerdata %i %i %i", which, from, reapply_from);
+#endif
 
 	switch(which) {
 		case playermodelslot_hack_all: {
@@ -2349,15 +2406,11 @@ static void clear_playerdata(int client, playermodelslot which, cleardatafrom fr
 			clear_playerdata(client, playermodelslot_animation, from);
 		}
 		case playermodelslot_skin: {
-		#if defined GAME_TF2
 			SetEntProp(client, Prop_Send, "m_bForcedSkin", false);
 			SetEntProp(client, Prop_Send, "m_nForcedSkin", 0);
-		#endif
 		}
 		case playermodelslot_bodygroup: {
-		#if defined GAME_TF2
 			recalculate_bodygroups(client);
-		#endif
 		}
 		case playermodelslot_animation, playermodelslot_model: {
 			if((reapply_from == handledatafrom_equip ||
@@ -2367,33 +2420,13 @@ static void clear_playerdata(int client, playermodelslot which, cleardatafrom fr
 				return;
 			}
 
-			SDKUnhook(client, SDKHook_PostThinkPost, player_think_modelalpha);
-			SDKUnhook(client, SDKHook_PostThinkPost, player_think_hatsalpha);
-
 			reset_custommodel(client);
 
-			delete_playermodelentity(client);
-
-		#if defined _SENDPROXYMANAGER_INC_
-			SendProxy_Unhook(client, "m_clrRender", proxy_renderclr);
-			SendProxy_Unhook(client, "m_nRenderMode", proxy_rendermode);
-		#endif
-
-			SetEntityRenderMode(client, RENDER_NORMAL);
-			SetEntityRenderColor(client, 255, 255, 255, 255);
-
-			int effects = GetEntProp(client, Prop_Send, "m_fEffects");
-			effects &= ~(EF_NOSHADOW|EF_NORECEIVESHADOW|EF_NODRAW);
-			SetEntProp(client, Prop_Send, "m_fEffects", effects);
+			delete_modelentity(client);
+			delete_viewmodelentity(client);
 		}
 	}
 }
-
-enum playermodelmethod
-{
-	playermodelmethod_setcustommodel,
-	playermodelmethod_bonemerge,
-};
 
 static int get_modelentity(int client)
 {
@@ -2420,7 +2453,6 @@ static int get_modelentity_or_client(int client)
 
 static bool is_player_thirdperson(int client)
 {
-#if defined GAME_TF2
 	if(cl_first_person_uses_world_model[client] || tf_taunt_first_person[client]) {
 		return false;
 	}
@@ -2439,7 +2471,6 @@ static bool is_player_thirdperson(int client)
 			TF2_IsPlayerInCondition(client, TFCond_MeleeOnly) ||
 			TF2_IsPlayerInCondition(client, TFCond_SwimmingCurse) ||
 			tf_always_loser.BoolValue);
-#endif
 }
 
 Action model_transmit(int entity, int client)
@@ -2461,7 +2492,6 @@ Action model_transmit(int entity, int client)
 	return Plugin_Continue;
 }
 
-#if defined GAME_TF2
 static int team_for_skin(int skin)
 {
 	if(skin == 0) {
@@ -2470,12 +2500,9 @@ static int team_for_skin(int skin)
 		return 3;
 	}
 }
-#endif
 
 static void handle_playerdata(int client, playermodelslot which, handledatafrom from)
 {
-	//TODO!! optimize using handledatafrom
-
 	switch(which) {
 		case playermodelslot_hack_all: {
 			handle_playerdata(client, playermodelslot_animation, from);
@@ -2488,14 +2515,12 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 			if(new_skin != -1) {
 				int entity = get_modelentity(client);
 
-			#if defined GAME_TF2
 				if(entity != -1) {
 					SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(new_skin));
 				} else {
 					SetEntProp(client, Prop_Send, "m_bForcedSkin", true);
 					SetEntProp(client, Prop_Send, "m_nForcedSkin", new_skin);
 				}
-			#endif
 			}
 		}
 		case playermodelslot_bodygroup: {
@@ -2504,6 +2529,9 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 			if(new_bodygroup != -1) {
 				int entity = get_modelentity_or_client(client);
 				SetEntProp(entity, Prop_Send, "m_nBody", new_bodygroup);
+			#if defined DEBUG && 0
+				PrintToServer(PM2_CON_PREFIX ... "b1 %i", new_bodygroup);
+			#endif
 			} else {
 				if(player_modelclass[client] != TFClass_Unknown) {
 					int entity = get_modelentity(client);
@@ -2511,197 +2539,84 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 						TFClassType player_class = TF2_GetPlayerClass(client);
 						int old_body = GetEntProp(client, Prop_Send, "m_nBody");
 						new_bodygroup = calculate_class_bodygroups(old_body, player_class, player_modelclass[client]);
+					#if defined DEBUG && 0
+						PrintToServer(PM2_CON_PREFIX ... "b2 %i", new_bodygroup);
+					#endif
 						SetEntProp(entity, Prop_Send, "m_nBody", new_bodygroup);
 					}
 				}
 			}
 		}
 		case playermodelslot_animation, playermodelslot_model: {
-			TFClassType player_class = TF2_GetPlayerClass(client);
-
-			if(animation_override[0] == '\0' && from != handledatafrom_weaponswitch) {
-				int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-				if(weapon != -1) {
-					TFClassType weapon_class = get_class_for_weapon(weapon, player_class);
-					if(weapon_class != TFClass_Unknown && weapon_class != player_class) {
-						get_model_for_class(weapon_class, animation_override, PLATFORM_MAX_PATH);
-					}
+			if(from == handledatafrom_weaponswitch) {
+				if(attempting_to_taunt[client] || TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
+					return;
 				}
 			}
 
+			TFClassType player_class = TF2_GetPlayerClass(client);
+
 			char new_animation[PLATFORM_MAX_PATH];
-			if(currenttauntmodel[client][0] != '\0') {
-				strcopy(new_animation, PLATFORM_MAX_PATH, currenttauntmodel[client]);
-			} else if(animation_override[0] != '\0') {
-				strcopy(new_animation, PLATFORM_MAX_PATH, animation_override);
-				animation_override[0] = '\0';
-			}
-
-			char new_model[PLATFORM_MAX_PATH];
-			strcopy(new_model, PLATFORM_MAX_PATH, player_model[client]);
-
-			playermodelmethod method = playermodelmethod_bonemerge;
-
-			bool model_is_for_class = (player_modelclass[client] == player_class);
-
-			if(!model_is_for_class &&
-				!(player_flags[client] & playermodel_nevermerge) ||
-				(player_flags[client] & playermodel_alwaysmerge)) {
-				method = playermodelmethod_bonemerge;
-			} else {
-				method = playermodelmethod_setcustommodel;
-			}
-
-			if(new_animation[0] != '\0' &&
-				!(player_flags[client] & playermodel_nevermerge)) {
-				method = playermodelmethod_bonemerge;
+			if(player_tauntanimation[client][0] != '\0') {
+				strcopy(new_animation, PLATFORM_MAX_PATH, player_tauntanimation[client]);
+			} else if(player_weaponanimation[client][0] != '\0') {
+				strcopy(new_animation, PLATFORM_MAX_PATH, player_weaponanimation[client]);
 			}
 
 			bool copy_bodygroups = false;
-			if(method == playermodelmethod_bonemerge) {
-				if(new_model[0] == '\0') {
-					get_model_for_class(player_class, new_model, PLATFORM_MAX_PATH);
-					copy_bodygroups = true;
-				}
+			char new_model[PLATFORM_MAX_PATH];
+			if(player_model[client][0] == '\0') {
+				get_model_for_class(player_class, new_model, PLATFORM_MAX_PATH);
+				copy_bodygroups = true;
+			} else {
+				strcopy(new_model, PLATFORM_MAX_PATH, player_model[client]);
 			}
-
-		#if defined DEBUG && 1
-			PrintToServer(PM2_CON_PREFIX ... "handle_playerdata %s | %s | %i", new_model, new_animation, from);
-		#endif
 
 			if(StrEqual(new_model, new_animation)) {
-				if(from != handledatafrom_weaponswitch) {
-					clear_playerdata(client, which, cleardatafrom_reapply, from);
-					return;
-				}
+				clear_playerdata(client, playermodelslot_animation, cleardatafrom_reapply, from);
+				return;
 			}
 
-			bool do_clear_data = (
-				new_animation[0] != '\0' ||
-				from == handledatafrom_taunt_end ||
-				from == handledatafrom_equip
-			);
-			if(do_clear_data) {
-				clear_playerdata(client, which, cleardatafrom_reapply, from);
+			if((new_animation[0] != '\0' ||
+				(player_flags[client] & playermodel_alwaysmerge)) &&
+				!(player_flags[client] & playermodel_nevermerge)) {
+				player_modelmethod[client] = playermodelmethod_bonemerge;
+			} else {
+				player_modelmethod[client] = playermodelmethod_setcustommodel;
 			}
 
-			if(from == handledatafrom_equip) {
-				if(TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
-					return;
-				}
-			}
+		#if defined DEBUG
+			PrintToServer("handle_playerdata");
+			PrintToServer("  new_model = %s", new_model);
+			PrintToServer("  new_animation = %s", new_animation);
+			PrintToServer("  player_tauntanimation = %s", player_tauntanimation[client]);
+			PrintToServer("  player_weaponanimation = %s", player_weaponanimation[client]);
+			PrintToServer("  method = %i", player_modelmethod[client]);
+		#endif
 
-			SDKHook(client, SDKHook_PostThinkPost, player_think_hatsalpha);
-
-			switch(method) {
+			switch(player_modelmethod[client]) {
 				case playermodelmethod_bonemerge: {
-					int effects = GetEntProp(client, Prop_Send, "m_fEffects");
-					effects |= (EF_NOSHADOW|EF_NORECEIVESHADOW);
-					SetEntProp(client, Prop_Send, "m_fEffects", effects);
-
-				#if defined GAME_TF2
 					if(new_animation[0] != '\0') {
 						set_custom_model(client, new_animation);
-					#if defined DEBUG && 0
-						PrintToServer(PM2_CON_PREFIX ... "set_custom_model(%s) %i", new_animation, from);
-					#endif
 					}
-				#endif
 
-					int entity = get_modelentity(client);
-					bool entity_was_created = (entity == -1);
+					delete_modelentity(client);
 
-					if(entity_was_created) {
-					#if defined GAME_TF2
-						TF2Items_SetClassname(dummy_item_view, "tf_wearable");
-						entity = TF2Items_GiveNamedItem(client, dummy_item_view);
-					#endif
+					int entity = get_or_create_modelentity(client);
 
-						float pos[3];
-						GetClientAbsOrigin(client, pos);
-
-						DispatchKeyValueVector(entity, "origin", pos);
-						DispatchKeyValue(entity, "model", new_model);
-
-						SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable");
-
-					#if defined GAME_TF2
-						SDKCall(EquipWearable, client, entity);
-						SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
-					#else
-						DispatchSpawn(entity);
-					#endif
-
-						SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable");
-
-						SetEntityModel(entity, new_model);
-					#if defined DEBUG && 0
-						PrintToServer(PM2_CON_PREFIX ... "SetEntityModel(%s) %i", new_model, from);
-					#endif
-
-						SetEntProp(entity, Prop_Send, "m_bClientSideAnimation", 0);
-						SetEntProp(entity, Prop_Send, "m_bClientSideFrameReset", 0);
-
-						SetEntPropFloat(entity, Prop_Send, "m_flPlaybackRate", 1.0);
-
-						SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
-
-						SetVariantString("!activator");
-						AcceptEntityInput(entity, "SetParent", client);
-
-						SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
-
-					#if defined _SENDPROXYMANAGER_INC_
-						SendProxy_Hook(client, "m_clrRender", Prop_Int, proxy_renderclr, true);
-						SendProxy_Hook(client, "m_nRenderMode", Prop_Int, proxy_rendermode, true);
-					#endif
-
-						SetEntityRenderMode(client, RENDER_NONE);
-
-						SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
-						SetEntityRenderColor(entity, 255, 255, 255, 255);
-
-						//SDKHook(entity, SDKHook_SetTransmit, model_transmit);
-
-						effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-						effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
-						effects &= ~(EF_NOSHADOW|EF_NORECEIVESHADOW);
-						SetEntProp(entity, Prop_Send, "m_fEffects", effects);
-
-						player_modelentity[client] = EntIndexToEntRef(entity);
-
-						SDKHook(client, SDKHook_PostThinkPost, player_think_modelalpha);
-
-						if(do_clear_data) {
-							handle_playerdata(client, playermodelslot_bodygroup, from);
-							handle_playerdata(client, playermodelslot_skin, from);
-						}
-					} else {
-						SetEntityModel(entity, new_model);
-					#if defined DEBUG && 0
-						PrintToServer(PM2_CON_PREFIX ... "SetEntityModel(%s) %i", new_model, from);
-					#endif
-					}
+					SetEntityModel(entity, new_model);
 
 					if(copy_bodygroups) {
 						int body = GetEntProp(client, Prop_Send, "m_nBody");
-					#if defined DEBUG && 0
-						PrintToServer(PM2_CON_PREFIX ... "%i", body);
-					#endif
 						SetEntProp(entity, Prop_Send, "m_nBody", body);
 					}
-
-				#if defined DEBUG && 0
-					int body = GetEntProp(entity, Prop_Send, "m_nBody");
-					PrintToServer(PM2_CON_PREFIX ... "%i", body);
-				#endif
 				}
 				case playermodelmethod_setcustommodel: {
-				#if defined GAME_TF2
+					delete_modelentity(client);
+
 					set_custom_model(client, new_model);
-					#if defined DEBUG && 0
+				#if defined DEBUG && 0
 					PrintToServer(PM2_CON_PREFIX ... "set_custom_model(%s) %i", new_model, from);
-					#endif
 				#endif
 				}
 			}

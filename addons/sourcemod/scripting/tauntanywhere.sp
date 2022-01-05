@@ -1,5 +1,9 @@
 #include <sourcemod>
 #include <dhooks>
+#include <tf2>
+#include <tf2_stocks>
+
+#define TAUNT_LONG 3
 
 static ConVar tf_allow_sliding_taunt = null;
 static ConVar tf_allow_taunt_switch = null;
@@ -7,6 +11,8 @@ static ConVar tf_allow_all_team_partner_taunt = null;
 
 static int tempgroundent;
 static int tempwaterlevel;
+
+static int m_flNextAllowTauntRemapInputTime_offset = -1;
 
 public void OnPluginStart()
 {
@@ -19,6 +25,8 @@ public void OnPluginStart()
 		SetFailState("Gamedata not found.");
 		return;
 	}
+
+	m_flNextAllowTauntRemapInputTime_offset = FindSendPropInfo("CTFPlayer", "m_iSpawnCounter") - gamedata.GetOffset("CTFPlayer::m_flNextAllowTauntRemapInputTime");
 
 	DynamicDetour tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::IsAllowedToTaunt");
 	if(!tmp || !tmp.Enable(Hook_Pre, IsAllowedToTaunt)) {
@@ -40,6 +48,21 @@ public void OnPluginStart()
 	}
 
 	delete gamedata;
+}
+
+public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3], float angles[3], int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2])
+{
+	if(TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
+		int m_iTauntIndex = GetEntProp(client, Prop_Send, "m_iTauntIndex");
+		if(m_iTauntIndex == TAUNT_LONG) {
+			int m_iTauntItemDefIndex = GetEntProp(client, Prop_Send, "m_iTauntItemDefIndex");
+			if(m_iTauntItemDefIndex == 1196) {
+				return Plugin_Continue;
+			}
+			SetEntDataFloat(client, m_flNextAllowTauntRemapInputTime_offset, GetGameTime() - 1.0);
+		}
+	}
+	return Plugin_Continue;
 }
 
 public void OnConfigsExecuted()

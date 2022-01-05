@@ -61,9 +61,21 @@
 				"library" "server"
 				"linux" "@_ZN9CTFPlayer5TauntE8taunts_ti"
 			}
+			"CTFPlayer::PlayTauntRemapInputScene"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer24PlayTauntRemapInputSceneEv"
+			}
 		}
 		"Functions"
 		{
+			"CTFPlayer::PlayTauntRemapInputScene"
+			{
+				"signature" "CTFPlayer::PlayTauntRemapInputScene"
+				"callconv" "thiscall"
+				"return" "float"
+				"this" "entity"
+			}
 			"CTFPlayer::Taunt"
 			{
 				"signature" "CTFPlayer::Taunt"

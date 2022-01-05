@@ -198,7 +198,7 @@ static void player_postthinkpost(int client)
 
 public void OnClientDisconnect(int client)
 {
-	if(playergameplaygroups[client]) {
+	if(playergameplaygroups[client] != null) {
 		int len = playergameplaygroups[client].Length;
 
 		GameplayInfo info;
@@ -262,8 +262,8 @@ static int get_entity_owner(int other)
 
 static GameplayGroupType get_equal_group(int player1, int player2)
 {
-	int len1 = playergameplaygroups[player1].Length;
-	int len2 = playergameplaygroups[player2].Length;
+	int len1 = (playergameplaygroups[player1] == null ? 0 : playergameplaygroups[player1].Length);
+	int len2 = (playergameplaygroups[player2] == null ? 0 : playergameplaygroups[player2].Length);
 
 	if(len1 == 0 && len2 == 0) {
 		return Gameplay_Default;
