@@ -67,7 +67,13 @@ void OnProjectileSpawnPost(int entity)
 {
 	int owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
 	if(owner != -1) {
-		owner = GetEntPropEnt(owner, Prop_Send, "m_hOwner");
+		char classname[64];
+		GetEntityClassname(owner, classname, sizeof(classname));
+		if(!StrEqual(classname, "tf_point_weapon_mimic")) {
+			owner = GetEntPropEnt(owner, Prop_Send, "m_hOwner");
+		} else {
+			owner = -1;
+		}
 	} else {
 		owner = -1;
 	}

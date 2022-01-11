@@ -233,7 +233,13 @@ static int get_projectile_owner(int entity)
 {
 	int owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
 	if(owner != -1) {
-		owner = get_weapon_owner(owner);
+		char classname[64];
+		GetEntityClassname(owner, classname, sizeof(classname));
+		if(!StrEqual(classname, "tf_point_weapon_mimic")) {
+			owner = get_weapon_owner(owner);
+		} else {
+			owner = -1;
+		}
 	}
 	return owner;
 }

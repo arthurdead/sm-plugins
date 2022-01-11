@@ -157,7 +157,7 @@ static bool spawning[MAXPLAYERS+1] = {true, ...};
 static Handle spawn_timer[MAXPLAYERS+1] = {null, ...};
 
 static bool tauntmodel_hasbonemerge[MAXPLAYERS+1] = {true, ...};
-static TFClassType last_taunt_class = TFClass_Unknown;
+static TFClassType player_classbeforetaunt[MAXPLAYERS+1] = {TFClass_Unknown, ...};
 static TFClassType player_tauntclass[MAXPLAYERS+1] = {TFClass_Unknown, ...};
 
 static playermodelmethod player_modelmethod[MAXPLAYERS+1] = {playermodelmethod_none, ...};
@@ -882,6 +882,18 @@ public void OnMapStart()
 	}
 }
 
+#if defined _SENDPROXYMANAGER_INC_ && defined ENABLE_SENDPROXY
+public void OnMapEnd()
+{
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
+			SendProxy_Unhook(i, "m_clrRender", proxy_renderclr);
+			SendProxy_Unhook(i, "m_nRenderMode", proxy_rendermode);
+		}
+	}
+}
+#endif
+
 static Action sm_rpm(int client, int args)
 {
 	unload_models();
@@ -1024,6 +1036,9 @@ static bool equip_model_helper(int client, int idx, ConfigModelInfo modelinfo, b
 	if(player_flags[client] & playermodel_hideweapons) {
 		SDKHook(client, SDKHook_PostThinkPost, player_think_weaponsalpha);
 	}
+
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	handle_weaponswitch(client, weapon, handleswitchfrom_equip);
 
 	return true;
 }
@@ -1282,6 +1297,11 @@ static Action timer_spawn(Handle timer, int client)
 		return Plugin_Continue;
 	}
 
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	handle_weaponswitch(client, weapon, handleswitchfrom_spawn);
+
+	handle_playerdata(client, playermodelslot_hack_all, handledatafrom_spawn);
+
 	SDKHook(client, SDKHook_PostThinkPost, player_think_noweapon);
 
 	spawning[client] = false;
@@ -1332,9 +1352,7 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_noweapon);
 
-		
-
-		delete_viewmodelentity(client);
+		clear_playerdata(client, playermodelslot_hack_all, cleardatafrom_death);
 	}
 }
 
@@ -1424,14 +1442,14 @@ static void handle_tauntattempt(int client, ArrayList classes)
 			handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
 		}
 		TF2_SetPlayerClass(client, desiredclass);
-		last_taunt_class = player_class;
+		player_classbeforetaunt[client] = player_class;
 		player_tauntclass[client] = desiredclass;
 	}
 }
 
 public MRESReturn Taunt(int pThis, DHookParam hParams)
 {
-	last_taunt_class = TFClass_Unknown;
+	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	player_tauntclass[pThis] = TFClass_Unknown;
 	attempting_to_taunt[pThis] = true;
 
@@ -1461,7 +1479,7 @@ public MRESReturn Taunt(int pThis, DHookParam hParams)
 
 public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-	last_taunt_class = TFClass_Unknown;
+	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	player_tauntclass[pThis] = TFClass_Unknown;
 	attempting_to_taunt[pThis] = true;
 
@@ -1484,7 +1502,7 @@ public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookPa
 static MRESReturn PlayTauntRemapInputScene(int pThis, DHookReturn hReturn)
 {
 	if(player_tauntclass[pThis] != TFClass_Unknown) {
-		last_taunt_class = TF2_GetPlayerClass(pThis);
+		player_classbeforetaunt[pThis] = TF2_GetPlayerClass(pThis);
 	#if defined DEBUG && 0
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntRemapInputScene");
 	#endif
@@ -1495,13 +1513,13 @@ static MRESReturn PlayTauntRemapInputScene(int pThis, DHookReturn hReturn)
 
 static MRESReturn Taunt_post(int pThis, DHookParam hParams)
 {
-	if(last_taunt_class != TFClass_Unknown) {
+	if(player_classbeforetaunt[pThis] != TFClass_Unknown) {
 	#if defined DEBUG
-		PrintToServer(PM2_CON_PREFIX ... "Taunt_post %i", last_taunt_class);
+		PrintToServer(PM2_CON_PREFIX ... "Taunt_post %i", player_classbeforetaunt[pThis]);
 	#endif
-		TF2_SetPlayerClass(pThis, last_taunt_class);
+		TF2_SetPlayerClass(pThis, player_classbeforetaunt[pThis]);
 	}
-	last_taunt_class = TFClass_Unknown;
+	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	player_tauntclass[pThis] = TFClass_Unknown;
 	return MRES_Ignored;
 }
@@ -1509,7 +1527,7 @@ static MRESReturn Taunt_post(int pThis, DHookParam hParams)
 static MRESReturn EndLongTaunt(int pThis, DHookReturn hReturn)
 {
 	if(player_tauntclass[pThis] != TFClass_Unknown) {
-		last_taunt_class = TF2_GetPlayerClass(pThis);
+		player_classbeforetaunt[pThis] = TF2_GetPlayerClass(pThis);
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "EndLongTaunt");
 	#endif
@@ -1521,7 +1539,7 @@ static MRESReturn EndLongTaunt(int pThis, DHookReturn hReturn)
 static MRESReturn PlayTauntOutroScene(int pThis, DHookReturn hReturn)
 {
 	if(player_tauntclass[pThis] != TFClass_Unknown) {
-		last_taunt_class = TF2_GetPlayerClass(pThis);
+		player_classbeforetaunt[pThis] = TF2_GetPlayerClass(pThis);
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntOutroScene");
 	#endif
@@ -1533,49 +1551,49 @@ static MRESReturn PlayTauntOutroScene(int pThis, DHookReturn hReturn)
 
 static MRESReturn PlayTauntSceneFromItem_post(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-	if(last_taunt_class != TFClass_Unknown) {
+	if(player_classbeforetaunt[pThis] != TFClass_Unknown) {
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntSceneFromItem_post");
 	#endif
-		TF2_SetPlayerClass(pThis, last_taunt_class);
+		TF2_SetPlayerClass(pThis, player_classbeforetaunt[pThis]);
 	}
-	last_taunt_class = TFClass_Unknown;
+	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
 static MRESReturn EndLongTaunt_post(int pThis, DHookReturn hReturn)
 {
-	if(last_taunt_class != TFClass_Unknown) {
+	if(player_classbeforetaunt[pThis] != TFClass_Unknown) {
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "EndLongTaunt_post");
 	#endif
-		TF2_SetPlayerClass(pThis, last_taunt_class);
+		TF2_SetPlayerClass(pThis, player_classbeforetaunt[pThis]);
 	}
-	last_taunt_class = TFClass_Unknown;
+	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
 static MRESReturn PlayTauntRemapInputScene_post(int pThis, DHookReturn hReturn)
 {
-	if(last_taunt_class != TFClass_Unknown) {
+	if(player_classbeforetaunt[pThis] != TFClass_Unknown) {
 	#if defined DEBUG && 0
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntRemapInputScene_post");
 	#endif
-		TF2_SetPlayerClass(pThis, last_taunt_class);
+		TF2_SetPlayerClass(pThis, player_classbeforetaunt[pThis]);
 	}
-	last_taunt_class = TFClass_Unknown;
+	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
 static MRESReturn PlayTauntOutroScene_post(int pThis, DHookReturn hReturn)
 {
-	if(last_taunt_class != TFClass_Unknown) {
+	if(player_classbeforetaunt[pThis] != TFClass_Unknown) {
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "PlayTauntOutroScene_post");
 	#endif
-		TF2_SetPlayerClass(pThis, last_taunt_class);
+		TF2_SetPlayerClass(pThis, player_classbeforetaunt[pThis]);
 	}
-	last_taunt_class = TFClass_Unknown;
+	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	return MRES_Ignored;
 }
 
@@ -1592,6 +1610,8 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 	switch(condition) {
 		case TFCond_Taunting: {
 			player_tauntanimation[client][0] = '\0';
+			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			handle_weaponswitch(client, weapon, handleswitchfrom_taunt_end);
 			handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_end);
 		}
 		case TFCond_Disguised:
@@ -2122,6 +2142,7 @@ public void OnClientDisconnect(int client)
 	spawning[client] = true;
 	tauntmodel_hasbonemerge[client] = true;
 
+	player_classbeforetaunt[client] = TFClass_Unknown;
 	player_tauntclass[client] = TFClass_Unknown;
 	attempting_to_taunt[client] = false;
 	player_tauntanimation[client][0] = '\0';
@@ -2398,6 +2419,12 @@ static void clear_playerdata(int client, playermodelslot which, cleardatafrom fr
 #if defined DEBUG
 	PrintToServer(PM2_CON_PREFIX ... "clear_playerdata %i %i %i", which, from, reapply_from);
 #endif
+
+	if(from == cleardatafrom_disconnect) {
+		if(!IsValidEntity(client)) {
+			return;
+		}
+	}
 
 	switch(which) {
 		case playermodelslot_hack_all: {

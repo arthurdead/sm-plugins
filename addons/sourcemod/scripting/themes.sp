@@ -795,18 +795,28 @@ Action Timer_Wind(Handle timer)
 			char force[32];
 			Format(force, sizeof(force), "-%d -%d 0", GetRandomInt(300, 1000), GetRandomInt(300, 1000));
 			
+			int endpoint = GetEntPropEnt(ent, Prop_Send, "m_hEndPoint");
+			SetEntPropEnt(ent, Prop_Send, "m_hEndPoint", -1);
+
 			SetVariantString(force);
 			AcceptEntityInput(ent, "SetForce");
+
+			SetEntPropEnt(ent, Prop_Send, "m_hEndPoint", endpoint);
 		}
 		
 		ent = -1;
-		
+
 		while ((ent = FindEntityByClassname(ent, "keyframe_rope")) != -1) {
 			char force[32];
 			Format(force, sizeof(force), "-%d -%d 0", GetRandomInt(300, 1000), GetRandomInt(300, 1000));
 			
+			int endpoint = GetEntPropEnt(ent, Prop_Send, "m_hEndPoint");
+			SetEntPropEnt(ent, Prop_Send, "m_hEndPoint", -1);
+
 			SetVariantString(force);
 			AcceptEntityInput(ent, "SetForce");
+
+			SetEntPropEnt(ent, Prop_Send, "m_hEndPoint", endpoint);
 		}
 	}
 
