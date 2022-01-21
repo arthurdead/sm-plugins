@@ -2,7 +2,6 @@
 #include <sdkhooks>
 #include <teammanager>
 #include <teammanager_gameplay>
-#tryinclude <sendproxy>
 
 //#define DEBUG
 
@@ -81,6 +80,7 @@ int native_TeamManager_RemoveGameplayGroup(Handle plugin, int params)
 {
 	int idx = GetNativeCell(1);
 	remove_gameplaygroup(idx);
+	//TODO!!! remove from pluginmap
 	return 0;
 }
 

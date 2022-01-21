@@ -161,6 +161,7 @@ static TFClassType player_classbeforetaunt[MAXPLAYERS+1] = {TFClass_Unknown, ...
 static TFClassType player_tauntclass[MAXPLAYERS+1] = {TFClass_Unknown, ...};
 
 static playermodelmethod player_modelmethod[MAXPLAYERS+1] = {playermodelmethod_none, ...};
+static char player_customtauntanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
 static char player_tauntanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
 static char player_weaponanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
 
@@ -1402,7 +1403,7 @@ public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, 
 {
 	tauntmodel_hasbonemerge[client] = hasBonemergeSupport;
 	if(hasBonemergeSupport) {
-		strcopy(player_tauntanimation[client], PLATFORM_MAX_PATH, tauntModel);
+		strcopy(player_customtauntanimation[client], PLATFORM_MAX_PATH, tauntModel);
 		handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
 		return Plugin_Handled;
 	} else {
@@ -1414,7 +1415,7 @@ public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, 
 
 public Action TauntManager_RemoveTauntModel(int client)
 {
-	player_tauntanimation[client][0] = '\0';
+	player_customtauntanimation[client][0] = '\0';
 	tauntmodel_hasbonemerge[client] = true;
 	return Plugin_Handled;
 }
@@ -1432,9 +1433,7 @@ static void handle_tauntattempt(int client, ArrayList classes)
 		} else {
 			desiredclass = classes.Get(GetRandomInt(0, len-1));
 		}
-		if(player_tauntanimation[client][0] == '\0') {
-			get_model_for_class(desiredclass, player_tauntanimation[client], PLATFORM_MAX_PATH);
-		}
+		get_model_for_class(desiredclass, player_tauntanimation[client], PLATFORM_MAX_PATH);
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "handle_tauntattempt");
 	#endif
@@ -1609,6 +1608,7 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	switch(condition) {
 		case TFCond_Taunting: {
+			player_customtauntanimation[client][0] = '\0';
 			player_tauntanimation[client][0] = '\0';
 			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 			handle_weaponswitch(client, weapon, handleswitchfrom_taunt_end);
@@ -2145,6 +2145,7 @@ public void OnClientDisconnect(int client)
 	player_classbeforetaunt[client] = TFClass_Unknown;
 	player_tauntclass[client] = TFClass_Unknown;
 	attempting_to_taunt[client] = false;
+	player_customtauntanimation[client][0] = '\0'
 	player_tauntanimation[client][0] = '\0';
 	player_weaponanimation[client][0] = '\0';
 	player_modelmethod[client] = playermodelmethod_none;
@@ -2584,7 +2585,9 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 			TFClassType player_class = TF2_GetPlayerClass(client);
 
 			char new_animation[PLATFORM_MAX_PATH];
-			if(player_tauntanimation[client][0] != '\0') {
+			if(player_customtauntanimation[client][0] != '\0') {
+				strcopy(new_animation, PLATFORM_MAX_PATH, player_customtauntanimation[client]);
+			} else if(player_tauntanimation[client][0] != '\0') {
 				strcopy(new_animation, PLATFORM_MAX_PATH, player_tauntanimation[client]);
 			} else if(player_weaponanimation[client][0] != '\0') {
 				strcopy(new_animation, PLATFORM_MAX_PATH, player_weaponanimation[client]);
@@ -2616,6 +2619,7 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 			PrintToServer("handle_playerdata");
 			PrintToServer("  new_model = %s", new_model);
 			PrintToServer("  new_animation = %s", new_animation);
+			PrintToServer("  player_customtauntanimation = %s", player_customtauntanimation[client]);
 			PrintToServer("  player_tauntanimation = %s", player_tauntanimation[client]);
 			PrintToServer("  player_weaponanimation = %s", player_weaponanimation[client]);
 			PrintToServer("  method = %i", player_modelmethod[client]);

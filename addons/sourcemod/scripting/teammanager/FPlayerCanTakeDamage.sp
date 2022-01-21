@@ -14,6 +14,10 @@ void FPlayerCanTakeDamageMapStart()
 
 MRESReturn FPlayerCanTakeDamagePre(Address pThis, Handle hReturn, Handle hParams)
 {
+	if(DHookIsNullParam(hParams, 2)) {
+		return MRES_Ignored;
+	}
+
 	int owner = DHookGetParam(hParams, 1);
 	int other = DHookGetParam(hParams, 2);
 
