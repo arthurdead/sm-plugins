@@ -65,24 +65,9 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 void OnProjectileSpawnPost(int entity)
 {
-	int owner = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
-	if(owner != -1) {
-		char classname[64];
-		GetEntityClassname(owner, classname, sizeof(classname));
-		if(!StrEqual(classname, "tf_point_weapon_mimic")) {
-			owner = GetEntPropEnt(owner, Prop_Send, "m_hOwner");
-		} else {
-			owner = -1;
-		}
-	} else {
-		owner = -1;
-	}
-
-	if(owner != -1) {
-		if(mp_friendlyfire.BoolValue) {
-			DHookEntity(dhCanCollideWithTeammates, false, entity, INVALID_FUNCTION, CanCollideWithTeammatesPre);
-			DHookEntity(dhGetCollideWithTeammatesDelay, false, entity, INVALID_FUNCTION, GetCollideWithTeammatesDelayPre);
-		}
+	if(mp_friendlyfire.BoolValue) {
+		DHookEntity(dhCanCollideWithTeammates, false, entity, INVALID_FUNCTION, CanCollideWithTeammatesPre);
+		DHookEntity(dhGetCollideWithTeammatesDelay, false, entity, INVALID_FUNCTION, GetCollideWithTeammatesDelayPre);
 	}
 }
 
@@ -145,8 +130,8 @@ public Action TeamManager_CanDamage(int entity, int other, DamageSource source)
 		return Plugin_Continue;
 	}
 
-	int team1 = GetEntProp(entity, Prop_Send, "m_iTeamNum");
-	int team2 = GetEntProp(other, Prop_Send, "m_iTeamNum");
+	int team1 = GetEntProp(entity, Prop_Data, "m_iTeamNum");
+	int team2 = GetEntProp(other, Prop_Data, "m_iTeamNum");
 
 	if(team1 == team2) {
 		if(mp_friendlyfire.BoolValue) {
@@ -167,8 +152,8 @@ public Action TeamManager_InSameTeam(int entity, int other)
 		return Plugin_Continue;
 	}
 
-	int team1 = GetEntProp(entity, Prop_Send, "m_iTeamNum");
-	int team2 = GetEntProp(other, Prop_Send, "m_iTeamNum");
+	int team1 = GetEntProp(entity, Prop_Data, "m_iTeamNum");
+	int team2 = GetEntProp(other, Prop_Data, "m_iTeamNum");
 
 	if(team1 == team2) {
 		if(mp_friendlyfire.BoolValue) {
