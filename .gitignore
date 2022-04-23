@@ -8,4 +8,7 @@ addons/sourcemod/scripting/gcmessages.sp
 addons/sourcemod/scripting/include/gcmessages.inc
 addons/sourcemod/gamedata/gcmessages.txt
 
+addons/sourcemod/scripting/tempentfix.sp
+addons/sourcemod/gamedata/tempentfix.txt
+
 custom/

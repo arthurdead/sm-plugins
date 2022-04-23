@@ -1,0 +1,193 @@
+"Gamemodes"
+{
+	"Freak Fortress 2"
+	{
+		"weight" "100.0"
+		"time" "30.0"
+		"plugins"
+		{
+			"0" "freak_fortress_2.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^vsh_.*"
+		}
+	}
+	"Super Zombie Fortress"
+	{
+		"weight" "50.0"
+		"time" "40.0"
+		"plugins"
+		{
+			"0" "optional/superzombiefortress.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^szf_.*"
+		}
+	}
+	"Deathrun"
+	{
+		"weight" "100.0"
+		"time" "30.0"
+		"plugins"
+		{
+			"0" "optional/deathrun.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^dr_.*"
+		}
+	}
+	"MicroTF2"
+	{
+		"weight" "50.0"
+		"time" "30.0"
+		"plugins"
+		{
+			"0" "optional/AS-MicroTF2.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^warioware_redux_.*"
+		}
+	}
+	"Slender Fortress"
+	{
+		"weight" "50.0"
+		"time" "40.0"
+		"plugins"
+		{
+			"0" "optional/sf2.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^slender_.*"
+		}
+	}
+	"Dodgeball"
+	{
+		"weight" "100.0"
+		"time" "30.0"
+		"enabled"
+		{
+			"commands"
+			{
+				"0" "tf_arena_use_queue 0"
+			}
+		}
+		"disabled"
+		{
+			"commands"
+			{
+				"0" "tf_arena_use_queue 1"
+			}
+		}
+		"plugins"
+		{
+			"0" "optional/dodgeball_redux.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^tfdb_.*"
+		}
+	}
+	"Prophunt"
+	{
+		"weight" "100.0"
+		"time" "35.0"
+		"plugins"
+		{
+			"0" "optional/prophunt.smx"
+		}
+		"plugins_disable"
+		{
+			"0" "thirdparty/aimnames.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^ph_.*"
+			"1" "^spooky_ravine_a1$"
+			"2" "^arena_brawl_b1$"
+			"3" "^arena_concord_b3$"
+			"4" "^arena_desolation_pb1$"
+			"5" "^arena_farm_feud_b1$"
+			"6" "^arena_ravage_b1$"
+			"7" "^arena_storm_b1c$"
+		}
+	}
+	"Uber Upgrades"
+	{
+		"weight" "50.0"
+		"time" "30.0"
+		"plugins"
+		{
+			"0" "optional/ubup-attributes.smx"
+			"1" "optional/tf2attributes_ubup.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^cp_orange_z3$"
+		}
+	}
+	"Randomizer"
+	{
+		"weight" "50.0"
+		"time" "30.0"
+		"plugins"
+		{
+			"0" "optional/randomizer.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^cp_orange_z3$"
+		}
+	}
+	"SCP: Secret Fortress"
+	{
+		"weight" "10.0"
+		"time" "45.0"
+		"plugins"
+		{
+			"0" "optional/scp_sf.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^scp_.*"
+		}
+	}
+	"Fortwars"
+	{
+		"weight" "50.0"
+		"time" "35.0"
+		"plugins"
+		{
+			"0" "optional/fortwars.smx"
+			"1" "optional/fw_flymode.smx"
+			"2" "optional/fw_lowgravsetup.smx"
+			"3" "optional/fw_menuonroundrestart.smx"
+			"4" "optional/fwp_healthkit.smx"
+			"5" "optional/fwp_supportwall.smx"
+			"6" "optional/fwu_classunlocks.smx"
+			"7" "optional/fwu_healthregeneration.smx"
+			"8" "optional/fwu_metalregeneration.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^fw_.*"
+		}
+	}
+	"The Hidden Mod Redux"
+	{
+		"weight" "50.0"
+		"time" "30.0"
+		"plugins"
+		{
+			"0" "optional/TheHiddenModRedux.smx"
+		}
+		"maps_whitelist"
+		{
+			"0" "^arena_.*"
+		}
+	}
+}

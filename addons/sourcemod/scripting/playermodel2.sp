@@ -5,14 +5,20 @@
 #include <tf2items>
 #include <tf_econ_data>
 #tryinclude <tauntmanager>
-#tryinclude <sendproxy>
 #include <teammanager_gameplay>
 #include <tf2utils>
 #tryinclude <shapeshift_funcs>
+#include <stocksoup/memory>
 
 //#define DEBUG
 
 //#define ENABLE_SENDPROXY
+
+#if !defined ENABLE_SENDPROXY
+#undef REQUIRE_EXTENSIONS
+#endif
+#tryinclude <sendproxy>
+#define REQUIRE_EXTENSIONS
 
 /*
 TODO!!!
@@ -110,6 +116,8 @@ enum handledatafrom
 	handledatafrom_spawn,
 	handledatafrom_equip,
 	handledatafrom_shapeshift,
+	handledatafrom_setcustommodel,
+	handledatafrom_recalcbody,
 };
 
 enum cleardatafrom
@@ -131,14 +139,18 @@ enum handleswitchfrom
 	handleswitchfrom_taunt_end,
 };
 
+static ConVar pm2_viewmodels;
+
 static Handle dummy_item_view = null;
 static Handle EquipWearable = null;
 static Handle RecalculatePlayerBodygroups = null;
 static int m_Shared_offset = -1;
+static int m_PlayerClass_offset = -1;
 static int m_flInvisibility_offset = -1;
 static int m_iAttributeDefinitionIndex_offset = -1;
 static ArrayList class_cache = null;
 static ConVar tf_always_loser = null;
+static bool handle_setcustommodel = true;
 
 static bool attempting_to_taunt[MAXPLAYERS+1];
 static int player_viewmodelentity[MAXPLAYERS+1][2];
@@ -153,17 +165,18 @@ static int modelprecache = INVALID_STRING_TABLE;
 static DynamicHook ModifyOrAppendCriteria_hook = null;
 static Handle AppendCriteria = null;
 static Handle RemoveCriteria = null;
+static Handle IsAllowedToTaunt = null;
 static bool spawning[MAXPLAYERS+1] = {true, ...};
 static Handle spawn_timer[MAXPLAYERS+1] = {null, ...};
+static Handle tauntend_timer[MAXPLAYERS+1] = {null, ...};
 
 static bool tauntmodel_hasbonemerge[MAXPLAYERS+1] = {true, ...};
 static TFClassType player_classbeforetaunt[MAXPLAYERS+1] = {TFClass_Unknown, ...};
 static TFClassType player_tauntclass[MAXPLAYERS+1] = {TFClass_Unknown, ...};
 
-static playermodelmethod player_modelmethod[MAXPLAYERS+1] = {playermodelmethod_none, ...};
 static char player_customtauntanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
-static char player_tauntanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
-static char player_weaponanimation[MAXPLAYERS+1][PLATFORM_MAX_PATH];
+static TFClassType player_tauntanimation[MAXPLAYERS+1];
+static TFClassType player_weaponanimation[MAXPLAYERS+1];
 
 static int player_model_idx[MAXPLAYERS+1] = {-1, ...};
 static char player_model[MAXPLAYERS+1][PLATFORM_MAX_PATH];
@@ -722,6 +735,16 @@ public void OnPluginStart()
 		return;
 	}
 
+	StartPrepSDKCall(SDKCall_Entity);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CTFPlayer::IsAllowedToTaunt");
+	PrepSDKCall_SetReturnInfo(SDKType_Bool, SDKPass_Plain);
+	IsAllowedToTaunt = EndPrepSDKCall();
+	if(IsAllowedToTaunt == null) {
+		SetFailState("Failed to create SDKCall for CTFPlayer::IsAllowedToTaunt.");
+		delete gamedata;
+		return;
+	}
+
 	DynamicDetour tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::PlayTauntSceneFromItem");
 	if(!tmp || !tmp.Enable(Hook_Pre, PlayTauntSceneFromItem)) {
 		SetFailState("Failed to enable pre detour for CTFPlayer::PlayTauntSceneFromItem");
@@ -782,6 +805,20 @@ public void OnPluginStart()
 		return;
 	}
 
+	tmp = DynamicDetour.FromConf(gamedata, "CTFPlayerClassShared::SetCustomModel");
+	if(!tmp || !tmp.Enable(Hook_Pre, SetCustomModel)) {
+		SetFailState("Failed to enable pre detour for CTFPlayerClassShared::SetCustomModel");
+		delete gamedata;
+		return;
+	}
+
+	tmp = DynamicDetour.FromConf(gamedata, "CTFPlayerShared::RecalculatePlayerBodygroups");
+	if(!tmp || !tmp.Enable(Hook_Post, RecalculatePlayerBodygroups_post)) {
+		SetFailState("Failed to enable pre detour for CTFPlayerShared::RecalculatePlayerBodygroups");
+		delete gamedata;
+		return;
+	}
+
 	ModifyOrAppendCriteria_hook = DynamicHook.FromConf(gamedata, "CBaseEntity::ModifyOrAppendCriteria");
 
 	delete gamedata;
@@ -802,11 +839,14 @@ public void OnPluginStart()
 	class_cache = new ArrayList(3);
 
 	m_Shared_offset = FindSendPropInfo("CTFPlayer", "m_Shared");
+	m_PlayerClass_offset = FindSendPropInfo("CTFPlayer", "m_PlayerClass");
 	m_flInvisibility_offset = FindSendPropInfo("CTFPlayer", "m_flInvisChangeCompleteTime") - 8;
 
 	tf_always_loser = FindConVar("tf_always_loser");
 
 	load_models();
+
+	pm2_viewmodels = CreateConVar("pm2_viewmodels", "0");
 
 	RegAdminCmd("sm_rpm", sm_rpm, ADMFLAG_ROOT);
 
@@ -818,6 +858,61 @@ public void OnPluginStart()
 			OnClientPutInServer(i);
 		}
 	}
+}
+
+static void frame_setcustommodel(int client)
+{
+	client = GetClientOfUserId(client);
+	if(client == 0) {
+		return;
+	}
+
+	unequip_model(client);
+
+	handle_playerdata(client, playermodelslot_animation, handledatafrom_setcustommodel);
+}
+
+static MRESReturn SetCustomModel(Address pThis, DHookParam hParams)
+{
+	if(!handle_setcustommodel) {
+		handle_setcustommodel = true;
+		return MRES_Ignored;
+	}
+
+	Address player = view_as<Address>(view_as<int>(pThis) - m_PlayerClass_offset);
+	int client = GetEntityFromAddress(player);
+
+	char model[PLATFORM_MAX_PATH];
+	if(!hParams.IsNull(1)) {
+		hParams.GetString(1, model, PLATFORM_MAX_PATH);
+	}
+
+	if(model[0] == '\0') {
+		player_model[client][0] = '\0';
+	} else {
+		PrecacheModel(model);
+		strcopy(player_model[client], PLATFORM_MAX_PATH, model);
+	}
+
+	RequestFrame(frame_setcustommodel, GetClientUserId(client));
+
+	return MRES_Supercede;
+}
+
+static MRESReturn RecalculatePlayerBodygroups_post(Address pThis)
+{
+	Address player = view_as<Address>(view_as<int>(pThis) - m_Shared_offset);
+	int client = GetEntityFromAddress(player);
+
+#if defined DEBUG
+	PrintToServer(PM2_CON_PREFIX ... "RecalculatePlayerBodygroups %i", client);
+#endif
+
+#if 0
+	handle_playerdata(client, playermodelslot_bodygroup, handledatafrom_recalcbody);
+#endif
+
+	return MRES_Ignored;
 }
 
 public void OnLibraryAdded(const char[] name)
@@ -920,13 +1015,23 @@ static bool is_player_inrespawnroom(int client)
 }
 #endif
 
-static void frame_unhide_hats(int client)
+static void frame_unhide_hats(int usrid)
 {
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return;
+	}
+
 	hide_hats(client, false);
 }
 
-static void frame_unhide_weapons(int client)
+static void frame_unhide_weapons(int usrid)
 {
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return;
+	}
+
 	hide_weapons(client, false);
 }
 
@@ -953,12 +1058,12 @@ static void unequip_model(int client, bool unload = false)
 
 	if(player_flags[client] & playermodel_hidehats) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_hatsalpha);
-		RequestFrame(frame_unhide_hats, client);
+		RequestFrame(frame_unhide_hats, GetClientUserId(client));
 	}
 
 	if(player_flags[client] & playermodel_hideweapons) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_weaponsalpha);
-		RequestFrame(frame_unhide_weapons, client);
+		RequestFrame(frame_unhide_weapons, GetClientUserId(client));
 	}
 
 	player_model_idx[client] = -1;
@@ -981,11 +1086,11 @@ static bool equip_model_helper(int client, int idx, ConfigModelInfo modelinfo, b
 	}
 
 	if(player_flags[client] & playermodel_hidehats) {
-		RequestFrame(frame_unhide_hats, client);
+		RequestFrame(frame_unhide_hats, GetClientUserId(client));
 	}
 
 	if(player_flags[client] & playermodel_hideweapons) {
-		RequestFrame(frame_unhide_weapons, client);
+		RequestFrame(frame_unhide_weapons, GetClientUserId(client));
 	}
 
 #if 0
@@ -1325,8 +1430,13 @@ static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 	spawn_timer[client] = CreateTimer(0.5, timer_spawn, usrid);
 }
 
-static void frame_ragdoll(int entity)
+static void frame_ragdoll(int entref)
 {
+	int entity = EntRefToEntIndex(entref);
+	if(!IsValidEntity(entity)) {
+		return;
+	}
+
 	int owner = GetEntProp(entity, Prop_Send, "m_iPlayerIndex");
 
 #if defined DEBUG && 1
@@ -1341,7 +1451,7 @@ static void frame_ragdoll(int entity)
 public void OnEntityCreated(int entity, const char[] classname)
 {
 	if(StrEqual(classname, "tf_ragdoll")) {
-		RequestFrame(frame_ragdoll, entity);
+		RequestFrame(frame_ragdoll, EntIndexToEntRef(entity));
 	}
 }
 
@@ -1401,20 +1511,20 @@ static ArrayList get_classes_for_taunt(int id)
 #if defined _tauntmanager_included_
 public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, bool hasBonemergeSupport)
 {
+#if defined DEBUG
+	PrintToServer(PM2_CON_PREFIX ... "TauntManager_ApplyTauntModel");
+#endif
 	tauntmodel_hasbonemerge[client] = hasBonemergeSupport;
-	if(hasBonemergeSupport) {
-		strcopy(player_customtauntanimation[client], PLATFORM_MAX_PATH, tauntModel);
-		handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
-		return Plugin_Handled;
-	} else {
-		//TODO!!! support for non-bonemerge
-		clear_playerdata(client, playermodelslot_animation, cleardatafrom_taunt_start);
-		return Plugin_Continue;
-	}
+	strcopy(player_customtauntanimation[client], PLATFORM_MAX_PATH, tauntModel);
+	handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
+	return Plugin_Handled;
 }
 
 public Action TauntManager_RemoveTauntModel(int client)
 {
+#if defined DEBUG
+	PrintToServer(PM2_CON_PREFIX ... "TauntManager_RemoveTauntModel");
+#endif
 	player_customtauntanimation[client][0] = '\0';
 	tauntmodel_hasbonemerge[client] = true;
 	return Plugin_Handled;
@@ -1433,24 +1543,30 @@ static void handle_tauntattempt(int client, ArrayList classes)
 		} else {
 			desiredclass = classes.Get(GetRandomInt(0, len-1));
 		}
-		get_model_for_class(desiredclass, player_tauntanimation[client], PLATFORM_MAX_PATH);
+		player_tauntanimation[client] = desiredclass;
+		player_classbeforetaunt[client] = player_class;
+		player_tauntclass[client] = desiredclass;
 	#if defined DEBUG
 		PrintToServer(PM2_CON_PREFIX ... "handle_tauntattempt");
 	#endif
-		if(tauntmodel_hasbonemerge[client]) {
-			handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
-		}
+		handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_start);
 		TF2_SetPlayerClass(client, desiredclass);
-		player_classbeforetaunt[client] = player_class;
-		player_tauntclass[client] = desiredclass;
 	}
 }
 
-public MRESReturn Taunt(int pThis, DHookParam hParams)
+static MRESReturn Taunt(int pThis, DHookParam hParams)
 {
 	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	player_tauntclass[pThis] = TFClass_Unknown;
 	attempting_to_taunt[pThis] = true;
+
+	bool allowed_to_taunt = SDKCall(IsAllowedToTaunt, pThis);
+#if defined DEBUG
+	PrintToServer(PM2_CON_PREFIX ... "Taunt %i", allowed_to_taunt);
+#endif
+	if(!allowed_to_taunt) {
+		return MRES_Ignored;
+	}
 
 	ArrayList classes = new ArrayList();
 
@@ -1464,7 +1580,7 @@ public MRESReturn Taunt(int pThis, DHookParam hParams)
 		int weapon = GetEntPropEnt(pThis, Prop_Send, "m_hActiveWeapon");
 		if(weapon != -1) {
 			TFClassType player_class = TF2_GetPlayerClass(pThis);
-			TFClassType weapon_class = get_class_for_weapon(weapon, player_class);
+			TFClassType weapon_class = get_class_for_weapon(weapon, player_class, false);
 			classes.Push(weapon_class);
 		}
 	}
@@ -1476,11 +1592,19 @@ public MRESReturn Taunt(int pThis, DHookParam hParams)
 	return MRES_Ignored;
 }
 
-public MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookParam hParams)
+static MRESReturn PlayTauntSceneFromItem(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
 	player_classbeforetaunt[pThis] = TFClass_Unknown;
 	player_tauntclass[pThis] = TFClass_Unknown;
 	attempting_to_taunt[pThis] = true;
+
+	bool allowed_to_taunt = SDKCall(IsAllowedToTaunt, pThis);
+#if defined DEBUG
+	PrintToServer(PM2_CON_PREFIX ... "PlayTauntSceneFromItem %i", allowed_to_taunt);
+#endif
+	if(!allowed_to_taunt) {
+		return MRES_Ignored;
+	}
 
 	int m_iAttributeDefinitionIndex = -1;
 	if(!hParams.IsNull(1)) {
@@ -1599,74 +1723,47 @@ static MRESReturn PlayTauntOutroScene_post(int pThis, DHookReturn hReturn)
 public void TF2_OnConditionAdded(int client, TFCond condition)
 {
 	switch(condition) {
+		case TFCond_Taunting: {
+			if(tauntend_timer[client] != null) {
+				KillTimer(tauntend_timer[client]);
+				tauntend_timer[client] = null;
+			}
+		}
 		case TFCond_Disguised:
-		{  }
+		{ clear_playerdata(client, playermodelslot_model, cleardatafrom_disguise_start); }
 	}
+}
+
+static Action timer_tauntend(Handle timer, int client)
+{
+	client = GetClientOfUserId(client);
+	if(client == 0) {
+		return Plugin_Continue;
+	}
+
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	handle_weaponswitch(client, weapon, handleswitchfrom_taunt_end);
+	handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_end);
+
+	tauntend_timer[client] = null;
+	return Plugin_Continue;
 }
 
 public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	switch(condition) {
 		case TFCond_Taunting: {
+			attempting_to_taunt[client] = false;
 			player_customtauntanimation[client][0] = '\0';
-			player_tauntanimation[client][0] = '\0';
-			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-			handle_weaponswitch(client, weapon, handleswitchfrom_taunt_end);
-			handle_playerdata(client, playermodelslot_animation, handledatafrom_taunt_end);
+			tauntmodel_hasbonemerge[client] = true;
+			player_tauntanimation[client] = TFClass_Unknown;
+			if(tauntend_timer[client] != null) {
+				KillTimer(tauntend_timer[client]);
+			}
+			tauntend_timer[client] = CreateTimer(0.1, timer_tauntend, GetClientUserId(client));
 		}
 		case TFCond_Disguised:
-		{  }
-	}
-}
-
-static const TFClassType classes_withsecondaryshotgun[] =
-{
-	TFClass_Soldier,
-	TFClass_Heavy,
-	TFClass_Pyro,
-};
-
-static const TFClassType classes_withsecondarypistol[] =
-{
-	TFClass_Engineer,
-	TFClass_Scout,
-};
-
-static bool class_shotgun_is_secondary(TFClassType class)
-{
-	for(int i = sizeof(classes_withsecondaryshotgun)-1; i--;) {
-		if(classes_withsecondaryshotgun[i] == class) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static bool class_pistol_is_secondary(TFClassType class)
-{
-	for(int i = sizeof(classes_withsecondarypistol)-1; i--;) {
-		if(classes_withsecondarypistol[i] == class) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-static bool is_pistol_and_secondary(const char[] classname)
-{
-	return (StrEqual(classname, "tf_weapon_handgun_scout_secondary") ||
-			StrEqual(classname, "tf_weapon_pistol"))
-}
-
-static bool is_shotgun_and_secondary(const char[] classname)
-{
-	if(StrEqual(classname, "tf_weapon_shotgun_primary") ||
-		StrEqual(classname, "tf_weapon_shotgun_building_rescue")) {
-		return false;
-	} else {
-		return (StrContains(classname, "tf_weapon_shotgun") != -1);
+		{ handle_playerdata(client, playermodelslot_model, handledatafrom_disguise_end); }
 	}
 }
 
@@ -1680,34 +1777,8 @@ static ArrayList get_class_cache(int weapon, int item, int &bitmask = 0)
 	} else {
 		ArrayList tmp = new ArrayList();
 
-		/*char classname[64];
-		GetEntityClassname(weapon, classname, sizeof(classname));
-
-		bool secondshot = is_shotgun_and_secondary(classname);
-		if(secondshot) {
-			for(int i = sizeof(classes_withsecondaryshotgun)-1; i--;) {
-				TFClassType icls = classes_withsecondaryshotgun[i];
-				tmp.Push(icls);
-				bitmask |= BIT_FOR_CLASS(icls);
-			}
-		}
-
-		bool secondpistol = is_pistol_and_secondary(classname);
-		if(secondpistol) {
-			for(int i = sizeof(classes_withsecondarypistol)-1; i--;) {
-				TFClassType icls = classes_withsecondarypistol[i];
-				tmp.Push(icls);
-				bitmask |= BIT_FOR_CLASS(icls);
-			}
-		}*/
-
 		for(int i = TF_CLASS_COUNT_ALL; --i;) {
 			TFClassType icls = view_as<TFClassType>(i);
-
-			/*if(secondshot && class_shotgun_is_secondary(icls) ||
-				secondpistol && class_pistol_is_secondary(icls)) {
-				continue;
-			}*/
 
 			int slot = TF2Econ_GetItemLoadoutSlot(item, icls);
 			if(slot != -1) {
@@ -1740,7 +1811,46 @@ static ArrayList get_class_cache(int weapon, int item, int &bitmask = 0)
 	}
 }
 
-static TFClassType get_class_for_weapon(int weapon, TFClassType player_class, int &bitmask = 0)
+static TFClassType weapon_classname_to_class(int weapon)
+{
+	char classname[64];
+	GetEntityClassname(weapon, classname, sizeof(classname));
+
+	if(StrContains(classname, "tf_weapon_shotgun") == 0) {
+		if(StrEqual(classname[17], "_soldier")) {
+			return TFClass_Soldier;
+		} else if(StrEqual(classname[17], "_hwg")) {
+			return TFClass_Heavy;
+		} else if(StrEqual(classname[17], "_pyro")) {
+			return TFClass_Pyro;
+		} else if(StrEqual(classname[17], "_primary")) {
+			return TFClass_Engineer;
+		}
+		return TFClass_Unknown;
+	}
+
+	if(StrContains(classname, "tf_weapon_pistol") == 0) {
+		if(StrEqual(classname[16], "_scout")) {
+			return TFClass_Scout;
+		} else if(classname[17] == '\0') {
+			return TFClass_Engineer;
+		}
+		return TFClass_Unknown;
+	}
+
+	if(StrContains(classname, "tf_weapon_revolver") == 0) {
+		if(StrEqual(classname[18], "_secondary")) {
+			return TFClass_Engineer;
+		} else if(classname[19] == '\0') {
+			return TFClass_Spy;
+		}
+		return TFClass_Unknown;
+	}
+
+	return TFClass_Unknown;
+}
+
+static TFClassType get_class_for_weapon(int weapon, TFClassType player_class, bool vm, int &bitmask = 0)
 {
 	int m_iItemDefinitionIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 
@@ -1748,10 +1858,17 @@ static TFClassType get_class_for_weapon(int weapon, TFClassType player_class, in
 
 	ArrayList cache = get_class_cache(weapon, m_iItemDefinitionIndex, bitmask);
 	if(cache != null) {
-		if(cache.FindValue(player_class) != -1) {
+		if(bitmask & BIT_FOR_CLASS(player_class)) {
 			weapon_class = player_class;
 		} else {
-			weapon_class = cache.Get(GetRandomInt(0, cache.Length-1));
+			int len = cache.Length;
+			if(len > 1) {
+				weapon_class = weapon_classname_to_class(weapon);
+			}
+
+			if(weapon_class == TFClass_Unknown) {
+				weapon_class = cache.Get(GetRandomInt(0, len-1));
+			}
 		}
 	}
 
@@ -1838,11 +1955,27 @@ public Action OnShapeShift(int client, int currentClass, int &targetClass)
 static void player_think_noweapon(int client)
 {
 #if 0
+	#define STUNMAGICINDEX 247
+
 	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	if(weapon != -1) {
-		tf_always_loser.ReplicateToClient(client, tf_always_loser.BoolValue ? "1" : "0");
+	if(weapon == -1) {
+		SetEntProp(client, Prop_Send, "m_iStunIndex", STUNMAGICINDEX);
+		int flags = GetEntProp(client, Prop_Send, "m_iStunFlags");
+		flags |= (TF_STUNFLAG_NOSOUNDOREFFECT|TF_STUNFLAG_THIRDPERSON);
+		SetEntProp(client, Prop_Send, "m_iStunFlags", flags);
+		flags = GetEntProp(client, Prop_Send, "m_nPlayerCond");
+		flags |= (1 << view_as<int>(TFCond_Dazed));
+		SetEntProp(client, Prop_Send, "m_nPlayerCond", flags);
 	} else {
-		tf_always_loser.ReplicateToClient(client, "1");
+		if(GetEntProp(client, Prop_Send, "m_iStunIndex") == STUNMAGICINDEX) {
+			SetEntProp(client, Prop_Send, "m_iStunIndex", -1);
+			int flags = GetEntProp(client, Prop_Send, "m_iStunFlags");
+			flags &= ~(TF_STUNFLAG_NOSOUNDOREFFECT|TF_STUNFLAG_THIRDPERSON);
+			SetEntProp(client, Prop_Send, "m_iStunFlags", flags);
+			flags = GetEntProp(client, Prop_Send, "m_nPlayerCond");
+			flags &= ~(1 << view_as<int>(TFCond_Dazed));
+			SetEntProp(client, Prop_Send, "m_nPlayerCond", flags);
+		}
 	}
 #endif
 }
@@ -1851,106 +1984,96 @@ static void handle_weaponswitch(int client, int weapon, handleswitchfrom from)
 {
 	bool weapon_valid = (weapon != -1);
 
-#if defined DEBUG && 0
+#if defined DEBUG && 1
 	PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch %i %i", from, spawning[client]);
 #endif
 
 	TFClassType player_class = TF2_GetPlayerClass(client);
 
-	TFClassType weapon_class = TFClass_Unknown;
-	int bitmask = 0;
 	if(weapon_valid) {
-		weapon_class = get_class_for_weapon(weapon, player_class, bitmask);
-	}
-
-	if(weapon_class != TFClass_Unknown) {
-		get_model_for_class(weapon_class, player_weaponanimation[client], PLATFORM_MAX_PATH);
+		TFClassType weapon_class_wm = get_class_for_weapon(weapon, player_class, false);
+		player_weaponanimation[client] = weapon_class_wm;
 		handle_playerdata(client, playermodelslot_animation, handledatafrom_weaponswitch);
 
-		char model[PLATFORM_MAX_PATH];
-		get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
+		if(pm2_viewmodels.BoolValue) {
+			TFClassType weapon_class_vm = get_class_for_weapon(weapon, player_class, true);
 
-		int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
-		int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
+			char model[PLATFORM_MAX_PATH];
+			get_arm_model_for_class(client, weapon_class_vm, model, PLATFORM_MAX_PATH);
 
-		SetEntPropString(viewmodel, Prop_Data, "m_ModelName", model);
-		int idx = PrecacheModel(model);
-		SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
-		SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
+			int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
+			int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
 
-	#if defined DEBUG && 0
-		PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch viewmodel a %i %s %i", weapon_class, model, idx);
-	#endif
+			SetEntPropString(viewmodel, Prop_Data, "m_ModelName", model);
+			int idx = PrecacheModel(model);
+			SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
+			SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
 
-		delete_viewmodelentity(client, 1);
-
-		TFClassType arm_class = player_class;
-		if(player_modelclass[client] != TFClass_Unknown) {
-			arm_class = player_modelclass[client];
-		}
-
-		bool different_class = (weapon_class != arm_class);
-
-		if(different_class) {
-			int entity = get_or_create_viewmodelentity(client, 0);
-
-			SetVariantString("!activator");
-			AcceptEntityInput(entity, "SetParent", viewmodel);
-
-			int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-			effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
-			SetEntProp(entity, Prop_Send, "m_fEffects", effects);
-
-			get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
-			idx = PrecacheModel(model);
-
-			SetEntityModel(entity, model);
-			SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
-			SetEntProp(entity, Prop_Send, "m_nBody", get_bodygroup_for_arm(arm_class));
-
-			SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
-
-		#if defined DEBUG && 0
-			PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch viewmodel f %i %s %i", arm_class, model, idx);
+		#if defined DEBUG && 1
+			PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch viewmodel a %i %s %i", weapon_class_vm, model, idx);
 		#endif
 
-			entity = get_or_create_viewmodelentity(client, 1);
+			delete_viewmodelentity(client, 1);
 
-			idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
-			ReadStringTable(modelprecache, idx, model, PLATFORM_MAX_PATH);
+			TFClassType arm_class = player_class;
+			if(player_modelclass[client] != TFClass_Unknown) {
+				arm_class = player_modelclass[client];
+			}
 
-			int id = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
-			SetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex", id);
-			id = GetEntProp(weapon, Prop_Send, "m_iEntityLevel");
-			SetEntProp(entity, Prop_Send, "m_iEntityLevel", id);
-			id = GetEntProp(weapon, Prop_Send, "m_iItemIDHigh");
-			SetEntProp(entity, Prop_Send, "m_iItemIDHigh", id);
-			id = GetEntProp(weapon, Prop_Send, "m_iItemIDLow");
-			SetEntProp(entity, Prop_Send, "m_iItemIDLow", id);
+			bool different_class = (weapon_class_vm != arm_class);
 
-		#if defined DEBUG && 0
-			PrintToServer(PM2_CON_PREFIX ... "%s", model);
-		#endif
+			if(different_class) {
+				int entity = get_or_create_viewmodelentity(client, 0);
 
-			SetEntityModel(entity, model);
-			SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+				SetVariantString("!activator");
+				AcceptEntityInput(entity, "SetParent", viewmodel);
 
-			SetVariantString("!activator");
-			AcceptEntityInput(entity, "SetParent", viewmodel);
+				int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+				effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
+				SetEntProp(entity, Prop_Send, "m_fEffects", effects);
 
-			effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-			effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
-			SetEntProp(entity, Prop_Send, "m_fEffects", effects);
-		}
+				get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
+				idx = PrecacheModel(model);
 
-		if(different_class) {
-			int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-			effects |= EF_NODRAW;
-			SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
-		} else {
-			int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-			effects &= ~EF_NODRAW;
-			SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+				SetEntityModel(entity, model);
+				SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+				SetEntProp(entity, Prop_Send, "m_nBody", get_bodygroup_for_arm(arm_class));
+
+				SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
+
+			#if defined DEBUG && 1
+				PrintToServer(PM2_CON_PREFIX ... "handle_weaponswitch viewmodel f %i %s %i", arm_class, model, idx);
+			#endif
+
+				entity = get_or_create_viewmodelentity(client, 1);
+
+				idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
+				ReadStringTable(modelprecache, idx, model, PLATFORM_MAX_PATH);
+
+			#if defined DEBUG && 1
+				PrintToServer(PM2_CON_PREFIX ... "%s", model);
+			#endif
+
+				SetEntityModel(entity, model);
+				SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+
+				SetVariantString("!activator");
+				AcceptEntityInput(entity, "SetParent", viewmodel);
+
+				effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+				effects |= EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES;
+				SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+			}
+
+			if(different_class) {
+				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+				effects |= EF_NODRAW;
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+			} else {
+				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+				effects &= ~EF_NODRAW;
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+			}
 		}
 	}
 }
@@ -2146,14 +2269,18 @@ public void OnClientDisconnect(int client)
 	player_tauntclass[client] = TFClass_Unknown;
 	attempting_to_taunt[client] = false;
 	player_customtauntanimation[client][0] = '\0'
-	player_tauntanimation[client][0] = '\0';
-	player_weaponanimation[client][0] = '\0';
-	player_modelmethod[client] = playermodelmethod_none;
+	player_tauntanimation[client] = TFClass_Unknown;
+	player_weaponanimation[client] = TFClass_Unknown;
 
 	if(spawn_timer[client] != null) {
 		KillTimer(spawn_timer[client]);
 	}
 	spawn_timer[client] = null;
+
+	if(tauntend_timer[client] != null) {
+		KillTimer(tauntend_timer[client]);
+	}
+	tauntend_timer[client] = null;
 
 	player_model_idx[client] = -1;
 	player_model[client][0] = '\0';
@@ -2247,8 +2374,13 @@ static void hide_hats(int client, bool value)
 #endif
 }
 
-static void frame_inventory(int client)
+static void frame_inventory(int usrid)
 {
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return;
+	}
+
 	if(player_flags[client] & playermodel_noweapons) {
 		TF2_RemoveAllWeapons(client);
 	}
@@ -2260,9 +2392,9 @@ static void frame_inventory(int client)
 
 static void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int usrid = event.GetInt("userid");
 
-	RequestFrame(frame_inventory, client);
+	RequestFrame(frame_inventory, usrid);
 }
 
 static void set_entity_alpha(int entity, int a)
@@ -2361,10 +2493,16 @@ static Action proxy_rendermode(int iEntity, const char[] cPropName, int &iValue,
 }
 #endif
 
-static void set_custom_model(int client, const char[] model)
+static void internal_set_custom_model(int client, const char[] model)
 {
+	handle_setcustommodel = false;
 	SetVariantString(model);
 	AcceptEntityInput(client, "SetCustomModel");
+}
+
+static void set_custom_model(int client, const char[] model)
+{
+	internal_set_custom_model(client, model);
 	SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
 
 	SetVariantBool(true);
@@ -2376,8 +2514,7 @@ static void set_custom_model(int client, const char[] model)
 
 static void clear_custommodel(int client)
 {
-	SetVariantString("");
-	AcceptEntityInput(client, "SetCustomModel");
+	internal_set_custom_model(client, "");
 	SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
 }
 
@@ -2397,9 +2534,10 @@ static void reset_custommodel(int client)
 
 	AcceptEntityInput(client, "ClearCustomModelRotation");
 
-	SetVariantString("");
-	AcceptEntityInput(client, "SetCustomModel");
+	internal_set_custom_model(client, "");
 	SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
+
+	recalculate_bodygroups(client);
 }
 
 static void recalculate_bodygroups(int client)
@@ -2576,7 +2714,14 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 			}
 		}
 		case playermodelslot_animation, playermodelslot_model: {
+		#if defined DEBUG
+			PrintToServer("handle_playerdata");
+		#endif
+
 			if(from == handledatafrom_weaponswitch) {
+			#if defined DEBUG
+				PrintToServer("  taunt = %i, %i", attempting_to_taunt[client], TF2_IsPlayerInCondition(client, TFCond_Taunting));
+			#endif
 				if(attempting_to_taunt[client] || TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
 					return;
 				}
@@ -2586,46 +2731,61 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 
 			char new_animation[PLATFORM_MAX_PATH];
 			if(player_customtauntanimation[client][0] != '\0') {
-				strcopy(new_animation, PLATFORM_MAX_PATH, player_customtauntanimation[client]);
-			} else if(player_tauntanimation[client][0] != '\0') {
-				strcopy(new_animation, PLATFORM_MAX_PATH, player_tauntanimation[client]);
-			} else if(player_weaponanimation[client][0] != '\0') {
-				strcopy(new_animation, PLATFORM_MAX_PATH, player_weaponanimation[client]);
+				if(tauntmodel_hasbonemerge[client]) {
+					strcopy(new_animation, PLATFORM_MAX_PATH, player_customtauntanimation[client]);
+				}
+			} else if(player_tauntanimation[client] != TFClass_Unknown) {
+				if(player_model[client][0] != '\0' || player_tauntanimation[client] != player_class) {
+					get_model_for_class(player_tauntanimation[client], new_animation, PLATFORM_MAX_PATH);
+				}
+			} else if(player_weaponanimation[client] != TFClass_Unknown) {
+				if(player_model[client][0] != '\0' || player_weaponanimation[client] != player_class) {
+					get_model_for_class(player_weaponanimation[client], new_animation, PLATFORM_MAX_PATH);
+				}
 			}
 
-			bool copy_bodygroups = false;
+			TFClassType model_class = TFClass_Unknown;
+
 			char new_model[PLATFORM_MAX_PATH];
-			if(player_model[client][0] == '\0') {
-				get_model_for_class(player_class, new_model, PLATFORM_MAX_PATH);
-				copy_bodygroups = true;
-			} else {
+			if(!tauntmodel_hasbonemerge[client] && player_customtauntanimation[client][0] != '\0') {
+				strcopy(new_model, PLATFORM_MAX_PATH, player_customtauntanimation[client]);
+			} else if(player_model[client][0] != '\0') {
 				strcopy(new_model, PLATFORM_MAX_PATH, player_model[client]);
+				model_class = player_modelclass[client];
 			}
 
-			if(StrEqual(new_model, new_animation)) {
-				clear_playerdata(client, playermodelslot_animation, cleardatafrom_reapply, from);
-				return;
+			if(new_animation[0] != '\0' && new_model[0] == '\0') {
+				get_model_for_class(player_class, new_model, PLATFORM_MAX_PATH);
+				model_class = player_class;
 			}
+
+		#if defined DEBUG
+			PrintToServer("  from = %i", from);
+			PrintToServer("  player_class = %i", player_class);
+			PrintToServer("  new_model = %s", new_model);
+			PrintToServer("  new_animation = %s", new_animation);
+			PrintToServer("  player_model = %s", player_model[client]);
+			PrintToServer("  player_customtauntanimation = %s", player_customtauntanimation[client]);
+			PrintToServer("  tauntmodel_hasbonemerge = %i", tauntmodel_hasbonemerge[client]);
+			PrintToServer("  player_tauntanimation = %i", player_tauntanimation[client]);
+			PrintToServer("  player_weaponanimation = %i", player_weaponanimation[client]);
+		#endif
+
+			playermodelmethod modelmethod = playermodelmethod_none;
 
 			if((new_animation[0] != '\0' ||
 				(player_flags[client] & playermodel_alwaysmerge)) &&
 				!(player_flags[client] & playermodel_nevermerge)) {
-				player_modelmethod[client] = playermodelmethod_bonemerge;
-			} else {
-				player_modelmethod[client] = playermodelmethod_setcustommodel;
+				modelmethod = playermodelmethod_bonemerge;
+			} else if(new_model[0] != '\0') {
+				modelmethod = playermodelmethod_setcustommodel;
 			}
 
 		#if defined DEBUG
-			PrintToServer("handle_playerdata");
-			PrintToServer("  new_model = %s", new_model);
-			PrintToServer("  new_animation = %s", new_animation);
-			PrintToServer("  player_customtauntanimation = %s", player_customtauntanimation[client]);
-			PrintToServer("  player_tauntanimation = %s", player_tauntanimation[client]);
-			PrintToServer("  player_weaponanimation = %s", player_weaponanimation[client]);
-			PrintToServer("  method = %i", player_modelmethod[client]);
+			PrintToServer("  method = %i", modelmethod);
 		#endif
 
-			switch(player_modelmethod[client]) {
+			switch(modelmethod) {
 				case playermodelmethod_bonemerge: {
 					if(new_animation[0] != '\0') {
 						set_custom_model(client, new_animation);
@@ -2635,20 +2795,42 @@ static void handle_playerdata(int client, playermodelslot which, handledatafrom 
 
 					int entity = get_or_create_modelentity(client);
 
-					SetEntityModel(entity, new_model);
-
-					if(copy_bodygroups) {
-						int body = GetEntProp(client, Prop_Send, "m_nBody");
-						SetEntProp(entity, Prop_Send, "m_nBody", body);
+					int new_bodygroup = player_bodygroup[client];
+					if(new_bodygroup != -1) {
+						SetEntProp(entity, Prop_Send, "m_nBody", new_bodygroup);
+					} else {
+						if(model_class != TFClass_Unknown) {
+							if(model_class == player_class) {
+								int old_body = GetEntProp(client, Prop_Send, "m_nBody");
+							#if defined DEBUG && 1
+								PrintToServer(PM2_CON_PREFIX ... "b-1 %i", old_body);
+							#endif
+								SetEntProp(entity, Prop_Send, "m_nBody", old_body);
+							} else {
+								int old_body = GetEntProp(client, Prop_Send, "m_nBody");
+								new_bodygroup = calculate_class_bodygroups(old_body, player_class, model_class);
+							#if defined DEBUG && 1
+								PrintToServer(PM2_CON_PREFIX ... "b-2 %i", new_bodygroup);
+							#endif
+								SetEntProp(entity, Prop_Send, "m_nBody", new_bodygroup);
+							}
+						}
 					}
+
+					int new_skin = player_skin[client];
+					if(new_skin != -1) {
+						SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(new_skin));
+					}
+
+					SetEntityModel(entity, new_model);
 				}
 				case playermodelmethod_setcustommodel: {
 					delete_modelentity(client);
 
 					set_custom_model(client, new_model);
-				#if defined DEBUG && 0
-					PrintToServer(PM2_CON_PREFIX ... "set_custom_model(%s) %i", new_model, from);
-				#endif
+				}
+				case playermodelmethod_none: {
+					clear_playerdata(client, playermodelslot_animation, cleardatafrom_reapply, from);
 				}
 			}
 		}

@@ -66,9 +66,44 @@
 				"library" "server"
 				"linux" "@_ZN9CTFPlayer24PlayTauntRemapInputSceneEv"
 			}
+			"CTFPlayerClassShared::SetCustomModel"
+			{
+				"library" "server"
+				"linux" "@_ZN20CTFPlayerClassShared14SetCustomModelEPKcb"
+			}
+			"CTFPlayer::IsAllowedToTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer16IsAllowedToTauntEv"
+			}
 		}
 		"Functions"
 		{
+			"CTFPlayerShared::RecalculatePlayerBodygroups"
+			{
+				"signature" "CTFPlayerShared::RecalculatePlayerBodygroups"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "address"
+			}
+			"CTFPlayerClassShared::SetCustomModel"
+			{
+				"signature" "CTFPlayerClassShared::SetCustomModel"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "address"
+				"arguments"
+				{
+					"pszModelName"
+					{
+						"type" "charptr"
+					}
+					"isUsingClassAnimations"
+					{
+						"type" "bool"
+					}
+				}
+			}
 			"CTFPlayer::PlayTauntRemapInputScene"
 			{
 				"signature" "CTFPlayer::PlayTauntRemapInputScene"
