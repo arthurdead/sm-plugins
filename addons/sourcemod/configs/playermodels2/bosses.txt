@@ -2,9 +2,9 @@
 {
 	"merasmus"
 	{
-		"original_class" "sniper"
+		"model_class" "sniper"
 		"model" "models/bots/merasmus/merasmus.mdl"
-		"flags" "hidehats"
+		"flags" "hide_wearables"
 		"bodygroup" "merasmus_staff"
 		"skin" "0"
 		"variations"
@@ -18,21 +18,21 @@
 
 	"headless hatman"
 	{
-		"original_class" "demo"
+		"model_class" "demo"
 		"model" "models/bots/headless_hatman.mdl"
-		"flags" "hidehats"
+		"flags" "hide_wearables"
 	}
 
 	"skeleton"
 	{
-		"flags" "~nogameplay|~alwaysmerge"
-		"original_class" "sniper"
+		"flags" "~no_gameplay|~always_bonemerge"
+		"model_class" "sniper"
 		"model" "models/bots/skeleton_sniper/skeleton_sniper.mdl"
 	}
 
 	"yeti"
 	{
-		"original_class" "heavy"
+		"model_class" "heavy"
 		"model" "models/player/items/taunts/yeti/yeti.mdl"
 	}
 }

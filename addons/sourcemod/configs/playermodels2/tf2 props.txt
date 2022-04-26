@@ -42,7 +42,7 @@
 
 	"Cone"
 	{
-		"model" "models/props_gameplay/orange_cone001.mdl"	
+		"model" "models/props_gameplay/orange_cone001.mdl"
 	}
 
 	"Control Point"

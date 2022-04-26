@@ -4,8 +4,13 @@
 #include <nativevotes>
 #include <aliasrandom>
 #include <SteamWorks>
+#include <sdktools>
 
-//#define DEBUG
+#undef REQUIRE_PLUGIN
+#tryinclude <mapchooser>
+#define REQUIRE_PLUGIN
+
+#define DEBUG
 
 #define GAMEMODE_NAME_MAX 64
 
@@ -33,74 +38,35 @@ enum struct GamemodeInfo
 	StateChangeInfo enabled;
 	StateChangeInfo disabled;
 	ArrayList mapcycle;
-	ArrayList maphistory;
 }
 
-static ArrayList gamemodehistory;
 static ArrayList gamemodes;
-static StringMap gamemodeidmap;
-static StringMap gamemodemapmap;
-static int currentgamemode = -1;
-static int nextgamemode = -1;
-static int defaultgamemode = -1;
-static int num_voters;
-static int num_votes;
-static int votes_needed;
-static bool voted[MAXPLAYERS+1];
-static ConVar gmm_votes_needed;
-static ConVar gmm_default;
-static ConVar gmm_initial_delay;
-static ConVar gmm_fail_delay;
-static ConVar gmm_map_time;
-static ConVar gmm_startrounds;
-static ConVar gmm_startfrags;
-static ConVar gmm_voteduration;
+static StringMap gamemode_idx_map;
+static StringMap gamemode_map_map;
+
+static ArrayList gamemode_history;
+
+static int current_gamemode = -1;
+static int next_gamemode = -1;
+static int default_gamemode = -1;
+
+static ConVar gmm_default_gamemode;
+
+static char original_mapcyclefile_value[PLATFORM_MAX_PATH];
 static ConVar mapcyclefile;
-static bool votes_allowed;
-static char currentmap[PLATFORM_MAX_PATH];
-static bool lateloaded;
-static float voteblock_start;
-static bool gamemodetimeelapsed;
-static Handle changegamemode_timer;
-static ConVar mp_maxrounds;
-static ConVar mp_winlimit;
-static ConVar mp_bonusroundtime;
-static ConVar mp_fraglimit;
-static int rounds;
-static bool inround;
-static Handle mapvotetimer;
-static Handle gamemodevotetimer;
+static char current_map[PLATFORM_MAX_PATH];
 
-static void handle_str_array(KeyValues kvModes, const char[] name, ArrayList &arr, char[] str, int size)
-{
-	if(kvModes.JumpToKey(name)) {
-		if(kvModes.GotoFirstSubKey(false)) {
-			arr = new ArrayList(ByteCountToCells(size));
+static bool late_loaded;
+static bool gamemode_time_elapsed;
+static Handle change_gamemode_timer;
 
-			do {
-				kvModes.GetString(NULL_STRING, str, size);
-
-				arr.PushString(str);
-			} while(kvModes.GotoNextKey(false));
-
-			kvModes.GoBack();
-		} else {
-			arr = null;
-		}
-
-		kvModes.GoBack();
-	} else {
-		arr = null;
-	}
-}
+static Handle ff2_plugin;
 
 static void unload_gamemodes()
 {
-	unload_currentgamemode();
+	unload_current_gamemode();
 
-	reset_voting();
-
-	nextgamemode = -1;
+	next_gamemode = -1;
 
 	GamemodeInfo modeinfo;
 
@@ -120,292 +86,282 @@ static void unload_gamemodes()
 		delete modeinfo.plugins_disable;
 		delete modeinfo.maps_regex;
 		delete modeinfo.mapcycle;
-		delete modeinfo.maphistory;
 		delete modeinfo.disabled.commands;
 		delete modeinfo.enabled.commands;
 	}
 
 	char map[PLATFORM_MAX_PATH];
 
-	StringMapSnapshot snap = gamemodemapmap.Snapshot();
+	StringMapSnapshot snap = gamemode_map_map.Snapshot();
 	len = snap.Length;
 	for(int i = 0; i < len; ++i) {
 		snap.GetKey(i, map, PLATFORM_MAX_PATH);
 
 		ArrayList modes = null;
-		gamemodemapmap.GetValue(map, modes);
+		gamemode_map_map.GetValue(map, modes);
 
 		delete modes;
 	}
 	delete snap;
 
 	delete gamemodes;
-	delete gamemodeidmap;
-	delete gamemodemapmap;
+	delete gamemode_idx_map;
+	delete gamemode_map_map;
 }
 
-static void handle_state_changed(KeyValues kvModes, const char[] name, char cmdstr[CMD_STR_MAX], StateChangeInfo stateinfo)
+static void build_mapcycle_filepath(char path[PLATFORM_MAX_PATH], char name[GAMEMODE_NAME_MAX])
 {
-	if(kvModes.JumpToKey(name)) {
-		kvModes.GetString("cfg", stateinfo.cfg, PLATFORM_MAX_PATH);
-		handle_str_array(kvModes, "commands", stateinfo.commands, cmdstr, CMD_STR_MAX);
-		kvModes.GoBack();
+	char name_copy[GAMEMODE_NAME_MAX];
+	strcopy(name_copy, GAMEMODE_NAME_MAX, name);
+
+	ReplaceString(name_copy, GAMEMODE_NAME_MAX, " ", "_");
+	ReplaceString(name_copy, GAMEMODE_NAME_MAX, ":", "_");
+	ReplaceString(name_copy, GAMEMODE_NAME_MAX, ".", "_");
+
+	BuildPath(Path_SM, path, PLATFORM_MAX_PATH, "data/gmm/mapcycles/%s.txt", name_copy);
+}
+
+static void kv_handle_str_array(KeyValues kv, const char[] name, ArrayList &arr, char[] str, int size)
+{
+	if(kv.JumpToKey(name)) {
+		if(kv.GotoFirstSubKey(false)) {
+			arr = new ArrayList(ByteCountToCells(size));
+
+			do {
+				kv.GetString(NULL_STRING, str, size);
+
+				arr.PushString(str);
+			} while(kv.GotoNextKey(false));
+
+			kv.GoBack();
+		} else {
+			arr = null;
+		}
+
+		kv.GoBack();
+	} else {
+		arr = null;
 	}
 }
 
-static void build_mapcyclefilename(char path[PLATFORM_MAX_PATH], char name[GAMEMODE_NAME_MAX])
+static void kv_handle_state_changed(KeyValues kv, const char[] name, char cmd_str[CMD_STR_MAX], StateChangeInfo info)
 {
-	char namecopy[GAMEMODE_NAME_MAX];
-	strcopy(namecopy, GAMEMODE_NAME_MAX, name);
+	if(kv.JumpToKey(name)) {
+		kv.GetString("cfg", info.cfg, PLATFORM_MAX_PATH);
+		kv_handle_str_array(kv, "commands", info.commands, cmd_str, CMD_STR_MAX);
+		kv.GoBack();
+	}
+}
 
-	ReplaceString(namecopy, GAMEMODE_NAME_MAX, " ", "_");
-	ReplaceString(namecopy, GAMEMODE_NAME_MAX, ":", "_");
-	ReplaceString(namecopy, GAMEMODE_NAME_MAX, ".", "_");
+static void kv_handle_plugins(KeyValues kv, ArrayList &arr, const char[] name, const char[] plugins_folder_path)
+{
+	if(kv.JumpToKey(name)) {
+		if(kv.GotoFirstSubKey(false)) {
+			arr = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
-	BuildPath(Path_SM, path, PLATFORM_MAX_PATH, "data/gmm/mapcycles/%s.txt", namecopy);
+			char disabled_plugin_path[PLATFORM_MAX_PATH];
+			char any_file_path[PLATFORM_MAX_PATH];
+
+			do {
+				kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH);
+
+				int i = strlen(any_file_path)-1;
+				while(i > 0 && any_file_path[--i] != '/') {}
+
+				int j = 0;
+				for(; j < i; ++j) {
+					disabled_plugin_path[j] = any_file_path[j];
+				}
+				disabled_plugin_path[j] = '\0';
+
+				Format(disabled_plugin_path, PLATFORM_MAX_PATH, "%s/disabled/%s", plugins_folder_path, disabled_plugin_path);
+
+				CreateDirectory(disabled_plugin_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
+
+				arr.PushString(any_file_path);
+			} while(kv.GotoNextKey(false));
+
+			kv.GoBack();
+		} else {
+			arr = null;
+		}
+
+		kv.GoBack();
+	} else {
+		arr = null;
+	}
 }
 
 static void load_gamemodes()
 {
-	char gamemodefile[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, gamemodefile, PLATFORM_MAX_PATH, "configs/gmm/gamemodes.txt");
+	char gamemodes_file_path[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, gamemodes_file_path, PLATFORM_MAX_PATH, "configs/gmm/gamemodes.txt");
 
-	if(FileExists(gamemodefile)) {
-		KeyValues kvModes = new KeyValues("Gamemodes");
-		kvModes.ImportFromFile(gamemodefile);
+	if(FileExists(gamemodes_file_path)) {
+		KeyValues kv = new KeyValues("Gamemodes");
+		kv.ImportFromFile(gamemodes_file_path);
 
-		GamemodeInfo modeinfo;
-		char anyfilepath[PLATFORM_MAX_PATH];
+		GamemodeInfo info;
+		char any_file_path[PLATFORM_MAX_PATH];
 
-		if(kvModes.GotoFirstSubKey()) {
+		if(kv.GotoFirstSubKey()) {
 			gamemodes = new ArrayList(sizeof(GamemodeInfo));
-			gamemodeidmap = new StringMap();
-			gamemodemapmap = new StringMap();
+			gamemode_idx_map = new StringMap();
+			gamemode_map_map = new StringMap();
 
-			char rexerrstr[128];
-			char cmdstr[CMD_STR_MAX];
+			char regex_str[128];
+			char cmd_str[CMD_STR_MAX];
 
-			char pluginsfolder[PLATFORM_MAX_PATH];
-			BuildPath(Path_SM, pluginsfolder, PLATFORM_MAX_PATH, "plugins");
-
-			char disabledpath[PLATFORM_MAX_PATH];
+			char plugins_folder_path[PLATFORM_MAX_PATH];
+			BuildPath(Path_SM, plugins_folder_path, PLATFORM_MAX_PATH, "plugins");
 
 			do {
-				kvModes.GetSectionName(modeinfo.name, GAMEMODE_NAME_MAX);
+				kv.GetSectionName(info.name, GAMEMODE_NAME_MAX);
 
-				if(kvModes.JumpToKey("plugins")) {
-					if(kvModes.GotoFirstSubKey(false)) {
-						modeinfo.plugins = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-
-						do {
-							kvModes.GetString(NULL_STRING, anyfilepath, PLATFORM_MAX_PATH);
-
-							int i = strlen(anyfilepath)-1;
-							while(i > 0 && anyfilepath[--i] != '/') {}
-
-							int j = 0;
-							for(; j < i; ++j) {
-								disabledpath[j] = anyfilepath[j];
-							}
-							disabledpath[j] = '\0';
-
-							Format(disabledpath, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, disabledpath);
-
-							CreateDirectory(disabledpath, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
-
-							modeinfo.plugins.PushString(anyfilepath);
-						} while(kvModes.GotoNextKey(false));
-
-						kvModes.GoBack();
-					} else {
-						modeinfo.plugins = null;
-					}
-
-					kvModes.GoBack();
-				} else {
-					modeinfo.plugins = null;
-				}
-
-				if(kvModes.JumpToKey("plugins_disable")) {
-					if(kvModes.GotoFirstSubKey(false)) {
-						modeinfo.plugins_disable = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-
-						do {
-							kvModes.GetString(NULL_STRING, anyfilepath, PLATFORM_MAX_PATH);
-
-							int i = strlen(anyfilepath)-1;
-							while(i > 0 && anyfilepath[--i] != '/') {}
-
-							int j = 0;
-							for(; j < i; ++j) {
-								disabledpath[j] = anyfilepath[j];
-							}
-							disabledpath[j] = '\0';
-
-							Format(disabledpath, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, disabledpath);
-
-							CreateDirectory(disabledpath, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
-
-							modeinfo.plugins_disable.PushString(anyfilepath);
-						} while(kvModes.GotoNextKey(false));
-
-						kvModes.GoBack();
-					} else {
-						modeinfo.plugins_disable = null;
-					}
-
-					kvModes.GoBack();
-				} else {
-					modeinfo.plugins_disable = null;
-				}
+				kv_handle_plugins(kv, info.plugins, "plugins", plugins_folder_path);
+				kv_handle_plugins(kv, info.plugins_disable, "plugins_disable", plugins_folder_path);
 
 				int maps = -1;
-
 				bool valid = true;
+				info.maps_is_whitelist = false;
 
-				modeinfo.maps_is_whitelist = false;
-
-				if(kvModes.JumpToKey("maps_whitelist")) {
-					if(kvModes.JumpToKey("maps_blacklist")) {
-						LogError(GMM_CON_PREFIX ... " gamemode %s has both maps_whitelist and maps_blacklist", modeinfo.name);
+				if(kv.JumpToKey("maps_whitelist")) {
+					if(kv.JumpToKey("maps_blacklist")) {
+						LogError(GMM_CON_PREFIX ... " gamemode %s has both maps_whitelist and maps_blacklist", info.name);
 						valid = false;
-						kvModes.GoBack();
+						kv.GoBack();
 					}
-					modeinfo.maps_is_whitelist = true;
+					info.maps_is_whitelist = true;
 					maps = 0;
 				}
 
-				if(kvModes.JumpToKey("maps_blacklist")) {
-					if(kvModes.JumpToKey("maps_whitelist")) {
-						LogError(GMM_CON_PREFIX ... " gamemode %s has both maps_blacklist and maps_whitelist", modeinfo.name);
+				if(kv.JumpToKey("maps_blacklist")) {
+					if(kv.JumpToKey("maps_whitelist")) {
+						LogError(GMM_CON_PREFIX ... " gamemode %s has both maps_blacklist and maps_whitelist", info.name);
 						valid = false;
-						kvModes.GoBack();
+						kv.GoBack();
 					}
 					maps = 1;
 				}
 
 				if(!valid) {
-					delete modeinfo.plugins;
+					delete info.plugins;
+					delete info.plugins_disable;
 					continue;
 				}
 
 				if(maps != -1) {
-					if(kvModes.GotoFirstSubKey(false)) {
-						modeinfo.maps_regex = new ArrayList();
+					if(kv.GotoFirstSubKey(false)) {
+						info.maps_regex = new ArrayList();
 
 						do {
-							kvModes.GetString(NULL_STRING, anyfilepath, PLATFORM_MAX_PATH);
+							kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH);
 
-							RegexError rexerrcode;
-							Regex rex = new Regex(anyfilepath, PCRE_UTF8, rexerrstr, sizeof(rexerrstr), rexerrcode);
-							if(rexerrcode != REGEX_ERROR_NONE) {
-								delete rex;
-								LogError(GMM_CON_PREFIX ... " gamemode %s has invalid map regex \"%s\": \"%s\" (%i)", modeinfo.name, anyfilepath, rexerrstr, rexerrcode);
+							RegexError regex_code;
+							Regex regex = new Regex(any_file_path, PCRE_UTF8, regex_str, sizeof(regex_str), regex_code);
+							if(regex_code != REGEX_ERROR_NONE) {
+								delete regex;
+								LogError(GMM_CON_PREFIX ... " gamemode %s has invalid map regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_str, regex_code);
 								valid = false;
 								break;
 							}
 
-							modeinfo.maps_regex.Push(rex);
-						} while(kvModes.GotoNextKey(false));
+							info.maps_regex.Push(regex);
+						} while(kv.GotoNextKey(false));
 
-						kvModes.GoBack();
+						kv.GoBack();
 					} else {
-						modeinfo.maps_regex = null;
+						info.maps_regex = null;
 					}
 
-					kvModes.GoBack();
+					kv.GoBack();
 				} else {
-					modeinfo.maps_regex = null;
+					info.maps_regex = null;
 				}
 
 				if(!valid) {
-					if(modeinfo.maps_regex != null) {
-						int len = modeinfo.maps_regex.Length;
+					if(info.maps_regex != null) {
+						int len = info.maps_regex.Length;
 						for(int i = 0; i < len; ++i) {
-							Regex rex = modeinfo.maps_regex.Get(i);
-							delete rex;
+							Regex regex = info.maps_regex.Get(i);
+							delete regex;
 						}
 					}
-					delete modeinfo.maps_regex;
+					delete info.maps_regex;
 					continue;
 				}
 
-				modeinfo.weight = kvModes.GetFloat("weight", 50.0);
-				modeinfo.time = kvModes.GetFloat("time", 30.0);
+				info.weight = kv.GetFloat("weight", 50.0);
+				info.time = kv.GetFloat("time", 30.0);
 
-				handle_state_changed(kvModes, "enabled", cmdstr, modeinfo.enabled);
-				handle_state_changed(kvModes, "disabled", cmdstr, modeinfo.disabled);
+				kv_handle_state_changed(kv, "enabled", cmd_str, info.enabled);
+				kv_handle_state_changed(kv, "disabled", cmd_str, info.disabled);
 
-				modeinfo.mapcycle = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+				info.mapcycle = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
-				modeinfo.maphistory = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+				int idx = gamemodes.PushArray(info, sizeof(GamemodeInfo));
 
-				int idx = gamemodes.PushArray(modeinfo, sizeof(GamemodeInfo));
+				gamemode_idx_map.SetValue(info.name, idx);
+			} while(kv.GotoNextKey());
 
-				gamemodeidmap.SetValue(modeinfo.name, idx);
-			} while(kvModes.GotoNextKey());
-
-			kvModes.GoBack();
+			kv.GoBack();
 		}
 
-		DirectoryListing mapsdir = OpenDirectory("maps", true);
+		DirectoryListing maps_dir = OpenDirectory("maps", true);
 		FileType filetype;
-		while(mapsdir.GetNext(anyfilepath, PLATFORM_MAX_PATH, filetype)) {
+		while(maps_dir.GetNext(any_file_path, PLATFORM_MAX_PATH, filetype)) {
 			if(filetype != FileType_File) {
 				continue;
 			}
 
-			int bsp = StrContains(anyfilepath, ".bsp");
+			int bsp = StrContains(any_file_path, ".bsp");
 			if(bsp == -1) {
 				continue;
 			}
 
-			int pathlen = strlen(anyfilepath);
-			if((pathlen-bsp) != 4) {
+			if((strlen(any_file_path)-bsp) != 4) {
 				continue;
 			}
 
-			anyfilepath[bsp] = '\0';
+			any_file_path[bsp] = '\0';
 
-			if(StrEqual(anyfilepath, "background01") ||
-				StrEqual(anyfilepath, "itemtest") ||
-				StrEqual(anyfilepath, "cp_cloak") ||
-				(anyfilepath[0] == 't' &&
-				anyfilepath[1] == 'r' &&
-				anyfilepath[2] == '_')) {
+			if(StrEqual(any_file_path, "background01") ||
+				StrEqual(any_file_path, "itemtest") ||
+				StrEqual(any_file_path, "cp_cloak") ||
+				StrContains(any_file_path, "tr_") == 0) {
 				continue;
 			}
 
 			ArrayList modes;
-			if(!gamemodemapmap.GetValue(anyfilepath, modes)) {
+			if(!gamemode_map_map.GetValue(any_file_path, modes)) {
 				modes = new ArrayList();
-				gamemodemapmap.SetValue(anyfilepath, modes);
+				gamemode_map_map.SetValue(any_file_path, modes);
 			}
 
 			bool unmatched = true;
 
-			int len = gamemodes.Length;
-			for(int i = 0; i < len; ++i) {
-				gamemodes.GetArray(i, modeinfo, sizeof(GamemodeInfo));
+			int modes_len = gamemodes.Length;
+			for(int i = 0; i < modes_len; ++i) {
+				gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
 
-				if(modeinfo.maps_regex == null) {
+				if(info.maps_regex == null) {
 					continue;
 				}
 
-				int len2 = modeinfo.maps_regex.Length;
-				for(int j = 0; j < len2; ++j) {
-					Regex rex = modeinfo.maps_regex.Get(j);
+				int maps_regex_len = info.maps_regex.Length;
+				for(int j = 0; j < maps_regex_len; ++j) {
+					Regex regex = info.maps_regex.Get(j);
 
-					if(modeinfo.maps_is_whitelist && rex.Match(anyfilepath) < 1) {
+					if(info.maps_is_whitelist && regex.Match(any_file_path) < 1) {
 						continue;
-					} else if(!modeinfo.maps_is_whitelist && rex.Match(anyfilepath) > 0) {
+					} else if(!info.maps_is_whitelist && regex.Match(any_file_path) > 0) {
 						continue;
 					}
 
 					if(modes.FindValue(i) == -1) {
 						modes.Push(i);
-						modeinfo.mapcycle.PushString(anyfilepath);
-						if(modeinfo.maps_is_whitelist) {
+						info.mapcycle.PushString(any_file_path);
+						if(info.maps_is_whitelist) {
 							unmatched = false;
 						}
 					}
@@ -413,154 +369,132 @@ static void load_gamemodes()
 			}
 
 			if(unmatched) {
-				for(int i = 0; i < len; ++i) {
-					gamemodes.GetArray(i, modeinfo, sizeof(GamemodeInfo));
+				for(int i = 0; i < modes_len; ++i) {
+					gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
 
-					if(modeinfo.maps_regex != null) {
+					if(info.maps_regex != null) {
 						continue;
 					}
 
 					if(modes.FindValue(i) == -1) {
 						modes.Push(i);
-						modeinfo.mapcycle.PushString(anyfilepath);
+						info.mapcycle.PushString(any_file_path);
 					}
 				}
 			}
 
 			if(modes.Length == 0) {
 				delete modes;
-				gamemodemapmap.Remove(anyfilepath);
+				gamemode_map_map.Remove(any_file_path);
 			}
 		}
-		delete mapsdir;
+		delete maps_dir;
 
-		BuildPath(Path_SM, anyfilepath, PLATFORM_MAX_PATH, "data/gmm");
-		CreateDirectory(anyfilepath, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
-		BuildPath(Path_SM, anyfilepath, PLATFORM_MAX_PATH, "data/gmm/mapcycles");
-		CreateDirectory(anyfilepath, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
+		BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "data/gmm");
+		CreateDirectory(any_file_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
 
-		int len = gamemodes.Length;
-		for(int i = 0; i < len; ++i) {
-			gamemodes.GetArray(i, modeinfo, sizeof(GamemodeInfo));
+		BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "data/gmm/mapcycles");
+		CreateDirectory(any_file_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
 
-			build_mapcyclefilename(anyfilepath, modeinfo.name);
-			File cycle = OpenFile(anyfilepath, "w+");
+		int modes_len = gamemodes.Length;
+		for(int i = 0; i < modes_len; ++i) {
+			gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
 
-			int len2 = modeinfo.mapcycle.Length;
-			for(int j = 0; j < len2; ++j) {
-				modeinfo.mapcycle.GetString(j, anyfilepath, PLATFORM_MAX_PATH);
-				StrCat(anyfilepath, PLATFORM_MAX_PATH, "\n");
-				cycle.WriteString(anyfilepath, true);
+			build_mapcycle_filepath(any_file_path, info.name);
+			File cycle_file = OpenFile(any_file_path, "w+");
+
+			int mapcycle_len = info.mapcycle.Length;
+			for(int j = 0; j < mapcycle_len; ++j) {
+				info.mapcycle.GetString(j, any_file_path, PLATFORM_MAX_PATH);
+				StrCat(any_file_path, PLATFORM_MAX_PATH, "\n");
+				cycle_file.WriteString(any_file_path, true);
 			}
 
-			delete cycle;
+			delete cycle_file;
 		}
 	}
 }
 
-static void load_ff2_folder()
+public void OnNotifyPluginUnloaded(Handle plugin)
 {
-	static char ff2path1[PLATFORM_MAX_PATH];
-	if(ff2path1[0] == '\0') {
-		BuildPath(Path_SM, ff2path1, PLATFORM_MAX_PATH, "plugins/freaks");
-	}
-
-	DirectoryListing ff2dir = OpenDirectory(ff2path1);
-	if(ff2dir != null) {
-		char pluginfile1[PLATFORM_MAX_PATH];
-		char pluginfile2[PLATFORM_MAX_PATH];
-		char pluginfile3[PLATFORM_MAX_PATH];
-
-		FileType filetype;
-		while(ff2dir.GetNext(pluginfile1, PLATFORM_MAX_PATH, filetype)) {
-			if(filetype != FileType_File) {
-				continue;
-			}
-
-			int smx = StrContains(pluginfile1, ".ff2");
-			if(smx == -1) {
-				continue;
-			}
-
-			int pathlen = strlen(pluginfile1);
-			if((pathlen-smx) != 4) {
-				continue;
-			}
-
-			pluginfile1[smx] = '\0';
-
-			Format(pluginfile2, PLATFORM_MAX_PATH, "%s/%s", ff2path1, pluginfile1);
-			StrCat(pluginfile2, PLATFORM_MAX_PATH, ".smx");
-
-			Format(pluginfile3, PLATFORM_MAX_PATH, "%s/%s", ff2path1, pluginfile1);
-			StrCat(pluginfile3, PLATFORM_MAX_PATH, ".ff2");
-
-			RenameFile(pluginfile2, pluginfile3);
-
-			ServerCommand("sm plugins load \"freaks/%s\"", pluginfile1);
-		}
-		delete ff2dir;
+	if(ff2_plugin != null && plugin == ff2_plugin) {
+		//toggle_ff2_folder(false);
+		ff2_plugin = null;
 	}
 }
 
 static void toggle_ff2_folder(bool value)
 {
-	static char ff2path1[PLATFORM_MAX_PATH];
-	if(ff2path1[0] == '\0') {
-		BuildPath(Path_SM, ff2path1, PLATFORM_MAX_PATH, "plugins/freaks");
+	static char ff2_folder_enabled_path[PLATFORM_MAX_PATH];
+	if(ff2_folder_enabled_path[0] == '\0') {
+		BuildPath(Path_SM, ff2_folder_enabled_path, PLATFORM_MAX_PATH, "plugins/freaks");
 	}
-	static char ff2path2[PLATFORM_MAX_PATH];
-	if(ff2path2[0] == '\0') {
-		BuildPath(Path_SM, ff2path2, PLATFORM_MAX_PATH, "plugins/disabled/freaks");
+	static char ff2_folder_disabled_path[PLATFORM_MAX_PATH];
+	if(ff2_folder_disabled_path[0] == '\0') {
+		BuildPath(Path_SM, ff2_folder_disabled_path, PLATFORM_MAX_PATH, "plugins/disabled/freaks");
+	}
+
+	if(value) {
+		RenameFile(ff2_folder_enabled_path, ff2_folder_disabled_path);
+	}
+
+	DirectoryListing ff2_folder_enabled = OpenDirectory(ff2_folder_enabled_path);
+	if(ff2_folder_enabled != null) {
+		char plugin_filename[PLATFORM_MAX_PATH];
+		char plugin_path_smx_enabled[PLATFORM_MAX_PATH];
+		char plugin_path_ff2_enabled[PLATFORM_MAX_PATH];
+
+		FileType filetype;
+		while(ff2_folder_enabled.GetNext(plugin_filename, PLATFORM_MAX_PATH, filetype)) {
+			if(filetype != FileType_File) {
+				continue;
+			}
+
+			int ext = StrContains(plugin_filename, ".ff2");
+			if(ext == -1) {
+				ext = StrContains(plugin_filename, ".smx");
+			}
+			if(ext == -1) {
+				continue;
+			}
+
+			if((strlen(plugin_filename)-ext) != 4) {
+				continue;
+			}
+
+			plugin_filename[ext] = '\0';
+
+			Format(plugin_path_smx_enabled, PLATFORM_MAX_PATH, "%s/%s", ff2_folder_enabled_path, plugin_filename);
+			StrCat(plugin_path_smx_enabled, PLATFORM_MAX_PATH, ".smx");
+
+			Format(plugin_path_ff2_enabled, PLATFORM_MAX_PATH, "%s/%s", ff2_folder_enabled_path, plugin_filename);
+			StrCat(plugin_path_ff2_enabled, PLATFORM_MAX_PATH, ".ff2");
+
+			if(!value) {
+				if(FileExists(plugin_path_smx_enabled)) {
+					InsertServerCommand("sm plugins unload \"freaks/%s\"", plugin_filename);
+				}
+				//RenameFile(plugin_path_ff2_enabled, plugin_path_smx_enabled);
+			} else {
+				RenameFile(plugin_path_smx_enabled, plugin_path_ff2_enabled);
+				/*if(FileExists(plugin_path_smx_enabled)) {
+					InsertServerCommand("sm plugins load \"freaks/%s\"", plugin_filename);
+				}*/
+			}
+		}
+		delete ff2_folder_enabled;
+
+		ServerExecute();
 	}
 
 	if(!value) {
-		DirectoryListing ff2dir = OpenDirectory(ff2path1);
-		if(ff2dir != null) {
-			char pluginfile1[PLATFORM_MAX_PATH];
-			char pluginfile2[PLATFORM_MAX_PATH];
-			char pluginfile3[PLATFORM_MAX_PATH];
-
-			FileType filetype;
-			while(ff2dir.GetNext(pluginfile1, PLATFORM_MAX_PATH, filetype)) {
-				if(filetype != FileType_File) {
-					continue;
-				}
-
-				int smx = StrContains(pluginfile1, ".smx");
-				if(smx == -1) {
-					continue;
-				}
-
-				int pathlen = strlen(pluginfile1);
-				if((pathlen-smx) != 4) {
-					continue;
-				}
-
-				pluginfile1[smx] = '\0';
-
-				Format(pluginfile2, PLATFORM_MAX_PATH, "%s/%s", ff2path1, pluginfile1);
-				StrCat(pluginfile2, PLATFORM_MAX_PATH, ".smx");
-
-				Format(pluginfile3, PLATFORM_MAX_PATH, "%s/%s", ff2path1, pluginfile1);
-				StrCat(pluginfile3, PLATFORM_MAX_PATH, ".ff2");
-
-				ServerCommand("sm plugins unload \"freaks/%s\"", pluginfile1);
-
-				//RenameFile(pluginfile3, pluginfile2);
-			}
-			delete ff2dir;
-		}
-
-		RenameFile(ff2path2, ff2path1);
-	} else {
-		RenameFile(ff2path1, ff2path2);
+		RenameFile(ff2_folder_disabled_path, ff2_folder_enabled_path);
 	}
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
-	lateloaded = late;
+	late_loaded = late;
 	toggle_ff2_folder(false);
 	return APLRes_Success;
 }
@@ -569,7 +503,7 @@ public void OnPluginStart()
 {
 	LoadTranslations("common.phrases");
 
-	gamemodehistory = new ArrayList();
+	gamemode_history = new ArrayList();
 
 	load_gamemodes();
 
@@ -578,43 +512,12 @@ public void OnPluginStart()
 		unload_gamemode(i);
 	}
 
-	gmm_votes_needed = CreateConVar("gmm_votes_needed", "0.60");
-	gmm_default = CreateConVar("gmm_default", "");
-	gmm_initial_delay = CreateConVar("gmm_initial_delay", "45.0");
-	gmm_fail_delay = CreateConVar("gmm_fail_delay", "240.0");
-	gmm_map_time = CreateConVar("gmm_map_time", "5.0");
-	gmm_startrounds = CreateConVar("gmm_startrounds", "2.0");
-	gmm_startfrags = CreateConVar("gmm_startfrags", "5.0");
-	gmm_voteduration = CreateConVar("gmm_voteduration", "20.0");
+	gmm_default_gamemode = CreateConVar("gmm_default_gamemode", "random");
 
 	mapcyclefile = FindConVar("mapcyclefile");
 
-	RegConsoleCmd("sm_rtg", sm_rtg);
-
-	RegAdminCmd("sm_frtg", sm_frtg, ADMFLAG_ROOT);
 	RegAdminCmd("sm_rgmm", sm_rgmm, ADMFLAG_ROOT);
-	RegAdminCmd("sm_frg", sm_frg, ADMFLAG_ROOT);
-
-	mp_winlimit = FindConVar("mp_winlimit");
-	mp_maxrounds = FindConVar("mp_maxrounds");
-	mp_fraglimit = FindConVar("mp_fraglimit");
-
-	mp_bonusroundtime = FindConVar("mp_bonusroundtime");
-	mp_bonusroundtime.SetBounds(ConVarBound_Upper, true, 30.0);
-
-	HookEvent("teamplay_round_win", teamplay_round_win);
-	HookEvent("teamplay_game_over", teamplay_round_win);
-	HookEvent("tf_game_over", teamplay_round_win);
-
-	HookEvent("teamplay_round_active", teamplay_round_active);
-	HookEvent("arena_round_start", teamplay_round_active);
-
-	HookEvent("teamplay_win_panel", teamplay_win_panel);
-	HookEvent("arena_win_panel", teamplay_win_panel);
-
-	HookEvent("teamplay_restart_round", teamplay_restart_round);
-
-	HookEvent("player_death", player_death);
+	RegAdminCmd("sm_fgm", sm_fgm, ADMFLAG_ROOT);
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
@@ -623,79 +526,46 @@ public void OnPluginStart()
 	}
 }
 
-static void teamplay_round_win(Event event, const char[] name, bool dontBroadcast)
+static Action sm_fgm(int client, int args)
 {
-	inround = false;
-}
-
-static void teamplay_round_active(Event event, const char[] name, bool dontBroadcast)
-{
-	inround = true;
-}
-
-static void player_death(Event event, const char[] name, bool dontBroadcast)
-{
-	if(mp_fraglimit.IntValue <= 0) {
-		return;
+	char name[GAMEMODE_NAME_MAX];
+	if(args >= 1) {
+		GetCmdArg(1, name, GAMEMODE_NAME_MAX);
 	}
 
-	int attacker = GetClientOfUserId(event.GetInt("attacker"));
-	if(attacker < 1 || attacker > MaxClients) {
-		return;
-	}
+	if(name[0] != '\0') {
+		if(StrEqual(name, "current_map")) {
+			load_gamemode_for_map(current_map);
+			return Plugin_Handled;
+		} else {
+			int mode = -1;
 
-	if(GetClientFrags(attacker) >= (mp_fraglimit.IntValue - gmm_startfrags.IntValue)) {
-		timer_mapvote(null, currentgamemode);
-	}
-}
+			if(StrEqual(name, "random")) {
+				mode = get_random_gamemode_idx();
+			} else {
+				int idx = -1;
+				if(gamemode_idx_map.GetValue(name, idx)) {
+					mode = idx;
+				} else {
+					CReplyToCommand(client, GMM_CHAT_PREFIX ... "invalid gamemode name %s", name);
+					return Plugin_Handled;
+				}
+			}
 
-static void teamplay_restart_round(Event event, const char[] name, bool dontBroadcast)
-{
-	inround = false;
-	rounds = 0;
-}
-
-static void checkwin(int score)
-{
-	int winlimit = mp_winlimit.IntValue;
-	if(winlimit > 0) {
-		if(score >= (winlimit - gmm_startrounds.IntValue)) {
-			timer_mapvote(null, currentgamemode);
-		}
-	}
-}
-
-static void teamplay_win_panel(Event event, const char[] name, bool dontBroadcast)
-{
-	inround = false;
-
-	if(event.GetInt("round_complete") == 1) {
-		++rounds;
-
-		int maxrounds = mp_maxrounds.IntValue;
-		if(maxrounds > 0) {
-			if(rounds >= (maxrounds - gmm_startrounds.IntValue)) {
-				timer_mapvote(null, currentgamemode);
+			if(mode != -1) {
+				if(!is_gamemode_valid_for_map(mode, current_map)) {
+					next_gamemode = mode;
+					change_to_random_gamemode_map(mode);
+				} else {
+					if(current_gamemode != mode) {
+						load_gamemode(mode);
+					}
+				}
 			}
 		}
-
-		switch(event.GetInt("winning_team")) {
-			case 3:
-			{ checkwin(event.GetInt("blue_score")); }
-			case 2:
-			{ checkwin(event.GetInt("red_score")); }
-		}
+	} else {
+		unload_current_gamemode();
 	}
-}
-
-static Action sm_frg(int client, int args)
-{
-	nextgamemode = randomgamemode();
-
-	GamemodeInfo modeinfo;
-	gamemodes.GetArray(nextgamemode, modeinfo, sizeof(GamemodeInfo));
-
-	changerandommap(modeinfo);
 
 	return Plugin_Handled;
 }
@@ -707,187 +577,84 @@ static Action sm_rgmm(int client, int args)
 	return Plugin_Handled;
 }
 
-static void increment_voters()
+static Action timer_change_to_map(Handle timer, DataPack data)
 {
-	++num_voters;
-	votes_needed = RoundToCeil(float(num_voters) * gmm_votes_needed.FloatValue);
+	data.Reset();
+
+	char map[PLATFORM_MAX_PATH];
+	data.ReadString(map, PLATFORM_MAX_PATH);
+
+	ForceChangeLevel(map, "GMM");
+	return Plugin_Continue;
 }
 
-static void decrement_voters(int client)
+static void change_to_map(const char[] map)
 {
-	if(voted[client]) {
-		--num_votes;
-	}
-	voted[client] = false;
-	--num_voters;
-	votes_needed = RoundToCeil(float(num_voters) * gmm_votes_needed.FloatValue);
-}
+	float time = 3.0;
 
-static void changemap(const char[] map)
-{
-	float mapchangetime = gmm_map_time.FloatValue;
-	float unloadtime = mapchangetime * 0.8;
+	CPrintToChatAll(GMM_CHAT_PREFIX ... "Changing to map %s", map);
 
-	CreateTimer(unloadtime, timer_unloadgamemode, 0, TIMER_FLAG_NO_MAPCHANGE);
+	CreateTimer(time * 0.8, timer_load_next_gamemode, 0, TIMER_FLAG_NO_MAPCHANGE);
 
 	SetNextMap(map);
-	CreateTimer(mapchangetime, timer_changemap, 0, TIMER_FLAG_NO_MAPCHANGE);
+
+	DataPack data;
+	CreateDataTimer(time, timer_change_to_map, data, TIMER_FLAG_NO_MAPCHANGE);
+	data.WriteString(map);
 }
 
-static void changerandommap(GamemodeInfo modeinfo)
+static void change_to_random_gamemode_map(int mode)
 {
-	int mapidx = GetRandomInt(0, modeinfo.mapcycle.Length-1);
+	GamemodeInfo info;
+	gamemodes.GetArray(mode, info, sizeof(GamemodeInfo));
 
-	char newmap[PLATFORM_MAX_PATH];
-	modeinfo.mapcycle.GetString(mapidx, newmap, PLATFORM_MAX_PATH);
+	int map_idx = GetRandomInt(0, info.mapcycle.Length-1);
 
-	changemap(newmap);
+	char map[PLATFORM_MAX_PATH];
+	info.mapcycle.GetString(map_idx, map, PLATFORM_MAX_PATH);
+
+	change_to_map(map);
 }
 
-static int menuhandler_maps(NativeVote menu, MenuAction action, int param1, int param2)
+static Action timer_load_next_gamemode(Handle timer, any data)
 {
-	switch(action) {
-		case MenuAction_VoteEnd: {
-			char map[PLATFORM_MAX_PATH];
-			menu.GetItem(param1, map, PLATFORM_MAX_PATH);
-
-			CPrintToChatAll(GMM_CHAT_PREFIX ... "%s won the map vote", map);
-
-			changemap(map);
-
-			menu.DisplayPassEx(NativeVotesPass_NextLevel, "%s", map);
-		}
-		case MenuAction_VoteCancel: {
-			nextgamemode = -1;
-			reset_voting();
-			CreateTimer(gmm_fail_delay.FloatValue, timer_allowvotes, 0, TIMER_FLAG_NO_MAPCHANGE);
-			switch(param1) {
-				case VoteCancel_Generic:
-				{ menu.DisplayFail(NativeVotesFail_Generic); }
-				case VoteCancel_NoVotes:
-				{ menu.DisplayFail(NativeVotesFail_NotEnoughVotes); }
-			}
-			if(gamemodetimeelapsed) {
-				if(changegamemode_timer == null) {
-					float delay = float(NativeVotes_CheckVoteDelay());
-					changegamemode_timer = CreateTimer(delay, timer_changemode, 0, TIMER_FLAG_NO_MAPCHANGE);
-				}
-			}
-		}
-		case MenuAction_End: {
-			delete menu;
-		}
+	if(next_gamemode != -1) {
+		load_gamemode(next_gamemode);
+		next_gamemode = -1;
 	}
-
-	return 0;
-}
-
-static Action timer_mapvote(Handle timer, int mode)
-{
-	if(mapvotetimer != null && mapvotetimer != timer) {
-		KillTimer(mapvotetimer);
-	}
-
-	if(!NativeVotes_IsNewVoteAllowed()) {
-		float delay = float(NativeVotes_CheckVoteDelay());
-		mapvotetimer = CreateTimer(delay, timer_mapvote, mode, TIMER_FLAG_NO_MAPCHANGE);
-		return Plugin_Continue;
-	}
-
-	mapvote(mode);
-	mapvotetimer = null;
 	return Plugin_Continue;
 }
 
-static void mapvote(int mode)
-{
-	GamemodeInfo modeinfo;
-	gamemodes.GetArray(mode, modeinfo, sizeof(GamemodeInfo));
-
-	NativeVote cyclemenu = new NativeVote(menuhandler_maps, NativeVotesType_NextLevelMult);
-
-	char title[GAMEMODE_NAME_MAX + 8];
-	Format(title, sizeof(title), "%s - Maps", modeinfo.name);
-	cyclemenu.SetTitle(title);
-
-	char map[PLATFORM_MAX_PATH];
-
-	ArrayList maps_tochoose = new ArrayList();
-
-	int len = modeinfo.mapcycle.Length;
-	for(int i = 0; i < len; ++i) {
-		modeinfo.mapcycle.GetString(i, map, sizeof(map));
-
-		if(modeinfo.maphistory.FindString(map) != -1) {
-			continue;
-		}
-
-		maps_tochoose.Push(i);
-	}
-
-	len = maps_tochoose.Length;
-	len = len > 5 ? 5 : len;
-	for(int i = 0; i < len; ++i) {
-		int idx = GetRandomInt(0, maps_tochoose.Length-1);
-		int mapidx = maps_tochoose.Get(idx);
-		maps_tochoose.Erase(idx);
-
-		modeinfo.mapcycle.GetString(mapidx, map, sizeof(map));
-
-		cyclemenu.AddItem(map, map);
-	}
-
-	delete maps_tochoose;
-
-	cyclemenu.DisplayVoteToAll(gmm_voteduration.IntValue);
-}
-
-static int menuhandler_gamemodes(NativeVote menu, MenuAction action, int param1, int param2)
+static int votehandler_gamemode(NativeVote menu, MenuAction action, int param1, int param2)
 {
 	switch(action) {
 		case MenuAction_VoteEnd: {
-			char intstr[INT_STR_MAX];
-			menu.GetItem(param1, intstr, INT_STR_MAX);
-			int idx = StringToInt(intstr);
+			char int_str[INT_STR_MAX];
+			menu.GetItem(param1, int_str, INT_STR_MAX);
+			int idx = StringToInt(int_str);
 
-			GamemodeInfo modeinfo;
-			gamemodes.GetArray(idx, modeinfo, sizeof(GamemodeInfo));
+			GamemodeInfo info;
+			gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
 
-			nextgamemode = idx;
+			next_gamemode = idx;
 
-			CPrintToChatAll(GMM_CHAT_PREFIX ... "%s won the gamemode vote", modeinfo.name);
+			CPrintToChatAll(GMM_CHAT_PREFIX ... "%s won the gamemode vote", info.name);
 
-			reset_voting();
+			menu.DisplayPassEx(NativeVotesPass_ChgMission, "%s", info.name);
 
-			menu.DisplayPassEx(NativeVotesPass_ChgMission, "%s", modeinfo.name);
-
-			if(modeinfo.mapcycle.Length == 1) {
-				char map[PLATFORM_MAX_PATH];
-				modeinfo.mapcycle.GetString(0, map, sizeof(map));
-
-				changemap(map);
+			if(info.mapcycle.Length == 1) {
+				
 			} else {
-				if(mapvotetimer != null) {
-					KillTimer(mapvotetimer);
-				}
-				timer_mapvote(null, nextgamemode);
+				
 			}
 		}
 		case MenuAction_VoteCancel: {
-			nextgamemode = -1;
-			reset_voting();
-			CreateTimer(gmm_fail_delay.FloatValue, timer_allowvotes, 0, TIMER_FLAG_NO_MAPCHANGE);
+			next_gamemode = -1;
 			switch(param1) {
 				case VoteCancel_Generic:
 				{ menu.DisplayFail(NativeVotesFail_Generic); }
 				case VoteCancel_NoVotes:
 				{ menu.DisplayFail(NativeVotesFail_NotEnoughVotes); }
-			}
-			if(gamemodetimeelapsed) {
-				if(changegamemode_timer == null) {
-					float delay = float(NativeVotes_CheckVoteDelay());
-					changegamemode_timer = CreateTimer(delay, timer_changemode, 0, TIMER_FLAG_NO_MAPCHANGE);
-				}
 			}
 		}
 		case MenuAction_End: {
@@ -898,97 +665,60 @@ static int menuhandler_gamemodes(NativeVote menu, MenuAction action, int param1,
 	return 0;
 }
 
-static Action timer_unloadgamemode(Handle timer, any data)
-{
-	unload_currentgamemode();
-	if(nextgamemode != -1) {
-		load_gamemode(nextgamemode);
-	}
-	return Plugin_Continue;
-}
-
-static Action timer_changemap(Handle timer, any data)
-{
-	char map[PLATFORM_MAX_PATH];
-	if(GetNextMap(map, sizeof(map))) {
-		ForceChangeLevel(map, "GMM");
-	}
-	return Plugin_Continue;
-}
-
-static Action timer_gamemodevote(Handle timer, any data)
-{
-	if(gamemodevotetimer != null && gamemodevotetimer != timer) {
-		KillTimer(gamemodevotetimer);
-	}
-
-	if(!NativeVotes_IsNewVoteAllowed()) {
-		float delay = float(NativeVotes_CheckVoteDelay());
-		gamemodevotetimer = CreateTimer(delay, timer_gamemodevote, 0, TIMER_FLAG_NO_MAPCHANGE);
-		return Plugin_Continue;
-	}
-
-	startvote();
-	gamemodevotetimer = null;
-	return Plugin_Continue;
-}
-
-static void startvote()
+static void start_gamemode_vote()
 {
 	if(!NativeVotes_IsNewVoteAllowed()) {
-		LogError(GMM_CON_PREFIX ... "tried to start new gamemode vote while it wanst possible");
+		LogError(GMM_CON_PREFIX ... "tried to start new gamemode vote while it wasnt possible");
 		return;
 	}
 
-	NativeVote gamemodemenu = new NativeVote(menuhandler_gamemodes, NativeVotesType_Custom_Mult);
-	gamemodemenu.SetTitle("Gamemodes");
+	NativeVote vote_menu = new NativeVote(votehandler_gamemode, NativeVotesType_Custom_Mult);
+	vote_menu.SetTitle("Gamemodes");
 
-	GamemodeInfo modeinfo;
+	GamemodeInfo info;
 
 	ArrayList weights = new ArrayList();
+	ArrayList to_choose = new ArrayList();
 
-	ArrayList gamemodes_tochoose = new ArrayList();
-	int len = gamemodes.Length;
-	for(int i = 0; i < len; ++i) {
-		gamemodes.GetArray(i, modeinfo, sizeof(GamemodeInfo));
-		if(gamemodehistory.FindValue(i) != -1) {
+	int modes_len = gamemodes.Length;
+	for(int i = 0; i < modes_len; ++i) {
+		gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+		if(gamemode_history.FindValue(i) != -1 ||
+			i == current_gamemode) {
 			continue;
 		}
-		if(i == currentgamemode) {
-			continue;
-		}
-		weights.Push(modeinfo.weight);
-		gamemodes_tochoose.Push(i);
+		weights.Push(info.weight);
+		to_choose.Push(i);
 	}
 
 	ArrayList aliases = CreateAliasRandom(weights);
 
-	char intstr[INT_STR_MAX];
+	char int_str[INT_STR_MAX];
 
-	len = gamemodes_tochoose.Length;
-	len = len > 5 ? 5 : len;
-	for(int i = 0; i < len; ++i) {
+	int to_choose_len = to_choose.Length;
+	int max = to_choose_len > 5 ? 5 : to_choose_len;
+	for(int i = 0; i < max; ++i) {
 		int idx = GetAliasRandom(aliases);
 
-		int mode = gamemodes_tochoose.Get(idx);
-		gamemodes.GetArray(mode, modeinfo, sizeof(GamemodeInfo));
+		int mode = to_choose.Get(idx);
+		gamemodes.GetArray(mode, info, sizeof(GamemodeInfo));
 
 		weights.Erase(idx);
 
 		delete aliases;
 		aliases = CreateAliasRandom(weights);
 
-		gamemodes_tochoose.Erase(idx);
+		to_choose.Erase(idx);
 
-		IntToString(mode, intstr, INT_STR_MAX);
-		gamemodemenu.AddItem(intstr, modeinfo.name);
+		IntToString(mode, int_str, INT_STR_MAX);
+		vote_menu.AddItem(int_str, info.name);
 	}
 
 	delete aliases;
 	delete weights;
-	delete gamemodes_tochoose;
+	delete to_choose;
 
-	gamemodemenu.DisplayVoteToAll(gmm_voteduration.IntValue);
+	vote_menu.DisplayVoteToAll(20);
 }
 
 public void OnClientPutInServer(int client)
@@ -999,7 +729,7 @@ public void OnClientPutInServer(int client)
 		return;
 	}
 
-	increment_voters();
+	
 }
 
 public void OnClientDisconnect(int client)
@@ -1009,8 +739,6 @@ public void OnClientDisconnect(int client)
 		IsClientSourceTV(client)) {
 		return;
 	}
-
-	decrement_voters(client);
 
 	bool any_human = false;
 	for(int i = 1; i <= MaxClients; ++i) {
@@ -1027,23 +755,7 @@ public void OnClientDisconnect(int client)
 		}
 	}
 
-	if(any_human) {
-		if(num_votes > 0 &&
-			num_voters > 0 &&
-			num_votes >= votes_needed &&
-			(votes_allowed && NativeVotes_IsNewVoteAllowed())) {
-			timer_gamemodevote(null, 0);
-		}
-	} else {
-		if(gamemodetimeelapsed) {
-			nextgamemode = randomgamemode();
-
-			GamemodeInfo modeinfo;
-			gamemodes.GetArray(nextgamemode, modeinfo, sizeof(GamemodeInfo));
-
-			changerandommap(modeinfo);
-		}
-	}
+	
 }
 
 public void OnClientSayCommand_Post(int client, const char[] command, const char[] sArgs)
@@ -1054,92 +766,47 @@ public void OnClientSayCommand_Post(int client, const char[] command, const char
 
 	if(StrEqual(sArgs, "rtg")) {
 		ReplySource oldsrc = SetCmdReplySource(SM_REPLY_TO_CHAT);
-		sm_rtg(client, 0);
+		
 		SetCmdReplySource(oldsrc);
 	}
 }
 
-static Action sm_frtg(int client, int args)
+static void handle_gamemode_plugins(GamemodeInfo info, bool unload)
 {
-	timer_gamemodevote(null, 0);
-	return Plugin_Handled;
-}
-
-static Action sm_rtg(int client, int args)
-{
-	if(voted[client]) {
-		CReplyToCommand(client, GMM_CHAT_PREFIX ... "you already voted");
-		return Plugin_Handled;
-	}
-
-	if(!NativeVotes_IsNewVoteAllowed()) {
-		CReplyToCommand(client, GMM_CHAT_PREFIX ... "votes are not allowed at this time");
-		return Plugin_Handled;
-	}
-
-	if(!votes_allowed) {
-		int seconds = RoundToFloor(gmm_initial_delay.FloatValue-(GetGameTime()-voteblock_start));
-		CReplyToCommand(client, GMM_CHAT_PREFIX ... "votes are not allowed at this time. please wait %i seconds.", seconds);
-		return Plugin_Handled;
-	}
-
-	voted[client] = true;
-	++num_votes;
-
-	int needed = (votes_needed-num_votes);
-	if(needed > 0) {
-		CPrintToChatAll(GMM_CHAT_PREFIX ... "%N wants to change gamemode %i more votes needed", client, needed);
-	}
-
-	if(num_votes >= votes_needed) {
-		timer_gamemodevote(null, 0);
-	}
-
-	return Plugin_Handled;
-}
-
-static void do_plugins(GamemodeInfo modeinfo, bool unload)
-{
-	if(unload) {
-		toggle_ff2_folder(false);
-	}
-
 	char pluginsfolder[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, pluginsfolder, PLATFORM_MAX_PATH, "plugins");
 
-	char pluginpath1[PLATFORM_MAX_PATH];
-	char pluginpath2[PLATFORM_MAX_PATH];
-	char pluginpath3[PLATFORM_MAX_PATH];
+	char plugin_filename[PLATFORM_MAX_PATH];
+	char plugin_disabled_path[PLATFORM_MAX_PATH];
+	char plugin_enabled_path[PLATFORM_MAX_PATH];
 
 	if(!unload) {
-		if(modeinfo.plugins_disable != null) {
-			for(int i = modeinfo.plugins_disable.Length-1; i >= 0; --i) {
-				modeinfo.plugins_disable.GetString(i, pluginpath1, PLATFORM_MAX_PATH);
+		if(info.plugins_disable != null) {
+			for(int i = info.plugins_disable.Length-1; i >= 0; --i) {
+				info.plugins_disable.GetString(i, plugin_filename, PLATFORM_MAX_PATH);
 
-				Format(pluginpath2, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, pluginpath1);
-				Format(pluginpath3, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, pluginpath1);
+				Format(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
+				Format(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
 
-				if(FileExists(pluginpath3)) {
-					ServerCommand("sm plugins unload \"%s\"", pluginpath1);
+				if(FileExists(plugin_enabled_path)) {
+					InsertServerCommand("sm plugins unload \"%s\"", plugin_filename);
 				}
-				RenameFile(pluginpath2, pluginpath3);
+				RenameFile(plugin_disabled_path, plugin_enabled_path);
 			}
 		}
 	}
 
-	if(modeinfo.plugins != null) {
+	if(info.plugins != null) {
 		bool reverse = (unload);
 
 		int i = 0;
 		if(reverse) {
-			i = modeinfo.plugins.Length-1;
+			i = info.plugins.Length-1;
 		}
 		int len = 0;
 		if(!reverse) {
-			len = modeinfo.plugins.Length;
+			len = info.plugins.Length;
 		}
-
-		bool ff2 = false;
 
 		while(true) {
 			if(reverse) {
@@ -1152,27 +819,33 @@ static void do_plugins(GamemodeInfo modeinfo, bool unload)
 				}
 			}
 
-			modeinfo.plugins.GetString(i, pluginpath1, PLATFORM_MAX_PATH);
+			info.plugins.GetString(i, plugin_filename, PLATFORM_MAX_PATH);
 
-			ff2 = (StrContains(pluginpath1, "freak_fortress_2") != -1);
+			Format(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
+			Format(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
 
-			if(!unload && ff2) {
-				toggle_ff2_folder(true);
+			bool is_ff2 = (StrContains(plugin_filename, "freak_fortress_2") != -1);
+			if(is_ff2) {
+				toggle_ff2_folder(!unload);
+				if(unload) {
+					ff2_plugin = null;
+				}
 			}
 
-			Format(pluginpath2, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, pluginpath1);
-			Format(pluginpath3, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, pluginpath1);
-
 			if(unload) {
-				if(FileExists(pluginpath3)) {
-					ServerCommand("sm plugins unload \"%s\"", pluginpath1);
+				if(FileExists(plugin_enabled_path)) {
+					InsertServerCommand("sm plugins unload \"%s\"", plugin_filename);
 				}
-				RenameFile(pluginpath2, pluginpath3);
+				RenameFile(plugin_disabled_path, plugin_enabled_path);
 			} else {
-				RenameFile(pluginpath3, pluginpath2);
-				if(FileExists(pluginpath3)) {
-					ServerCommand("sm plugins load \"%s\"", pluginpath1);
+				RenameFile(plugin_enabled_path, plugin_disabled_path);
+				if(FileExists(plugin_enabled_path)) {
+					InsertServerCommand("sm plugins load \"%s\"", plugin_filename);
 				}
+			}
+
+			if(is_ff2 && !unload) {
+				ff2_plugin = FindPluginByFile("freak_fortress_2.smx");
 			}
 
 			if(reverse) {
@@ -1181,344 +854,255 @@ static void do_plugins(GamemodeInfo modeinfo, bool unload)
 				++i;
 			}
 		}
-
-		if(!unload && ff2) {
-			load_ff2_folder();
-		}
 	}
 
 	if(unload) {
-		if(modeinfo.plugins_disable != null) {
-			int len = modeinfo.plugins_disable.Length;
+		if(info.plugins_disable != null) {
+			int len = info.plugins_disable.Length;
 			for(int i = 0; i < len; ++i) {
-				modeinfo.plugins_disable.GetString(i, pluginpath1, PLATFORM_MAX_PATH);
+				info.plugins_disable.GetString(i, plugin_filename, PLATFORM_MAX_PATH);
 
-				Format(pluginpath2, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, pluginpath1);
-				Format(pluginpath3, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, pluginpath1);
+				Format(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
+				Format(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
 
-				RenameFile(pluginpath3, pluginpath2);
-				if(FileExists(pluginpath3)) {
-					ServerCommand("sm plugins load \"%s\"", pluginpath1);
+				RenameFile(plugin_enabled_path, plugin_disabled_path);
+				if(FileExists(plugin_enabled_path)) {
+					InsertServerCommand("sm plugins load \"%s\"", plugin_filename);
 				}
 			}
 		}
 	}
+
+	ServerExecute();
 }
 
-static void do_state(StateChangeInfo state)
+static void handle_gamemode_state(StateChangeInfo info)
 {
-	if(state.cfg[0] != '\0') {
-		ServerCommand("exec %s", state.cfg);
+	if(info.cfg[0] != '\0') {
+		InsertServerCommand("exec %s", info.cfg);
 	}
 
-	if(state.commands != null) {
-		char cmdstr[CMD_STR_MAX];
+	if(info.commands != null) {
+		char cmd_str[CMD_STR_MAX];
 
-		int len = state.commands.Length;
+		int len = info.commands.Length;
 		for(int i = 0; i < len; ++i) {
-			state.commands.GetString(i, cmdstr, CMD_STR_MAX);
+			info.commands.GetString(i, cmd_str, CMD_STR_MAX);
 
-			ServerCommand("%s", cmdstr);
+			InsertServerCommand("%s", cmd_str);
 		}
+	}
+
+	ServerExecute();
+}
+
+static void add_to_gamemode_history(int idx)
+{
+	if(gamemode_history.FindValue(idx) != -1) {
+		return;
+	}
+
+	gamemode_history.Push(idx);
+
+	int len = gamemodes.Length;
+	int max = len > 5 ? 5 : len-1;
+
+	if(gamemode_history.Length > max) {
+		gamemode_history.Erase(0);
 	}
 }
 
 static void unload_gamemode(int idx)
 {
-	GamemodeInfo modeinfo;
-	gamemodes.GetArray(idx, modeinfo, sizeof(GamemodeInfo));
+	GamemodeInfo info;
+	gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
 
-	do_state(modeinfo.disabled);
-	do_plugins(modeinfo, true);
+	handle_gamemode_state(info.disabled);
+	handle_gamemode_plugins(info, true);
 
-	SteamWorks_SetGameDescription("");
+	SteamWorks_SetGameDescription("Team Fortress");
 }
 
-static void addto_gamemodehistory(int mode)
+static void unload_current_gamemode()
 {
-	if(gamemodehistory.FindValue(mode) != -1) {
+	if(current_gamemode == -1) {
 		return;
 	}
 
-	gamemodehistory.Push(mode);
+	mapcyclefile.SetString(original_mapcyclefile_value);
 
-	int len = gamemodes.Length;
-	int max = len > 5 ? 5 : len-1;
-
-	if(gamemodehistory.Length > max) {
-		gamemodehistory.Erase(0);
+	gamemode_time_elapsed = false;
+	if(change_gamemode_timer != null) {
+		KillTimer(change_gamemode_timer);
 	}
+	change_gamemode_timer = null;
+
+	unload_gamemode(current_gamemode);
+	current_gamemode = -1;
+}
+
+static Action timer_change_gamemode(Handle timer, any data)
+{
+	gamemode_time_elapsed = true;
+	change_gamemode_timer = null;
+
+	if(GameRules_GetRoundState() != RoundState_RoundRunning) {
+		return Plugin_Continue;
+	}
+
+	return Plugin_Continue;
 }
 
 static void load_gamemode(int idx)
 {
-	if(currentgamemode == idx) {
+	if(current_gamemode == idx) {
 		return;
 	}
 
-	currentgamemode = idx;
+	unload_current_gamemode();
 
-	GamemodeInfo modeinfo;
-	gamemodes.GetArray(currentgamemode, modeinfo, sizeof(GamemodeInfo));
+	current_gamemode = idx;
 
-	do_state(modeinfo.enabled);
+	GamemodeInfo info;
+	gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
 
-	SteamWorks_SetGameDescription(modeinfo.name);
+	add_to_gamemode_history(idx);
 
-	do_plugins(modeinfo, false);
+	SteamWorks_SetGameDescription(info.name);
 
-	addto_gamemodehistory(currentgamemode);
+	handle_gamemode_plugins(info, false);
+	handle_gamemode_state(info.enabled);
 
-	char cyclefile[PLATFORM_MAX_PATH];
-	build_mapcyclefilename(cyclefile, modeinfo.name);
+	char cycle_path[PLATFORM_MAX_PATH];
+	build_mapcycle_filepath(cycle_path, info.name);
 
-	mapcyclefile.SetString(cyclefile);
-}
+	mapcyclefile.SetString(cycle_path);
 
-static void unload_currentgamemode()
-{
-	if(currentgamemode == -1) {
-		return;
-	}
-
-	unload_gamemode(currentgamemode);
-	currentgamemode = -1;
+	change_gamemode_timer = CreateTimer(info.time * 60, timer_change_gamemode);
 }
 
 public void OnPluginEnd()
 {
-	unload_currentgamemode();
+	unload_current_gamemode();
 }
 
-static void reset_voting()
+static int get_random_gamemode_idx()
 {
-	num_votes = 0;
-	for(int j = 1; j <= MaxClients; ++j) {
-		if(!IsClientInGame(j) ||
-			IsFakeClient(j) ||
-			IsClientReplay(j) ||
-			IsClientSourceTV(j)) {
-			continue;
-		}
-		voted[j] = false;
-	}
-	votes_allowed = false;
-}
+	GamemodeInfo info;
 
-static void addto_maphistory(GamemodeInfo modeinfo, char map[PLATFORM_MAX_PATH])
-{
-	if(modeinfo.maphistory.FindString(map)) {
-		return;
-	}
-
-	modeinfo.maphistory.PushString(map);
-
-	if(modeinfo.mapcycle.Length == 1) {
-		return;
-	}
-
-	int len = modeinfo.mapcycle.Length;
-	int max = len > 5 ? 5 : len-1;
-
-	if(modeinfo.maphistory.Length > max) {
-		modeinfo.maphistory.Erase(0);
-	}
-}
-
-public void OnMapEnd()
-{
-	changegamemode_timer = null;
-	gamemodevotetimer = null;
-	mapvotetimer = null;
-
-	inround = false;
-	rounds = 0;
-
-	gamemodetimeelapsed = false;
-
-	reset_voting();
-
-	if(currentgamemode != -1) {
-		GamemodeInfo modeinfo;
-		gamemodes.GetArray(currentgamemode, modeinfo, sizeof(GamemodeInfo));
-
-		addto_maphistory(modeinfo, currentmap);
-	}
-
-	if(nextgamemode == -1 || nextgamemode != currentgamemode) {
-		unload_currentgamemode();
-	}
-
-	if(nextgamemode != -1) {
-		load_gamemode(nextgamemode);
-	}
-}
-
-static int randomgamemode()
-{
 	ArrayList weights = new ArrayList();
+	ArrayList to_choose = new ArrayList();
 
-	GamemodeInfo modeinfo;
-
-	ArrayList gamemodes_tochoose = new ArrayList();
 	int len = gamemodes.Length;
 	for(int i = 0; i < len; ++i) {
-		gamemodes.GetArray(i, modeinfo, sizeof(GamemodeInfo));
-		if(gamemodehistory.FindValue(i) != -1) {
+		gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+		if(gamemode_history.FindValue(i) != -1 ||
+			i == current_gamemode) {
 			continue;
 		}
-		if(i == currentgamemode) {
-			continue;
-		}
-		weights.Push(modeinfo.weight);
-		gamemodes_tochoose.Push(i);
+		weights.Push(info.weight);
+		to_choose.Push(i);
 	}
 
 	ArrayList aliases = CreateAliasRandom(weights);
 
 	int idx = GetAliasRandom(aliases);
-
-	int mode = gamemodes_tochoose.Get(idx);
+	int mode = to_choose.Get(idx);
 
 	delete aliases;
 	delete weights;
-	delete gamemodes_tochoose;
+	delete to_choose;
 
 	return mode;
 }
 
-public void OnConfigsExecuted()
+static bool is_gamemode_valid_for_map(int mode, const char[] map)
 {
-	if(mp_bonusroundtime && !gmm_startrounds.IntValue) {
-		if(mp_bonusroundtime.FloatValue <= gmm_voteduration.FloatValue) {
-			LogError(GMM_CON_PREFIX ... "Warning - Bonus Round Time shorter than Vote Time. Votes during bonus round may not have time to complete");
-		}
+	ArrayList modes;
+	if(gamemode_map_map.GetValue(map, modes)) {
+		return (modes.FindValue(mode) != -1);
 	}
-
-	if(defaultgamemode == -1) {
-		char gamemode[GAMEMODE_NAME_MAX];
-		gmm_default.GetString(gamemode, GAMEMODE_NAME_MAX);
-
-		if(gamemode[0] != '\0') {
-			if(StrEqual(gamemode, "random")) {
-				defaultgamemode = randomgamemode();
-			} else {
-				int idx = -1;
-				if(gamemodeidmap.GetValue(gamemode, idx)) {
-					defaultgamemode = idx;
-				} else {
-					LogError(GMM_CON_PREFIX ... "invalid default gamemode %s", gamemode);
-				}
-			}
-
-			if(defaultgamemode != -1) {
-				if(!lateloaded) {
-					bool valid = false;
-
-					ArrayList modes;
-					if(gamemodemapmap.GetValue(currentmap, modes)) {
-						int len = modes.Length;
-						for(int i = 0; i < len; ++i) {
-							int idx = modes.Get(i);
-							if(idx == defaultgamemode) {
-								valid = true;
-							}
-						}
-					}
-
-					nextgamemode = defaultgamemode;
-
-					if(!valid) {
-						GamemodeInfo modeinfo;
-						gamemodes.GetArray(defaultgamemode, modeinfo, sizeof(GamemodeInfo));
-
-						changerandommap(modeinfo);
-					} else {
-						if(currentgamemode != nextgamemode) {
-							unload_currentgamemode();
-							load_gamemode(nextgamemode);
-						}
-						nextgamemode = -1;
-					}
-				}
-			}
-		}
-	}
-
-	if(currentgamemode != -1) {
-		GamemodeInfo modeinfo;
-		gamemodes.GetArray(currentgamemode, modeinfo, sizeof(GamemodeInfo));
-
-		char cyclefile[PLATFORM_MAX_PATH];
-		build_mapcyclefilename(cyclefile, modeinfo.name);
-
-		mapcyclefile.SetString(cyclefile);
-
-		changegamemode_timer = CreateTimer(modeinfo.time * 60, timer_changemode);
-	}
-
-	voteblock_start = GetGameTime();
-	CreateTimer(gmm_initial_delay.FloatValue, timer_allowvotes, 0, TIMER_FLAG_NO_MAPCHANGE);
+	return false;
 }
 
-static Action timer_changemode(Handle timer, any data)
+public void OnConfigsExecuted()
 {
-	gamemodetimeelapsed = true;
-
-	if(nextgamemode != -1 || inround) {
-		changegamemode_timer = null;
-		return Plugin_Continue;
+	if(original_mapcyclefile_value[0] == '\0') {
+		mapcyclefile.GetString(original_mapcyclefile_value, PLATFORM_MAX_PATH);
 	}
 
-	bool any_human = false;
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i) && !(
-			IsFakeClient(i) ||
-			IsClientReplay(i) ||
-			IsClientSourceTV(i)
-		)) {
-			any_human = true;
+	if(default_gamemode == -1) {
+		char gamemode_name[GAMEMODE_NAME_MAX];
+		gmm_default_gamemode.GetString(gamemode_name, GAMEMODE_NAME_MAX);
+
+		if(gamemode_name[0] != '\0') {
+			if(StrEqual(gamemode_name, "random")) {
+				default_gamemode = get_random_gamemode_idx();
+			} else {
+				int idx = -1;
+				if(gamemode_idx_map.GetValue(gamemode_name, idx)) {
+					default_gamemode = idx;
+				} else {
+					LogError(GMM_CON_PREFIX ... "invalid default gamemode %s", gamemode_name);
+				}
+			}
+
+			if(default_gamemode != -1) {
+				if(!late_loaded) {
+					if(!is_gamemode_valid_for_map(default_gamemode, current_map)) {
+						next_gamemode = default_gamemode;
+						change_to_random_gamemode_map(default_gamemode);
+					} else {
+						if(current_gamemode != default_gamemode) {
+							load_gamemode(default_gamemode);
+						}
+					}
+				}
+			}
 		}
 	}
 
-	if(any_human) {
-		if(!votes_allowed || !NativeVotes_IsNewVoteAllowed()) {
-			float time = float(NativeVotes_CheckVoteDelay());
-			changegamemode_timer = CreateTimer(time, timer_changemode, 0, TIMER_FLAG_NO_MAPCHANGE);
-			return Plugin_Continue;
-		}
+	if(current_gamemode != -1) {
+		GamemodeInfo info;
+		gamemodes.GetArray(current_gamemode, info, sizeof(GamemodeInfo));
 
-		timer_gamemodevote(null, 0);
+		char cycle_path[PLATFORM_MAX_PATH];
+		build_mapcycle_filepath(cycle_path, info.name);
+
+		mapcyclefile.SetString(cycle_path);
+	}
+}
+
+static void load_gamemode_for_map(const char[] map)
+{
+	if(current_gamemode != -1) {
+		ArrayList modes;
+		if(gamemode_map_map.GetValue(map, modes)) {
+			if(modes.FindValue(current_gamemode) == -1) {
+				int idx = modes.Get(GetRandomInt(0, modes.Length-1));
+				load_gamemode(idx);
+			}
+		} else {
+			unload_current_gamemode();
+		}
 	} else {
-		nextgamemode = randomgamemode();
-
-		GamemodeInfo modeinfo;
-		gamemodes.GetArray(nextgamemode, modeinfo, sizeof(GamemodeInfo));
-
-		changerandommap(modeinfo);
+		ArrayList modes;
+		if(gamemode_map_map.GetValue(map, modes)) {
+			int idx = modes.Get(GetRandomInt(0, modes.Length-1));
+			load_gamemode(idx);
+		}
 	}
+}
 
-	changegamemode_timer = null;
-	return Plugin_Continue;
+public void OnMapEnd()
+{
+	if(GetNextMap(current_map, PLATFORM_MAX_PATH)) {
+		load_gamemode_for_map(current_map);
+	}
 }
 
 public void OnMapStart()
 {
-	GetCurrentMap(currentmap, PLATFORM_MAX_PATH);
-
-	if(nextgamemode == -1) {
-		ArrayList modes;
-		if(gamemodemapmap.GetValue(currentmap, modes)) {
-			int idx = modes.Get(GetRandomInt(0, modes.Length-1));
-			load_gamemode(idx);
-		}
-	} else {
-		nextgamemode = -1;
-	}
-}
-
-static Action timer_allowvotes(Handle timer, any data)
-{
-	votes_allowed = true;
-	return Plugin_Continue;
+	GetCurrentMap(current_map, PLATFORM_MAX_PATH);
+	load_gamemode_for_map(current_map);
 }

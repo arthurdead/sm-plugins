@@ -3,6 +3,8 @@
 #endif
 #define _teammanager_gameplay_inc_
 
+#define INVALID_GAMEPLAY_GROUP -1
+
 enum GameplayGroupType
 {
 	Gameplay_Friendly,

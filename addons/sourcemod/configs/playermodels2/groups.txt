@@ -2,13 +2,13 @@
 {
 	"custom"
 	{
-		"flags" "nogameplay"
+		"flags" "no_gameplay"
 		"override" "models_vip_gold"
 	}
 
 	"bosses"
 	{
-		"flags" "nogameplay|alwaysmerge"
+		"flags" "no_gameplay|always_bonemerge"
 		"override" "models_vip_bronze"
 	}
 
@@ -20,7 +20,7 @@
 
 	"tf2 props"
 	{
-		"flags" "nogameplay|nohats|noweapons"
+		"flags" "no_gameplay|no_wearables|no_weapons|never_bonemerge"
 		"override" "models_vip_bronze"
 	}
 }

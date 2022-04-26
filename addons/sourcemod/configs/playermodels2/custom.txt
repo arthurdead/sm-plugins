@@ -2,20 +2,20 @@
 {
 	"Rappy Demo"
 	{
-		"original_class" "demo"
+		"model_class" "demo"
 		"model" "models/kustomfleetings/demo/rappy_b1.mdl"
-		"flags" "nevermerge|hidehats"
+		"flags" "never_bonemerge|hide_wearables"
 	}
 
 	"Easter Demo"
 	{
-		"original_class" "demo"
+		"model_class" "demo"
 		"model" "models/player/new_saxton_hale/easter_demo/new_easter_demo_v2.mdl"
 	}
 
 	"Saxton Hale"
 	{
-		"original_class" "soldier"
+		"model_class" "soldier"
 		"model" "models/player/saxton_test4/saxton_hale_test4.mdl"
 	}
 
@@ -23,68 +23,68 @@
 	{
 		"type" "custom_model"
 		"model" "models/spundarce/glaceon2.mdl"
-		"flags" "nevermerge|hidehats"
+		"flags" "never_bonemerge|hide_wearables"
 	}
 
 	"CJ"
 	{
-		"original_class" "scout"
+		"model_class" "scout"
 		"model" "models/player/ceejay/cj.mdl"
 	}
 
 	"Big Smoke"
 	{
-		"original_class" "heavy"
+		"model_class" "heavy"
 		"model" "models/player/bigsmoke/smoke.mdl"
 	}
 
 	"Garfield"
 	{
-		"original_class" "engineer"
+		"model_class" "engineer"
 		"model" "models/player/fatcat/garfield.mdl"
 	}
 
 	"Hatkid"
 	{
-		"original_class" "scout"
+		"model_class" "scout"
 		"model" "models/dfs/thataveragejoe/ahatintime/hatkid_dfs.mdl"
 	}
 
 	"Isabelle"
 	{
-		"original_class" "heavy"
+		"model_class" "heavy"
 		"model" "models/dfs/player/isabelle/isabelle_dfs.mdl"
 	}
 
 	"Shrek"
 	{
-		"original_class" "heavy"
+		"model_class" "heavy"
 		"model" "models/freak_fortress_2/shrek/shrek2.mdl"
-		"flags" "hidehats"
+		"flags" "hide_wearables"
 	}
 	
 	"Heavy (wheelchair)"
 	{
-		"original_class" "heavy"
+		"model_class" "heavy"
 		"model" "models/player/wheelie/heavy.mdl"
-		"flags" "~nogameplay"
+		"flags" "~no_gameplay"
 	}
 
 	"Goose"
 	{
-		"original_class" "sniper"
+		"model_class" "sniper"
 		"model" "models/dfs/thataveragejoe/goose/goose.mdl"
 	}
 
 	"HL1 Scientist"
 	{
-		"original_class" "spy"
+		"model_class" "spy"
 		"model" "models/dfs/thataveragejoe/halflife/scientist.mdl"
 	}
 
 	"Minecraft Steve"
 	{
-		"original_class" "sniper"
+		"model_class" "sniper"
 		"model" "models/freak_fortress_2/herobrine/blockdudev2.mdl"
 	}
 }

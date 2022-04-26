@@ -2,55 +2,55 @@
 {
 	"spy"
 	{
-		"original_class" "spy"
+		"model_class" "spy"
 		"model" "models/player/spy.mdl"
 	}
 
 	"heavy"
 	{
-		"original_class" "heavy"
+		"model_class" "heavy"
 		"model" "models/player/heavy.mdl"
 	}
 
 	"sniper"
 	{
-		"original_class" "sniper"
+		"model_class" "sniper"
 		"model" "models/player/sniper.mdl"
 	}
 
 	"demoman"
 	{
-		"original_class" "demo"
+		"model_class" "demo"
 		"model" "models/player/demo.mdl"
 	}
 
 	"medic"
 	{
-		"original_class" "medic"
+		"model_class" "medic"
 		"model" "models/player/medic.mdl"
 	}
 
 	"scout"
 	{
-		"original_class" "scout"
+		"model_class" "scout"
 		"model" "models/player/scout.mdl"
 	}
 
 	"soldier"
 	{
-		"original_class" "soldier"
+		"model_class" "soldier"
 		"model" "models/player/soldier.mdl"
 	}
 
 	"pyro"
 	{
-		"original_class" "pyro"
+		"model_class" "pyro"
 		"model" "models/player/pyro.mdl"
 	}
 
 	"engineer"
 	{
-		"original_class" "engineer"
+		"model_class" "engineer"
 		"model" "models/player/engineer.mdl"
 	}
 }
