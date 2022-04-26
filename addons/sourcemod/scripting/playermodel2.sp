@@ -1710,35 +1710,46 @@ static TFClassType translate_weapon_classname_to_class(int weapon)
 	char classname[64];
 	GetEntityClassname(weapon, classname, sizeof(classname));
 
-	if(StrContains(classname, "tf_weapon_shotgun") == 0) {
-		if(StrEqual(classname[17], "_soldier")) {
-			return TFClass_Soldier;
-		} else if(StrEqual(classname[17], "_hwg")) {
-			return TFClass_Heavy;
-		} else if(StrEqual(classname[17], "_pyro")) {
-			return TFClass_Pyro;
-		} else if(StrEqual(classname[17], "_primary")) {
-			return TFClass_Engineer;
-		}
-		return TFClass_Unknown;
-	}
-
-	if(StrContains(classname, "tf_weapon_pistol") == 0) {
-		if(StrEqual(classname[16], "_scout")) {
+	if(StrContains(classname, "tf_weapon") == 0) {
+		if(StrContains(classname[9], "_shotgun") == 0) {
+			if(StrEqual(classname[17], "_soldier")) {
+				return TFClass_Soldier;
+			} else if(StrEqual(classname[17], "_hwg")) {
+				return TFClass_Heavy;
+			} else if(StrEqual(classname[17], "_pyro")) {
+				return TFClass_Pyro;
+			} else if(StrEqual(classname[17], "_primary")) {
+				return TFClass_Engineer;
+			}
+		} else if(StrContains(classname[9], "_pistol") == 0) {
+			if(StrEqual(classname[16], "_scout")) {
+				return TFClass_Scout;
+			} else if(classname[17] == '\0') {
+				return TFClass_Engineer;
+			}
+		} else if(StrContains(classname[9], "_revolver") == 0) {
+			if(StrEqual(classname[18], "_secondary")) {
+				return TFClass_Engineer;
+			} else if(classname[19] == '\0') {
+				return TFClass_Spy;
+			}
+		} else if(StrEqual(classname[9], "_bat")) {
 			return TFClass_Scout;
-		} else if(classname[17] == '\0') {
-			return TFClass_Engineer;
-		}
-		return TFClass_Unknown;
-	}
-
-	if(StrContains(classname, "tf_weapon_revolver") == 0) {
-		if(StrEqual(classname[18], "_secondary")) {
-			return TFClass_Engineer;
-		} else if(classname[19] == '\0') {
+		} else if(StrEqual(classname[9], "_club")) {
+			return TFClass_Sniper;
+		} else if(StrEqual(classname[9], "_shovel")) {
+			return TFClass_Soldier;
+		} else if(StrEqual(classname[9], "_bottle")) {
+			return TFClass_DemoMan;
+		} else if(StrEqual(classname[9], "_bonesaw")) {
+			return TFClass_Medic;
+		} else if(StrEqual(classname[9], "_fireaxe")) {
+			return TFClass_Pyro;
+		} else if(StrEqual(classname[9], "_knife")) {
 			return TFClass_Spy;
+		} else if(StrEqual(classname[9], "_wrench")) {
+			return TFClass_Engineer;
 		}
-		return TFClass_Unknown;
 	}
 
 	return TFClass_Unknown;
