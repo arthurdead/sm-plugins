@@ -21,7 +21,6 @@
 
 	"Glaceon"
 	{
-		"type" "custom_model"
 		"model" "models/spundarce/glaceon2.mdl"
 		"flags" "never_bonemerge|hide_wearables"
 	}

@@ -5,12 +5,9 @@
 #include <aliasrandom>
 #include <SteamWorks>
 #include <sdktools>
+#include <mapchooser>
 
-#undef REQUIRE_PLUGIN
-#tryinclude <mapchooser>
-#define REQUIRE_PLUGIN
-
-#define DEBUG
+//#define DEBUG
 
 #define GAMEMODE_NAME_MAX 64
 
@@ -57,7 +54,6 @@ static ConVar mapcyclefile;
 static char current_map[PLATFORM_MAX_PATH];
 
 static bool late_loaded;
-static bool gamemode_time_elapsed;
 static Handle change_gamemode_timer;
 
 static Handle ff2_plugin;
@@ -97,7 +93,7 @@ static void unload_gamemodes()
 	for(int i = 0; i < len; ++i) {
 		snap.GetKey(i, map, PLATFORM_MAX_PATH);
 
-		ArrayList modes = null;
+		ArrayList modes;
 		gamemode_map_map.GetValue(map, modes);
 
 		delete modes;
@@ -390,6 +386,22 @@ static void load_gamemodes()
 		}
 		delete maps_dir;
 
+	#if defined DEBUG
+		for(int i = 0; i < gamemodes.Length; ++i) {
+			gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+
+			PrintToServer(GMM_CON_PREFIX ... "mode %s has maps:", info.name);
+
+			char map[PLATFORM_MAX_PATH];
+
+			for(int j = 0; j < info.mapcycle.Length; ++j) {
+				info.mapcycle.GetString(j, map, PLATFORM_MAX_PATH);
+
+				PrintToServer(GMM_CON_PREFIX ... "  %s", map);
+			}
+		}
+	#endif
+
 		BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "data/gmm");
 		CreateDirectory(any_file_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
 
@@ -507,6 +519,10 @@ public void OnPluginStart()
 
 	load_gamemodes();
 
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "plugin loaded unloading all gamemodes");
+#endif
+
 	int len = gamemodes.Length;
 	for(int i = 0; i < len; ++i) {
 		unload_gamemode(i);
@@ -518,12 +534,22 @@ public void OnPluginStart()
 
 	RegAdminCmd("sm_rgmm", sm_rgmm, ADMFLAG_ROOT);
 	RegAdminCmd("sm_fgm", sm_fgm, ADMFLAG_ROOT);
+	RegAdminCmd("sm_fgmv", sm_fgmv, ADMFLAG_ROOT);
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
 			OnClientPutInServer(i);
 		}
 	}
+}
+
+static Action sm_fgmv(int client, int args)
+{
+	if(change_gamemode_timer != null) {
+		KillTimer(change_gamemode_timer);
+	}
+	change_gamemode_timer = CreateTimer(0.1, timer_change_gamemode);
+	return Plugin_Handled;
 }
 
 static Action sm_fgm(int client, int args)
@@ -590,7 +616,7 @@ static Action timer_change_to_map(Handle timer, DataPack data)
 
 static void change_to_map(const char[] map)
 {
-	float time = 3.0;
+	float time = 2.0;
 
 	CPrintToChatAll(GMM_CHAT_PREFIX ... "Changing to map %s", map);
 
@@ -636,26 +662,28 @@ static int votehandler_gamemode(NativeVote menu, MenuAction action, int param1, 
 			GamemodeInfo info;
 			gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
 
-			next_gamemode = idx;
-
+			menu.DisplayPassEx(NativeVotesPass_ChgMission, "%s", info.name);
 			CPrintToChatAll(GMM_CHAT_PREFIX ... "%s won the gamemode vote", info.name);
 
-			menu.DisplayPassEx(NativeVotesPass_ChgMission, "%s", info.name);
+			next_gamemode = idx;
 
 			if(info.mapcycle.Length == 1) {
-				
+				char next_map[PLATFORM_MAX_PATH];
+				info.mapcycle.GetString(0, next_map, PLATFORM_MAX_PATH);
+
+				change_to_map(next_map);
 			} else {
-				
+				InitiateMapChooserVote(MapChange_RoundEnd, info.mapcycle);
 			}
 		}
 		case MenuAction_VoteCancel: {
-			next_gamemode = -1;
 			switch(param1) {
 				case VoteCancel_Generic:
 				{ menu.DisplayFail(NativeVotesFail_Generic); }
 				case VoteCancel_NoVotes:
 				{ menu.DisplayFail(NativeVotesFail_NotEnoughVotes); }
 			}
+			change_gamemode_timer = CreateTimer(1.0, timer_change_gamemode);
 		}
 		case MenuAction_End: {
 			delete menu;
@@ -667,11 +695,6 @@ static int votehandler_gamemode(NativeVote menu, MenuAction action, int param1, 
 
 static void start_gamemode_vote()
 {
-	if(!NativeVotes_IsNewVoteAllowed()) {
-		LogError(GMM_CON_PREFIX ... "tried to start new gamemode vote while it wasnt possible");
-		return;
-	}
-
 	NativeVote vote_menu = new NativeVote(votehandler_gamemode, NativeVotesType_Custom_Mult);
 	vote_menu.SetTitle("Gamemodes");
 
@@ -917,6 +940,10 @@ static void unload_gamemode(int idx)
 	GamemodeInfo info;
 	gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
 
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "unloaded %s", info.name);
+#endif
+
 	handle_gamemode_state(info.disabled);
 	handle_gamemode_plugins(info, true);
 
@@ -931,11 +958,14 @@ static void unload_current_gamemode()
 
 	mapcyclefile.SetString(original_mapcyclefile_value);
 
-	gamemode_time_elapsed = false;
 	if(change_gamemode_timer != null) {
 		KillTimer(change_gamemode_timer);
+		change_gamemode_timer = null;
 	}
-	change_gamemode_timer = null;
+
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "unloading current gamemode");
+#endif
 
 	unload_gamemode(current_gamemode);
 	current_gamemode = -1;
@@ -943,13 +973,13 @@ static void unload_current_gamemode()
 
 static Action timer_change_gamemode(Handle timer, any data)
 {
-	gamemode_time_elapsed = true;
-	change_gamemode_timer = null;
-
-	if(GameRules_GetRoundState() != RoundState_RoundRunning) {
-		return Plugin_Continue;
+	if(NativeVotes_IsVoteInProgress()) {
+		NativeVotes_Cancel();
 	}
 
+	start_gamemode_vote();
+
+	change_gamemode_timer = null;
 	return Plugin_Continue;
 }
 
@@ -959,12 +989,20 @@ static void load_gamemode(int idx)
 		return;
 	}
 
+	GamemodeInfo info;
+	gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
+
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "unloading current gamemode to load %s instead", info.name);
+#endif
+
 	unload_current_gamemode();
 
 	current_gamemode = idx;
 
-	GamemodeInfo info;
-	gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "loaded %s", info.name);
+#endif
 
 	add_to_gamemode_history(idx);
 
@@ -983,6 +1021,9 @@ static void load_gamemode(int idx)
 
 public void OnPluginEnd()
 {
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "plugin unloaded unloading current gamemode");
+#endif
 	unload_current_gamemode();
 }
 
@@ -1075,6 +1116,10 @@ public void OnConfigsExecuted()
 
 static void load_gamemode_for_map(const char[] map)
 {
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "loading gamemode for map %s", map);
+#endif
+
 	if(current_gamemode != -1) {
 		ArrayList modes;
 		if(gamemode_map_map.GetValue(map, modes)) {
@@ -1096,13 +1141,29 @@ static void load_gamemode_for_map(const char[] map)
 
 public void OnMapEnd()
 {
-	if(GetNextMap(current_map, PLATFORM_MAX_PATH)) {
-		load_gamemode_for_map(current_map);
+	if(next_gamemode != -1) {
+	#if defined DEBUG
+		PrintToServer(GMM_CON_PREFIX ... "loading next gamemode");
+	#endif
+		load_gamemode(next_gamemode);
+		next_gamemode = -1;
+	}
+
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "loading gamemode for next map");
+#endif
+
+	char next_map[PLATFORM_MAX_PATH];
+	if(GetNextMap(next_map, PLATFORM_MAX_PATH)) {
+		load_gamemode_for_map(next_map);
 	}
 }
 
 public void OnMapStart()
 {
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "loading gamemode for current map");
+#endif
 	GetCurrentMap(current_map, PLATFORM_MAX_PATH);
 	load_gamemode_for_map(current_map);
 }

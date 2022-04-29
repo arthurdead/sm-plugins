@@ -68,7 +68,7 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 public void OnConfigsExecuted()
 {
 	tf_allow_sliding_taunt.BoolValue = true;
-	tf_allow_taunt_switch.IntValue = 2;
+	tf_allow_taunt_switch.IntValue = 0;
 	tf_allow_all_team_partner_taunt.BoolValue = true;
 }
 

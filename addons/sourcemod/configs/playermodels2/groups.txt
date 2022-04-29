@@ -6,13 +6,13 @@
 		"override" "models_vip_gold"
 	}
 
-	"bosses"
+	"halloween"
 	{
 		"flags" "no_gameplay|always_bonemerge"
 		"override" "models_vip_bronze"
 	}
 
-	"classmodel"
+	"classes"
 	{
 		"flags" ""
 		"override" "models_vip_bronze"
