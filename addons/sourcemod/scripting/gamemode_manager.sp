@@ -53,6 +53,8 @@ static char original_mapcyclefile_value[PLATFORM_MAX_PATH];
 static ConVar mapcyclefile;
 static char current_map[PLATFORM_MAX_PATH];
 
+static bool reset_next_map;
+
 static bool late_loaded;
 static Handle change_gamemode_timer;
 
@@ -1068,6 +1070,13 @@ static bool is_gamemode_valid_for_map(int mode, const char[] map)
 
 public void OnConfigsExecuted()
 {
+	if(!late_loaded) {
+		if(!reset_next_map) {
+			SetNextMap("");
+			reset_next_map = true;
+		}
+	}
+
 	if(original_mapcyclefile_value[0] == '\0') {
 		mapcyclefile.GetString(original_mapcyclefile_value, PLATFORM_MAX_PATH);
 	}

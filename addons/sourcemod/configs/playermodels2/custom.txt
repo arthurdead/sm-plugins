@@ -17,6 +17,7 @@
 	{
 		"model_class" "soldier"
 		"model" "models/player/saxton_test4/saxton_hale_test4.mdl"
+		"flags" "always_bonemerge"
 	}
 
 	"Glaceon"
@@ -85,5 +86,27 @@
 	{
 		"model_class" "sniper"
 		"model" "models/freak_fortress_2/herobrine/blockdudev2.mdl"
+		"flags" "always_bonemerge"
+	}
+
+	"Ricardo Milos"
+	{
+		"model_class" "soldier"
+		"model" "models/freak_fortress_2/ricardo_milos/ricardo_milos.mdl"
+	}
+
+	"Trollface"
+	{
+		"flags" "hide_wearables"
+		"model_class" "sniper"
+		"model" "models/freak_fortress_2/trollface/trollface.mdl"
+		"variations"
+		{
+			"Trollge"
+			{
+				"model_class" "sniper"
+				"model" "models/freak_fortress_2/trollface/trollge1.mdl"
+			}
+		}
 	}
 }

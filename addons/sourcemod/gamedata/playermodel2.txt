@@ -16,8 +16,13 @@
 			}
 			"CBaseEntity::ModifyOrAppendCriteria"
 			{
-				"windows" "121"
-				"linux" "122"
+				"windows" "118"
+				"linux" "119"
+			}
+			"CBasePlayer::GetSceneSoundToken"
+			{
+				"windows" "368"
+				"linux" "369"
 			}
 		}
 		"Signatures"
@@ -128,6 +133,14 @@
 						"type" "int"
 					}
 				}
+			}
+			"CBasePlayer::GetSceneSoundToken"
+			{
+				"offset" "CBasePlayer::GetSceneSoundToken"
+				"callconv" "thiscall"
+				"return" "charptr"
+				"this" "entity"
+				"hooktype" "entity"
 			}
 			"CBaseEntity::ModifyOrAppendCriteria"
 			{

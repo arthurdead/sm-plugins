@@ -16,11 +16,16 @@
 	{
 		"flags" ""
 		"override" "models_vip_bronze"
+		"arm_model" "model_class"
+		"sound_variables"
+		{
+			"player_class" "model_class"
+		}
 	}
 
 	"tf2 props"
 	{
-		"flags" "no_gameplay|no_wearables|no_weapons|never_bonemerge"
+		"flags" "no_gameplay|no_wearables|no_weapons|never_bonemerge|no_voicelines"
 		"override" "models_vip_bronze"
 	}
 }

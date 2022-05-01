@@ -18,6 +18,18 @@
 	"Cow"
 	{
 		"model" "models/props_2fort/cow001_reference.mdl"
+		"sound_replacements"
+		{
+			"sample"
+			{
+				"^vo\/.*\.mp3$"
+				{
+					"ambient/cow1.wav" "sample"
+					"ambient/cow2.wav" "sample"
+					"ambient/cow3.wav" "sample"
+				}
+			}
+		}
 	}
 
 	"Crocodile"
@@ -103,46 +115,55 @@
 	"Target - Scout"
 	{
 		"model" "models/props_training/target_scout.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Target - Soldier"
 	{
 		"model" "models/props_training/target_soldier.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Target - Pyro"
 	{
 		"model" "models/props_training/target_pyro.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Target - Demoman"
 	{
 		"model" "models/props_training/target_demoman.mdl"
-	}	
+		"flags" "~no_voicelines"
+	}
 
 	"Target - Heavy"
 	{
 		"model" "models/props_training/target_heavy.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Target - Engineer"
 	{
 		"model" "models/props_training/target_engineer.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Target - Medic"
 	{
 		"model" "models/props_training/target_medic.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Target - Sniper"
 	{
 		"model" "models/props_training/target_sniper.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Target - Spy"
 	{
 		"model" "models/props_training/target_spy.mdl"
+		"flags" "~no_voicelines"
 	}
 
 	"Human Skull"

@@ -9,6 +9,7 @@
 #include <tf2utils>
 #include <stocksoup/memory>
 #include <proxysend>
+#include <regex>
 
 //#define DEBUG
 
@@ -30,9 +31,19 @@ support for hiding hats in specific equip regions
 #define CLASS_NAME_MAX 10
 #define TF_CLASS_COUNT_ALL 10
 
+#define MAX_SOUND_VAR_NAME 32
+
 #define BIT_FOR_CLASS(%1) (1 << (view_as<int>(%1)-1))
 
 #define OBS_MODE_IN_EYE 4
+
+enum
+{
+	WL_NotInWater=0,
+	WL_Feet,
+	WL_Waist,
+	WL_Eyes
+};
 
 #define EF_BONEMERGE 0x001
 #define EF_BONEMERGE_FASTCULL 0x080
@@ -50,7 +61,8 @@ enum config_flags
 	config_flags_no_weapons = (1 << 4),
 	config_flags_no_wearables = (1 << 5),
 	config_flags_never_bonemerge = (1 << 6),
-	config_flags_always_bonemerge = (1 << 7)
+	config_flags_always_bonemerge = (1 << 7),
+	config_flags_no_voicelines = (1 << 8)
 };
 
 enum model_method
@@ -71,9 +83,31 @@ enum struct ConfigGroupInfo
 enum struct ConfigVariationInfo
 {
 	char name[MODEL_NAME_MAX];
+
+	char model[PLATFORM_MAX_PATH];
+	TFClassType model_class;
+	config_flags flags;
 	int skin;
 	int bodygroups;
-	config_flags flags;
+}
+
+enum struct SoundInfo
+{
+	char path[PLATFORM_MAX_PATH];
+	bool is_script;
+}
+
+enum struct SoundReplacementInfo
+{
+	bool source_is_script;
+	Regex source_regex;
+	ArrayList destinations;
+}
+
+enum struct SoundVariableReplacementInfo
+{
+	char what[MAX_SOUND_VAR_NAME];
+	char with_[MAX_SOUND_VAR_NAME];
 }
 
 enum struct ConfigInfo
@@ -82,6 +116,12 @@ enum struct ConfigInfo
 	int classes_allowed;
 	ArrayList variations;
 
+	ArrayList sound_precaches;
+
+	ArrayList sound_replacements;
+	ArrayList sound_variables;
+
+	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
 	TFClassType model_class;
 	config_flags flags;
@@ -93,6 +133,10 @@ enum struct PlayerConfigInfo
 {
 	int idx;
 
+	ArrayList sound_replacements;
+	ArrayList sound_variables;
+
+	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
 	TFClassType model_class;
 	config_flags flags;
@@ -102,7 +146,10 @@ enum struct PlayerConfigInfo
 	void clear()
 	{
 		this.idx = -1;
+		this.sound_replacements = null;
+		this.sound_variables = null;
 		this.flags = config_flags_none;
+		this.arm_model[0] = '\0';
 		this.model[0] = '\0';
 		this.model_class = TFClass_Unknown;
 		this.skin = -1;
@@ -160,6 +207,10 @@ static PlayerConfigInfo player_config[TF2_MAXPLAYERS+1];
 static int player_model_entity[TF2_MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 static int player_viewmodel_entities[TF2_MAXPLAYERS+1][2];
 
+static bool player_tpose[TF2_MAXPLAYERS+1];
+static bool player_loser[TF2_MAXPLAYERS+1];
+static bool player_swim[TF2_MAXPLAYERS+1];
+
 static bool tf_taunt_first_person[TF2_MAXPLAYERS+1];
 static bool cl_first_person_uses_world_model[TF2_MAXPLAYERS+1];
 
@@ -172,6 +223,9 @@ static int CTFPlayer_m_Shared_offset = -1;
 static int CTFPlayer_m_PlayerClass_offset = -1;
 static int CTFPlayer_m_flInvisibility_offset = -1;
 static int CEconItemView_m_iAttributeDefinitionIndex_offset = -1;
+
+static DynamicHook CBaseEntity_ModifyOrAppendCriteria_hook;
+static DynamicHook CBasePlayer_GetSceneSoundToken_hook;
 
 static Handle CBasePlayer_EquipWearable;
 static Handle CTFPlayer_IsAllowedToTaunt;
@@ -230,11 +284,22 @@ static void unload_configs()
 		delete group_info.configs;
 	}
 
+	SoundReplacementInfo sound_info;
+
 	ConfigInfo config_info;
 	len = configs.Length;
 	for(int i = 0; i < len; ++i) {
 		configs.GetArray(i, config_info, sizeof(ConfigInfo));
 		delete config_info.variations;
+		int replacements_len = config_info.sound_replacements.Length;
+		for(int k = 0; k < replacements_len; ++k) {
+			config_info.sound_replacements.GetArray(k, sound_info, sizeof(SoundReplacementInfo));
+			delete sound_info.destinations;
+			delete sound_info.source_regex;
+		}
+		delete config_info.sound_replacements;
+		delete config_info.sound_precaches;
+		delete config_info.sound_variables;
 	}
 	delete configs;
 	delete config_idx_map;
@@ -326,6 +391,8 @@ static config_flags parse_flags_str(const char[] str, config_flags def = config_
 			if(!remove) {
 				flags &= ~config_flags_always_bonemerge;
 			}
+		} else if(StrEqual(strs[i][start], "no_voicelines")) {
+			REMOVE_OR_ADD_FLAG(flags, config_flags_no_voicelines)
 		} else {
 			LogError(PM2_CON_PREFIX ... "unknown flag %s", strs[i][start]);
 		}
@@ -370,7 +437,7 @@ static int translate_classes_bodygroups(int old, TFClassType source, TFClassType
 			new_body |= BODYGROUP_SCOUT_HAT|BODYGROUP_SCOUT_HEADPHONES|BODYGROUP_SCOUT_DOGTAGS;
 		}
 		case TFClass_Soldier: {
-			new_body |= BODYGROUP_SOLDIER_HELMET|BODYGROUP_SOLDIER_MEDAL|BODYGROUP_SOLDIER_GRENADES;
+			new_body |= BODYGROUP_SOLDIER_HELMET|BODYGROUP_SOLDIER_GRENADES;
 		}
 		case TFClass_Engineer: {
 			new_body |= BODYGROUP_ENGINEER_HELMET;
@@ -514,7 +581,7 @@ static int parse_bodygroups_str(const char[] str)
 	return bodygroups;
 }
 
-static void parse_config_kv(const char[] path, ConfigGroupInfo group, config_flags flags)
+static void parse_config_kv(const char[] path, ConfigGroupInfo group, ArrayList sound_variables, char arm_model[PLATFORM_MAX_PATH], config_flags flags)
 {
 	KeyValues kv = new KeyValues("playermodel2_config");
 	kv.ImportFromFile(path);
@@ -530,8 +597,15 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, config_fla
 		char int_str[INT_STR_MAX];
 		char classname[CLASS_NAME_MAX];
 		char bodygroups_str[BODYGROUP_NUM * BODYGROUP_MAX];
+		char any_file_path[PLATFORM_MAX_PATH];
+		char regex_error_str[128];
+
+		SoundInfo sound_info;
+		SoundReplacementInfo sound_replace_info;
 
 		do {
+			bool valid = true;
+
 			kv.GetSectionName(info.name, MODEL_NAME_MAX);
 
 			kv.GetString("classes_whitelist", classes_str, sizeof(classes_str), "all");
@@ -561,6 +635,8 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, config_fla
 				info.flags |= config_flags_never_bonemerge;
 			}
 
+			kv.GetString("arm_model", info.arm_model, PLATFORM_MAX_PATH, arm_model);
+
 			info.variations = null;
 
 			if(kv.JumpToKey("variations")) {
@@ -569,6 +645,11 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, config_fla
 
 					do {
 						kv.GetSectionName(variation.name, MODEL_NAME_MAX);
+
+						kv.GetString("model", variation.model, PLATFORM_MAX_PATH, "");
+
+						kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+						variation.model_class = TF2_GetClass(classname);
 
 						kv.GetString("flags", flags_str, sizeof(flags_str), "");
 						variation.flags = parse_flags_str(flags_str, info.flags);
@@ -584,6 +665,86 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, config_fla
 					kv.GoBack();
 				}
 				kv.GoBack();
+			}
+
+			info.sound_precaches = null;
+
+			if(kv.JumpToKey("precache")) {
+				if(kv.JumpToKey("sound_scripts")) {
+					info.sound_precaches = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+
+					if(kv.GotoFirstSubKey(false)) {
+						do {
+							kv.GetString(NULL_STRING, sound_info.path, PLATFORM_MAX_PATH, "");
+							sound_info.is_script = true;
+							info.sound_precaches.PushArray(sound_info, sizeof(SoundInfo));
+						} while(kv.GotoNextKey(false));
+						kv.GoBack();
+					}
+					kv.GoBack();
+				}
+				kv.GoBack();
+			}
+
+			info.sound_replacements = null;
+
+			if(kv.JumpToKey("sound_replacements")) {
+				sound_replace_info.destinations = null;
+
+				if(kv.JumpToKey("sample")) {
+					info.sound_replacements = new ArrayList(sizeof(SoundReplacementInfo));
+
+					sound_replace_info.source_is_script = false;
+
+					if(kv.GotoFirstSubKey(false)) {
+						do {
+							kv.GetSectionName(any_file_path, PLATFORM_MAX_PATH);
+
+							RegexError regex_code;
+							sound_replace_info.source_regex = new Regex(any_file_path, PCRE_UTF8, regex_error_str, sizeof(regex_error_str), regex_code);
+							if(regex_code != REGEX_ERROR_NONE) {
+								delete sound_replace_info.source_regex;
+								LogError(PM2_CON_PREFIX ... " config %s has invalid sound replace regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_error_str, regex_code);
+								valid = false;
+								break;
+							}
+
+						#if defined DEBUG
+							PrintToServer(PM2_CON_PREFIX ... "created regex %s", any_file_path);
+						#endif
+
+							if(kv.GotoFirstSubKey(false)) {
+								char value[7];
+
+								sound_replace_info.destinations = new ArrayList(sizeof(SoundInfo));
+
+								do {
+									kv.GetSectionName(sound_info.path, PLATFORM_MAX_PATH);
+									kv.GetString(NULL_STRING, value, 7, "sample");
+									sound_info.is_script = StrEqual(value, "script");
+
+									sound_replace_info.destinations.PushArray(sound_info, sizeof(SoundInfo));
+								} while(kv.GotoNextKey(false));
+								kv.GoBack();
+							}
+
+							info.sound_replacements.PushArray(sound_replace_info, sizeof(SoundReplacementInfo));
+						} while(kv.GotoNextKey(false));
+						kv.GoBack();
+					}
+
+					if(!valid) {
+						delete info.sound_replacements;
+						continue;
+					}
+
+					kv.GoBack();
+				}
+				kv.GoBack();
+			}
+
+			if(sound_variables != null) {
+				info.sound_variables = sound_variables.Clone();
 			}
 
 			int idx = configs.PushArray(info, sizeof(ConfigInfo));
@@ -617,19 +778,43 @@ static void load_configs()
 			ConfigGroupInfo info;
 
 			char flags_str[FLAGS_MAX * FLAGS_NUM];
+			SoundVariableReplacementInfo sound_variable_replace_info;
+
+			ArrayList sound_variables;
+
+			char arm_model[PLATFORM_MAX_PATH];
 
 			do {
 				kv.GetSectionName(info.name, MODEL_NAME_MAX);
 				kv.GetString("override", info.override, OVERRIDE_MAX);
 				kv.GetString("steamid", info.steamid, STEAMID_MAX);
 
+				if(kv.JumpToKey("sound_variables")) {
+					if(kv.GotoFirstSubKey(false)) {
+						sound_variables = new ArrayList(sizeof(SoundVariableReplacementInfo));
+
+						do {
+							kv.GetSectionName(sound_variable_replace_info.what, MAX_SOUND_VAR_NAME);
+							kv.GetString(NULL_STRING, sound_variable_replace_info.with_, MAX_SOUND_VAR_NAME);
+
+							sound_variables.PushArray(sound_variable_replace_info, sizeof(SoundVariableReplacementInfo));
+						} while(kv.GotoNextKey(false));
+						kv.GoBack();
+					}
+					kv.GoBack();
+				}
+
+				kv.GetString("arm_model", arm_model, PLATFORM_MAX_PATH);
+
 				BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/%s.txt", info.name);
 				if(FileExists(any_file_path)) {
 					kv.GetString("flags", flags_str, sizeof(flags_str), "");
 					config_flags flags = parse_flags_str(flags_str);
 
-					parse_config_kv(any_file_path, info, flags);
+					parse_config_kv(any_file_path, info, sound_variables, arm_model, flags);
 				}
+
+				delete sound_variables;
 
 				groups.PushArray(info, sizeof(ConfigGroupInfo));
 			} while(kv.GotoNextKey());
@@ -792,7 +977,8 @@ public void OnPluginStart()
 		return;
 	}
 
-	//ModifyOrAppendCriteria_hook = DynamicHook.FromConf(gamedata, "CBaseEntity::ModifyOrAppendCriteria");
+	CBaseEntity_ModifyOrAppendCriteria_hook = DynamicHook.FromConf(gamedata, "CBaseEntity::ModifyOrAppendCriteria");
+	CBasePlayer_GetSceneSoundToken_hook = DynamicHook.FromConf(gamedata, "CBasePlayer::GetSceneSoundToken");
 
 	delete gamedata;
 
@@ -808,6 +994,8 @@ public void OnPluginStart()
 	TF2Items_SetLevel(dummy_item_view, 0);
 	TF2Items_SetNumAttributes(dummy_item_view, 0);
 
+	AddNormalSoundHook(sound_hook);
+
 	weapons_class_cache = new ArrayList(sizeof(WeaponClassCache));
 
 	CTFPlayer_m_Shared_offset = FindSendPropInfo("CTFPlayer", "m_Shared");
@@ -817,13 +1005,22 @@ public void OnPluginStart()
 	CTFPlayer_m_flInvisibility_offset = FindSendPropInfo("CTFPlayer", "m_flInvisChangeCompleteTime") - 8;
 
 	tf_always_loser = FindConVar("tf_always_loser");
+	tf_always_loser.AddChangeHook(tf_always_loser_changed);
 
 	load_configs();
 
-	pm2_viewmodels = CreateConVar("pm2_viewmodels", "0");
+	pm2_viewmodels = CreateConVar("pm2_viewmodels", "1");
 
 	RegAdminCmd("sm_rpm", sm_rpm, ADMFLAG_ROOT);
 	RegConsoleCmd("sm_pm", sm_pm);
+
+	RegConsoleCmd("sm_civilian", sm_civilian);
+	RegConsoleCmd("sm_civ", sm_civilian);
+	RegConsoleCmd("sm_tpose", sm_civilian);
+
+	RegConsoleCmd("sm_loser", sm_loser);
+
+	RegConsoleCmd("sm_swim", sm_swim);
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
@@ -833,6 +1030,87 @@ public void OnPluginStart()
 				on_player_spawned(i);
 			}
 			OnClientPutInServer(i);
+		}
+	}
+}
+
+static void set_player_screen_overlay(int client, const char[] path)
+{
+	int flags = GetCommandFlags("r_screenoverlay");
+	SetCommandFlags("r_screenoverlay", flags & ~FCVAR_CHEAT);
+	ClientCommand(client, "r_screenoverlay \"%s\"", path);
+	SetCommandFlags("r_screenoverlay", flags);
+}
+
+static void frame_enable_swim(int client)
+{
+	set_player_screen_overlay(client, "");
+}
+
+static Action sm_swim(int client, int args)
+{
+	player_swim[client] = !player_swim[client];
+
+	if(player_swim[client]) {
+		RequestFrame(frame_enable_swim, client);
+		proxysend_hook(client, "m_nPlayerCondEx2", player_proxysend_cond2, false);
+		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now swimming!");
+	} else {
+		proxysend_unhook(client, "m_nPlayerCondEx2", player_proxysend_cond2);
+		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer swimming.");
+	}
+
+	return Plugin_Handled;
+}
+
+static Action sm_civilian(int client, int args)
+{
+	player_tpose[client] = !player_tpose[client];
+
+	if(player_tpose[client]) {
+		TF2_RemoveAllWeapons(client);
+		SetEntProp(client, Prop_Send, "m_bDrawViewmodel", 0);
+		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now a civilian!");
+	} else {
+		SetEntProp(client, Prop_Send, "m_bDrawViewmodel", 1);
+		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer a civilian.");
+	}
+
+	return Plugin_Handled;
+}
+
+static Action sm_loser(int client, int args)
+{
+	player_loser[client] = !player_loser[client];
+
+	if(player_loser[client]) {
+		TF2_RemoveAllWeapons(client);
+		proxysend_hook(client, "m_nPlayerCond", player_proxysend_cond, false);
+		proxysend_hook(client, "m_iStunFlags", player_proxysend_stunflags, false);
+		proxysend_hook(client, "m_iStunIndex", player_proxysend_stunindex, false);
+		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now a loser! Congratulations.");
+	} else {
+		proxysend_unhook(client, "m_nPlayerCond", player_proxysend_cond);
+		proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer a loser! Congratulations.");
+	}
+
+	return Plugin_Handled;
+}
+
+static void tf_always_loser_changed(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
+			if(IsPlayerAlive(i) &&
+				GetClientTeam(i) > 1 &&
+				TF2_GetPlayerClass(i) != TFClass_Unknown) {
+				if(!player_taunts_in_firstperson(i)) {
+					int weapon = GetEntPropEnt(i, Prop_Send, "m_hActiveWeapon");
+					handle_viewmodel(i, weapon);
+				}
+			}
 		}
 	}
 }
@@ -877,10 +1155,37 @@ static MRESReturn CTFPlayerClassShared_SetCustomModel_detour(Address pThis, DHoo
 			(StrContains(model, "models/items/") == 0) ||
 			(StrContains(model, "models/flag/") == 0) ||
 			(StrContains(model, "models/egypt/") == 0) ||
-			StrEqual(model, "models/player/saxton_hale_jungle_inferno/saxton_hale.mdl") ||
-			StrEqual(model, "models/freak_fortress_2/terraria/eoc/eoc.mdl")
+			StrEqual(model, "models/player/saxton_hale_jungle_inferno/saxton_hale.mdl")
 		) {
 			player_thirdparty_model[client].bonemerge = false;
+		}
+
+		if(StrContains(model, "models/bots/") == 0) {
+			if(strncmp(model[12], "demo", 4) == 0) {
+				player_thirdparty_model[client].class = TFClass_DemoMan;
+			} else if(strncmp(model[12], "engineer", 8) == 0) {
+				player_thirdparty_model[client].class = TFClass_Engineer;
+			} else if(strncmp(model[12], "heavy", 5) == 0) {
+				player_thirdparty_model[client].class = TFClass_Heavy;
+			} else if(strncmp(model[12], "medic", 5) == 0) {
+				player_thirdparty_model[client].class = TFClass_Medic;
+			} else if(strncmp(model[12], "pyro", 4) == 0) {
+				player_thirdparty_model[client].class = TFClass_Pyro;
+			} else if(strncmp(model[12], "scout", 5) == 0) {
+				player_thirdparty_model[client].class = TFClass_Scout;
+			} else if(strncmp(model[12], "sniper", 6) == 0) {
+				player_thirdparty_model[client].class = TFClass_Sniper;
+			} else if(strncmp(model[12], "soldier", 7) == 0) {
+				player_thirdparty_model[client].class = TFClass_Soldier;
+			} else if(strncmp(model[12], "spy", 6) == 0) {
+				player_thirdparty_model[client].class = TFClass_Spy;
+			} else if(strncmp(model[12], "skeleton_sniper", 15) == 0) {
+				player_thirdparty_model[client].class = TFClass_Sniper;
+			} else if(strncmp(model[12], "merasmus", 8) == 0) {
+				player_thirdparty_model[client].class = TFClass_Sniper;
+			} else if(StrEqual(model[12], "headless_hatman.mdl")) {
+				player_thirdparty_model[client].class = TFClass_DemoMan;
+			}
 		}
 	}
 
@@ -922,6 +1227,27 @@ static void clean_file_path(char[] str)
 	TrimString(str);
 }
 
+static void load_depfile(const char[] model)
+{
+	char any_file_path[PLATFORM_MAX_PATH];
+	Format(any_file_path, PLATFORM_MAX_PATH, "%s.dep", model);
+	if(FileExists(any_file_path, true)) {
+		File file = OpenFile(any_file_path, "r", true);
+
+		while(!file.EndOfFile()) {
+			file.ReadLine(any_file_path, PLATFORM_MAX_PATH);
+
+			clean_file_path(any_file_path);
+
+			if(FileExists(any_file_path, true)) {
+				AddFileToDownloadsTable(any_file_path);
+			}
+		}
+
+		delete file;
+	}
+}
+
 public void OnMapStart()
 {
 	PrecacheModel("models/error.mdl");
@@ -929,30 +1255,70 @@ public void OnMapStart()
 	modelprecache = FindStringTable("modelprecache");
 
 	ConfigInfo info;
+	ConfigVariationInfo variation;
 
-	char any_file_path[PLATFORM_MAX_PATH];
+	SoundReplacementInfo sound_replace_info;
+	SoundInfo sound_info;
 
-	int len = configs.Length;
-	for(int i = 0; i < len; ++i) {
+	int configs_len = configs.Length;
+	for(int i = 0; i < configs_len; ++i) {
 		configs.GetArray(i, info, sizeof(ConfigInfo));
 
 		if(info.model[0] != '\0') {
 			PrecacheModel(info.model);
+			load_depfile(info.model);
 		}
 
-		Format(any_file_path, PLATFORM_MAX_PATH, "%s.dep", info.model);
-		if(FileExists(any_file_path, true)) {
-			File file = OpenFile(any_file_path, "r", true);
-
-			while(!file.EndOfFile()) {
-				file.ReadLine(any_file_path, PLATFORM_MAX_PATH);
-
-				clean_file_path(any_file_path);
-
-				AddFileToDownloadsTable(any_file_path);
+		if(info.sound_replacements != null) {
+			int sound_replaces_len = info.sound_replacements.Length;
+			for(int j = 0; j < sound_replaces_len; ++j) {
+				info.sound_replacements.GetArray(j, sound_replace_info, sizeof(SoundReplacementInfo));
+				int sounds_len = sound_replace_info.destinations.Length;
+				for(int k = 0; k < sounds_len; ++k) {
+					sound_replace_info.destinations.GetArray(k, sound_info, sizeof(SoundInfo));
+					if(sound_info.is_script) {
+						PrecacheScriptSound(sound_info.path);
+					#if defined DEBUG
+						PrintToServer(PM2_CON_PREFIX ... "precached sound script %s from replace", sound_info.path);
+					#endif
+					} else {
+						PrecacheSound(sound_info.path);
+					#if defined DEBUG
+						PrintToServer(PM2_CON_PREFIX ... "precached sound %s from replace", sound_info.path);
+					#endif
+					}
+				}
 			}
+		}
 
-			delete file;
+		if(info.sound_precaches != null) {
+			int sounds_len = info.sound_precaches.Length;
+			for(int j = 0; j < sounds_len; ++j) {
+				info.sound_precaches.GetArray(j, sound_info, sizeof(SoundInfo));
+				if(sound_info.is_script) {
+					PrecacheScriptSound(sound_info.path);
+				#if defined DEBUG
+					PrintToServer(PM2_CON_PREFIX ... "precached sound script %s from precache", sound_info.path);
+				#endif
+				} else {
+					PrecacheSound(sound_info.path);
+				#if defined DEBUG
+					PrintToServer(PM2_CON_PREFIX ... "precached sound %s from precache", sound_info.path);
+				#endif
+				}
+			}
+		}
+
+		if(info.variations != null) {
+			int variations_len = info.variations.Length;
+			for(int j = 0; j < variations_len; ++j) {
+				info.variations.GetArray(j, variation, sizeof(ConfigVariationInfo));
+
+				if(variation.model[0] != '\0') {
+					PrecacheModel(variation.model);
+					load_depfile(variation.model);
+				}
+			}
 		}
 	}
 }
@@ -1004,10 +1370,16 @@ static bool equip_config_basic(int client, int idx, ConfigInfo info)
 
 	unequip_config_basic(client);
 
+	player_config[client].clear();
+
 	player_config[client].idx = idx;
 
 	if(info.model[0] != '\0') {
 		strcopy(player_config[client].model, PLATFORM_MAX_PATH, info.model);
+	}
+
+	if(info.arm_model[0] != '\0') {
+		strcopy(player_config[client].arm_model, PLATFORM_MAX_PATH, info.arm_model);
 	}
 
 	if(info.skin != -1) {
@@ -1018,6 +1390,8 @@ static bool equip_config_basic(int client, int idx, ConfigInfo info)
 		player_config[client].bodygroups = info.bodygroups;
 	}
 
+	player_config[client].sound_variables = info.sound_variables;
+	player_config[client].sound_replacements = info.sound_replacements;
 	player_config[client].flags = info.flags;
 	player_config[client].model_class = info.model_class;
 
@@ -1051,6 +1425,11 @@ static void equip_config(int client, int idx, ConfigInfo info)
 		return;
 	}
 
+	if(!player_taunts_in_firstperson(client)) {
+		int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		handle_viewmodel(client, weapon);
+	}
+
 	handle_playermodel(client);
 }
 
@@ -1068,6 +1447,19 @@ static void equip_config_variation(int client, int idx, ConfigInfo info, ConfigV
 
 	if(variation.bodygroups != -1) {
 		player_config[client].bodygroups = variation.bodygroups;
+	}
+
+	if(variation.model[0] != '\0') {
+		strcopy(player_config[client].model, PLATFORM_MAX_PATH, variation.model);
+	}
+
+	if(variation.model_class != TFClass_Unknown) {
+		player_config[client].model_class = variation.model_class;
+	}
+
+	if(!player_taunts_in_firstperson(client)) {
+		int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		handle_viewmodel(client, weapon);
 	}
 
 	handle_playermodel(client);
@@ -1134,7 +1526,7 @@ static void display_variation_menu(int client, ConfigInfo info, int config_idx, 
 
 	menu.AddItem("-1", "remove");
 
-	menu.AddItem("-2", "default");
+	menu.AddItem("-2", info.name);
 
 	ConfigVariationInfo variation;
 
@@ -1283,10 +1675,7 @@ static Action sm_pm(int client, int args)
 
 static void on_player_spawned(int client)
 {
-	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	handle_weapon_switch(client, weapon, false);
-
-	SDKHook(client, SDKHook_PostThinkPost, player_think_no_weapon);
+	SDKHook(client, SDKHook_PostThinkPost, player_think_taunt_prop);
 
 	handle_playermodel(client);
 }
@@ -1310,7 +1699,17 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 	int flags = event.GetInt("death_flags");
 
 	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {
-		SDKUnhook(client, SDKHook_PostThinkPost, player_think_no_weapon);
+		SDKUnhook(client, SDKHook_PostThinkPost, player_think_taunt_prop);
+
+		proxysend_unhook(client, "m_nPlayerCondEx2", player_proxysend_cond2);
+
+		proxysend_unhook(client, "m_nPlayerCond", player_proxysend_cond);
+		proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+
+		player_tpose[client] = false;
+		player_loser[client] = false;
+		player_swim[client] = false;
 
 		remove_playermodel(client);
 	}
@@ -1376,22 +1775,21 @@ public void OnEntityCreated(int entity, const char[] classname)
 	}
 }
 
-static bool get_class_name(TFClassType type, char[] name, int length)
+static void get_class_name(TFClassType type, char[] name, int length)
 {
 	switch(type)
 	{
-		case TFClass_Scout: { strcopy(name, length, "scout"); return true; }
-		case TFClass_Soldier: { strcopy(name, length, "soldier"); return true; }
-		case TFClass_Sniper: { strcopy(name, length, "sniper"); return true; }
-		case TFClass_Spy: { strcopy(name, length, "spy"); return true; }
-		case TFClass_Medic: { strcopy(name, length, "medic"); return true; }
-		case TFClass_DemoMan: { strcopy(name, length, "demoman"); return true; }
-		case TFClass_Pyro: { strcopy(name, length, "pyro"); return true; }
-		case TFClass_Engineer: { strcopy(name, length, "engineer"); return true; }
-		case TFClass_Heavy: { strcopy(name, length, "heavy"); return true; }
+		case TFClass_Unknown: { strcopy(name, length, "unknown"); }
+		case TFClass_Scout: { strcopy(name, length, "scout"); }
+		case TFClass_Soldier: { strcopy(name, length, "soldier"); }
+		case TFClass_Sniper: { strcopy(name, length, "sniper"); }
+		case TFClass_Spy: { strcopy(name, length, "spy"); }
+		case TFClass_Medic: { strcopy(name, length, "medic"); }
+		case TFClass_DemoMan: { strcopy(name, length, "demoman"); }
+		case TFClass_Pyro: { strcopy(name, length, "pyro"); }
+		case TFClass_Engineer: { strcopy(name, length, "engineer"); }
+		case TFClass_Heavy: { strcopy(name, length, "heavy"); }
 	}
-
-	return false;
 }
 
 static ArrayList get_classes_for_taunt(int id)
@@ -1532,7 +1930,7 @@ static MRESReturn CTFPlayer_Taunt_detour(int pThis, DHookParam hParams)
 	{
 		int weapon = GetEntPropEnt(pThis, Prop_Send, "m_hActiveWeapon");
 		if(weapon != -1) {
-			TFClassType player_class = TF2_GetPlayerClass(pThis);
+			TFClassType player_class = get_player_class(pThis);
 			TFClassType weapon_class = get_class_for_weapon(weapon, player_class);
 			supported_classes.Push(weapon_class);
 		}
@@ -1744,10 +2142,31 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 					SetEntProp(entity, Prop_Send, "m_nModelIndexOverrides", 0, _, 0);
 				}
 			}
+			if(!player_taunts_in_firstperson(client)) {
+				int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+				handle_viewmodel(client, weapon);
+			}
 			handle_playermodel(client);
 		}
-		case TFCond_Disguised:
-		{ handle_playermodel(client); }
+		case TFCond_HalloweenThriller,
+				TFCond_Bonked,
+				TFCond_HalloweenKart,
+				TFCond_HalloweenBombHead,
+				TFCond_HalloweenGiant,
+				TFCond_HalloweenTiny,
+				TFCond_HalloweenGhostMode,
+				TFCond_MeleeOnly,
+				TFCond_SwimmingCurse: {
+			if(!player_taunts_in_firstperson(client)) {
+				int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+				handle_viewmodel(client, weapon);
+			}
+		}
+		case TFCond_Disguised: {
+			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			handle_viewmodel(client, weapon);
+			handle_playermodel(client);
+		}
 	}
 }
 
@@ -1916,7 +2335,7 @@ static int get_or_create_player_viewmodel_entity(int client, int which)
 	return entity;
 }
 
-static void player_think_no_weapon(int client)
+static void player_think_taunt_prop(int client)
 {
 	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 	if(weapon != -1) {
@@ -1924,31 +2343,6 @@ static void player_think_no_weapon(int client)
 			SetEntProp(weapon, Prop_Send, "m_nModelIndexOverrides", player_taunt_vars[client].taunt_model_idx, _, 0);
 		}
 	}
-
-#if 0
-	#define STUNMAGICINDEX 247
-
-	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	if(weapon == -1) {
-		SetEntProp(client, Prop_Send, "m_iStunIndex", STUNMAGICINDEX);
-		int flags = GetEntProp(client, Prop_Send, "m_iStunFlags");
-		flags |= (TF_STUNFLAG_NOSOUNDOREFFECT|TF_STUNFLAG_THIRDPERSON);
-		SetEntProp(client, Prop_Send, "m_iStunFlags", flags);
-		flags = GetEntProp(client, Prop_Send, "m_nPlayerCond");
-		flags |= (1 << view_as<int>(TFCond_Dazed));
-		SetEntProp(client, Prop_Send, "m_nPlayerCond", flags);
-	} else {
-		if(GetEntProp(client, Prop_Send, "m_iStunIndex") == STUNMAGICINDEX) {
-			SetEntProp(client, Prop_Send, "m_iStunIndex", -1);
-			int flags = GetEntProp(client, Prop_Send, "m_iStunFlags");
-			flags &= ~(TF_STUNFLAG_NOSOUNDOREFFECT|TF_STUNFLAG_THIRDPERSON);
-			SetEntProp(client, Prop_Send, "m_iStunFlags", flags);
-			flags = GetEntProp(client, Prop_Send, "m_nPlayerCond");
-			flags &= ~(1 << view_as<int>(TFCond_Dazed));
-			SetEntProp(client, Prop_Send, "m_nPlayerCond", flags);
-		}
-	}
-#endif
 }
 
 static int get_model_index(const char[] model)
@@ -1979,114 +2373,142 @@ static void get_model_index_path(int idx, char[] model, int len)
 	ReadStringTable(modelprecache, idx, model, len);
 }
 
+static TFClassType get_player_class(int client)
+{
+	if(player_taunt_vars[client].class_pre_taunt != TFClass_Unknown) {
+		return player_taunt_vars[client].class_pre_taunt;
+	} else {
+		return TF2_GetPlayerClass(client);
+	}
+}
+
+static void handle_viewmodel(int client, int weapon)
+{
+	if(!pm2_viewmodels.BoolValue) {
+		return;
+	}
+
+	if(weapon == -1) {
+		delete_player_viewmodel_entities(client);
+		return;
+	}
+
+	TFClassType player_class = get_player_class(client);
+	TFClassType weapon_class = get_class_for_weapon(weapon, player_class);
+
+	if(weapon_class != TFClass_Unknown) {
+		char model[PLATFORM_MAX_PATH];
+		get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
+
+		int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
+		int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
+
+		SetEntPropString(viewmodel, Prop_Data, "m_ModelName", model);
+		int idx = get_model_index(model);
+		SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
+		SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
+
+		TFClassType arm_class = player_class;
+
+		bool has_custom_arm_model = false;
+
+		if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
+			if(StrEqual(player_config[client].arm_model, "model_class")) {
+				if(player_config[client].model_class != TFClass_Unknown) {
+					arm_class = player_config[client].model_class;
+				}
+			} else if(player_config[client].arm_model[0] != '\0') {
+				has_custom_arm_model = true;
+			}
+		}
+
+	#if defined DEBUG
+		PrintToServer(PM2_CON_PREFIX ... "  arm_class = %i", arm_class);
+	#endif
+
+		bool different_class = (arm_class != weapon_class);
+
+		if(different_class || has_custom_arm_model) {
+			delete_player_viewmodel_entity(client, 0);
+
+			int entity = get_or_create_player_viewmodel_entity(client, 0);
+
+			SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
+
+			SetVariantString("!activator");
+			AcceptEntityInput(entity, "SetParent", viewmodel);
+
+			int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+			effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+			SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+
+			if(has_custom_arm_model) {
+				strcopy(model, PLATFORM_MAX_PATH, player_config[client].arm_model);
+			} else {
+				get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
+			}
+		#if defined DEBUG
+			PrintToServer(PM2_CON_PREFIX ... "  arm_model = %s", model);
+		#endif
+			idx = get_model_index(model);
+
+			SetEntityModel(entity, model);
+			SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+			SetEntProp(entity, Prop_Send, "m_nBody", 0);
+
+			delete_player_viewmodel_entity(client, 1);
+
+			idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
+			if(idx != -1) {
+				entity = get_or_create_player_viewmodel_entity(client, 1);
+
+				SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
+
+				get_model_index_path(idx, model, PLATFORM_MAX_PATH);
+
+				SetEntityModel(entity, model);
+				SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+
+				SetVariantString("!activator");
+				AcceptEntityInput(entity, "SetParent", viewmodel);
+
+				effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+				effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+				SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+			}
+		}
+
+		if(different_class || has_custom_arm_model) {
+			int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+			effects |= EF_NODRAW;
+			SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+		} else {
+			delete_player_viewmodel_entities(client, weapon);
+
+			int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+			effects &= ~EF_NODRAW;
+			SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+		}
+	}
+}
+
 static void handle_weapon_switch(int client, int weapon, bool do_playermodel)
 {
 #if defined DEBUG
 	PrintToServer(PM2_CON_PREFIX ... "handle_weapon_switch(%i)", client);
 #endif
 
-	TFClassType player_class = TFClass_Unknown;
-
-	if(player_taunt_vars[client].class_pre_taunt != TFClass_Unknown) {
-		player_class = player_taunt_vars[client].class_pre_taunt;
-	} else {
-		player_class = TF2_GetPlayerClass(client);
-	}
-
 	TFClassType weapon_class = TFClass_Unknown;
 	if(weapon != -1) {
+		TFClassType player_class = get_player_class(client);
 		weapon_class = get_class_for_weapon(weapon, player_class);
 	}
 
 	player_weapon_animation_class[client] = weapon_class;
 
-	if(pm2_viewmodels.BoolValue) {
-		if(weapon != -1) {
-			if(weapon_class != TFClass_Unknown) {
-				char model[PLATFORM_MAX_PATH];
-				get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
+	handle_viewmodel(client, weapon);
 
-				int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
-				int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
-
-				SetEntPropString(viewmodel, Prop_Data, "m_ModelName", model);
-				int idx = get_model_index(model);
-				SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
-				SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
-
-				delete_player_viewmodel_entity(client, 1);
-
-				TFClassType arm_class = TFClass_Unknown;
-
-				if(player_thirdparty_model[client].model[0] != '\0' &&
-					player_thirdparty_model[client].class != TFClass_Unknown) {
-					arm_class = player_thirdparty_model[client].class;
-				} else if(player_config[client].model[0] != '\0' &&
-							player_config[client].model_class != TFClass_Unknown) {
-					arm_class = player_config[client].model_class;
-				} else {
-					arm_class = player_class;
-				}
-
-			#if defined DEBUG
-				PrintToServer(PM2_CON_PREFIX ... "  arm_class = %i", arm_class);
-			#endif
-
-				bool different_class = (arm_class != weapon_class);
-
-				if(different_class) {
-					int entity = get_or_create_player_viewmodel_entity(client, 0);
-
-					SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
-
-					SetVariantString("!activator");
-					AcceptEntityInput(entity, "SetParent", viewmodel);
-
-					int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-					effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
-					SetEntProp(entity, Prop_Send, "m_fEffects", effects);
-
-					get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
-					idx = get_model_index(model);
-
-					SetEntityModel(entity, model);
-					SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
-					SetEntProp(entity, Prop_Send, "m_nBody", 0);
-
-					idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
-					if(idx != -1) {
-						entity = get_or_create_player_viewmodel_entity(client, 1);
-
-						SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
-
-						get_model_index_path(idx, model, PLATFORM_MAX_PATH);
-
-						SetEntityModel(entity, model);
-						SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
-
-						SetVariantString("!activator");
-						AcceptEntityInput(entity, "SetParent", viewmodel);
-
-						effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-						effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
-						SetEntProp(entity, Prop_Send, "m_fEffects", effects);
-					}
-				}
-
-				if(different_class) {
-					int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-					effects |= EF_NODRAW;
-					SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
-				} else {
-					int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-					effects &= ~EF_NODRAW;
-					SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
-				}
-			}
-		}
-	}
-
-	if(do_playermodel && !player_taunt_vars[client].attempting_to_taunt) {
+	if(do_playermodel && !player_taunt_vars[client].attempting_to_taunt && !TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
 		handle_playermodel(client);
 	}
 }
@@ -2120,6 +2542,45 @@ static void cl_first_person_uses_world_model_query(QueryCookie cookie, int clien
 	}
 }
 
+static Action player_proxysend_cond(int entity, const char[] prop, int &value, int element, int client)
+{
+	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
+	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
+		value |= (1 << view_as<int>(TFCond_Dazed));
+		return Plugin_Changed;
+	}
+	return Plugin_Continue;
+}
+
+static Action player_proxysend_cond2(int entity, const char[] prop, int &value, int element, int client)
+{
+	if(player_swim[entity]) {
+		value |= (1 << (view_as<int>(TFCond_SwimmingCurse) - 64));
+		return Plugin_Changed;
+	}
+	return Plugin_Continue;
+}
+
+static Action player_proxysend_stunflags(int entity, const char[] prop, int &value, int element, int client)
+{
+	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
+	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
+		value |= (TF_STUNFLAG_NOSOUNDOREFFECT|TF_STUNFLAG_THIRDPERSON);
+		return Plugin_Changed;
+	}
+	return Plugin_Continue;
+}
+
+static Action player_proxysend_stunindex(int entity, const char[] prop, int &value, int element, int client)
+{
+	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
+	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
+		value = 247;
+		return Plugin_Changed;
+	}
+	return Plugin_Continue;
+}
+
 public void OnClientPutInServer(int client)
 {
 	SDKHook(client, SDKHook_WeaponSwitchPost, player_weapon_switch);
@@ -2128,6 +2589,114 @@ public void OnClientPutInServer(int client)
 		QueryClientConVar(client, "tf_taunt_first_person", tf_taunt_first_person_query);
 		QueryClientConVar(client, "cl_first_person_uses_world_model", cl_first_person_uses_world_model_query);
 	}
+
+	//CBaseEntity_ModifyOrAppendCriteria_hook.HookEntity(Hook_Post, client, CBaseEntity_ModifyOrAppendCriteria_detour_post);
+	//CBasePlayer_GetSceneSoundToken_hook.HookEntity(Hook_Pre, client, CBasePlayer_GetSceneSoundToken_detour);
+}
+
+//TODO!!! handle client-side sounds
+static bool is_sound_client_side(const char[] sample)
+{
+	if(StrContains(sample, "player/footsteps/") == 0) {
+		return true;
+	}
+	return false;
+}
+
+static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
+{
+	if(entity >= 1 && entity <= MaxClients) {
+	#if defined DEBUG
+		PrintToServer(PM2_CON_PREFIX ... "sound_hook %i %s, %s", entity, sample, soundEntry);
+	#endif
+		if(player_config[entity].idx != -1) {
+			bool anything_changed = false;
+
+			if(player_config[entity].sound_variables != null) {
+				SoundVariableReplacementInfo sound_variable_replace_info;
+
+				int sounds_len = player_config[entity].sound_variables.Length;
+				for(int i = 0; i < sounds_len; ++i) {
+					player_config[entity].sound_variables.GetArray(i, sound_variable_replace_info, sizeof(SoundVariableReplacementInfo));
+
+					if(StrEqual(sound_variable_replace_info.what, "player_class")) {
+						char player_class_name[CLASS_NAME_MAX];
+						TFClassType player_class = get_player_class(entity);
+						get_class_name(player_class, player_class_name, CLASS_NAME_MAX);
+						if(StrEqual(sound_variable_replace_info.with_, "model_class")) {
+							TFClassType model_class = player_config[entity].model_class;
+							if(model_class != TFClass_Unknown) {
+								char model_class_name[CLASS_NAME_MAX];
+								get_class_name(model_class, model_class_name, CLASS_NAME_MAX);
+								ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
+							#if defined DEBUG
+								PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
+							#endif
+								anything_changed = true;
+							}
+						}
+					}
+				}
+			}
+			if(player_config[entity].sound_replacements != null) {
+				int sounds_len = player_config[entity].sound_replacements.Length;
+				SoundReplacementInfo sound_replace_info;
+				SoundInfo sound_info;
+				for(int i = 0; i < sounds_len; ++i) {
+					player_config[entity].sound_replacements.GetArray(i, sound_replace_info, sizeof(SoundReplacementInfo));
+					int matched = 0;
+					if(sound_replace_info.source_is_script) {
+						if(soundEntry[0] != '\0' && sound_replace_info.source_regex.Match(soundEntry) > 0) {
+							matched = 1;
+						}
+					} else if(sound_replace_info.source_regex.Match(sample) > 0) {
+						matched = 2;
+					}
+					if(matched > 0) {
+						int destination_idx = GetRandomInt(0, sound_replace_info.destinations.Length-1);
+						sound_replace_info.destinations.GetArray(destination_idx, sound_info, sizeof(SoundInfo));
+						if(sound_info.is_script) {
+						#if defined DEBUG
+							PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound script %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
+						#endif
+							if(GetGameSoundParams(sound_info.path, channel, level, volume, pitch, sample, PLATFORM_MAX_PATH, entity)) {
+								strcopy(soundEntry, PLATFORM_MAX_PATH, sound_info.path);
+								anything_changed = true;
+							}
+						} else {
+						#if defined DEBUG
+							PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
+						#endif
+							strcopy(sample, PLATFORM_MAX_PATH, sound_info.path);
+							anything_changed = true;
+						}
+					}
+				}
+			}
+			if(anything_changed) {
+				char sound_path[PLATFORM_MAX_PATH];
+				strcopy(sound_path, PLATFORM_MAX_PATH, "sound/");
+				StrCat(sound_path, PLATFORM_MAX_PATH, sample);
+				if(FileExists(sound_path, true)) {
+					return Plugin_Changed;
+				}
+			} else if(player_config[entity].flags & config_flags_no_voicelines) {
+				return Plugin_Stop;
+			}
+		}
+	}
+
+	return Plugin_Continue;
+}
+
+static MRESReturn CBaseEntity_ModifyOrAppendCriteria_detour_post(int pThis, DHookParam hParams)
+{
+	return MRES_Ignored;
+}
+
+static MRESReturn CBasePlayer_GetSceneSoundToken_detour(int pThis, DHookReturn hReturn)
+{
+	return MRES_Ignored;
 }
 
 static void delete_player_viewmodel_entity(int client, int which, int weapon = -1)
@@ -2203,8 +2772,10 @@ static int get_or_create_player_model_entity(int client)
 #if defined DEBUG
 	PrintToServer(PM2_CON_PREFIX ... "proxysend hooked %i", client);
 #endif
-	proxysend_hook(client, "m_clrRender", player_proxysend_render_color);
-	proxysend_hook(client, "m_nRenderMode", player_proxysend_render_mode);
+	proxysend_hook(client, "m_clrRender", player_proxysend_render_color, true);
+	proxysend_hook(client, "m_nRenderMode", player_proxysend_render_mode, true);
+
+	ChangeEdictState(client);
 
 	SetEntityRenderMode(client, RENDER_NONE);
 
@@ -2238,7 +2809,11 @@ static void delete_player_model_entity(int client)
 	proxysend_unhook(client, "m_clrRender", player_proxysend_render_color);
 	proxysend_unhook(client, "m_nRenderMode", player_proxysend_render_mode);
 
-	SetEntityRenderMode(client, RENDER_NORMAL);
+	ChangeEdictState(client);
+
+	if(GetEntityRenderMode(client) == RENDER_NONE) {
+		SetEntityRenderMode(client, RENDER_NORMAL);
+	}
 
 	int effects = GetEntProp(client, Prop_Send, "m_fEffects");
 	effects &= ~(EF_NOSHADOW|EF_NORECEIVESHADOW);
@@ -2252,6 +2827,10 @@ public void OnClientDisconnect(int client)
 	player_config[client].clear();
 
 	player_taunt_vars[client].clear();
+
+	player_tpose[client] = false;
+	player_loser[client] = false;
+	player_swim[client] = false;
 
 	player_weapon_animation_class[client] = TFClass_Unknown;
 
@@ -2347,6 +2926,14 @@ static void post_inventory_application_frame(int userid)
 static void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
 {
 	int userid = event.GetInt("userid");
+	int client = GetClientOfUserId(userid);
+
+	proxysend_unhook(client, "m_nPlayerCond", player_proxysend_cond);
+	proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+	proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+
+	player_tpose[client] = false;
+	player_loser[client] = false;
 
 	RequestFrame(post_inventory_application_frame, userid);
 }
@@ -2423,10 +3010,10 @@ static void player_think_model(int client)
 static Action player_proxysend_render_color(int entity, const char[] prop, int &value, int element, int client)
 {
 #if defined DEBUG
-	//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+	PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
 #endif
 
-	if(client == entity) {
+	if(client == entity && get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
 		int r = (value & 255);
 		int g = ((value >> 8) & 255);
 		int b = ((value >> 16) & 255);
@@ -2445,10 +3032,10 @@ static Action player_proxysend_render_color(int entity, const char[] prop, int &
 static Action player_proxysend_render_mode(int entity, const char[] prop, int &value, int element, int client)
 {
 #if defined DEBUG
-	//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+	PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
 #endif
 
-	if(client == entity) {
+	if(client == entity && get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
 		value = view_as<int>(RENDER_TRANSCOLOR);
 		return Plugin_Changed;
 	}
@@ -2481,8 +3068,8 @@ static void remove_playermodel(int client)
 	set_player_custom_model(client, "");
 	SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
 
-	SetEntProp(client, Prop_Send, "m_bForcedSkin", 0);
-	SetEntProp(client, Prop_Send, "m_nForcedSkin", 0);
+	//SetEntProp(client, Prop_Send, "m_bForcedSkin", 0);
+	//SetEntProp(client, Prop_Send, "m_nForcedSkin", 0);
 
 	recalculate_player_bodygroups(client);
 
@@ -2513,9 +3100,17 @@ static int get_model_entity_or_client(int client)
 	return entity;
 }
 
-static bool is_player_in_thirdperson(int client)
+static bool player_taunts_in_firstperson(int client)
 {
 	if(cl_first_person_uses_world_model[client] || tf_taunt_first_person[client]) {
+		return true;
+	}
+	return false;
+}
+
+static bool is_player_in_thirdperson(int client)
+{
+	if(player_taunts_in_firstperson(client)) {
 		return false;
 	}
 
@@ -2566,6 +3161,7 @@ static void handle_playermodel(int client)
 {
 #if defined DEBUG
 	PrintToServer(PM2_CON_PREFIX ... "handle_playermodel(%i)", client);
+	PrintToServer(PM2_CON_PREFIX ... "  TFCond_Disguised = %i", TF2_IsPlayerInCondition(client, TFCond_Disguised));
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_animation_class = %i", player_taunt_vars[client].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_weapon_animation_class = %i", player_weapon_animation_class[client]);
 
@@ -2581,13 +3177,11 @@ static void handle_playermodel(int client)
 	PrintToServer(PM2_CON_PREFIX ... "  player_config.model_class = %i", player_config[client].model_class);
 #endif
 
-	TFClassType player_class = TFClass_Unknown;
-
-	if(player_taunt_vars[client].class_pre_taunt != TFClass_Unknown) {
-		player_class = player_taunt_vars[client].class_pre_taunt;
-	} else {
-		player_class = TF2_GetPlayerClass(client);
+	if(TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
+		return;
 	}
+
+	TFClassType player_class = get_player_class(client);
 
 	bool has_any_model = (player_thirdparty_model[client].model[0] != '\0' || player_config[client].model[0] != '\0');
 
@@ -2660,6 +3254,7 @@ static void handle_playermodel(int client)
 
 	if(player_model[0] == '\0' && animation_model[0] == '\0') {
 		remove_playermodel(client);
+		return;
 	} else if(bonemerge) {
 		delete_player_model_entity(client);
 

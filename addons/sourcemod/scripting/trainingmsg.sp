@@ -1,6 +1,6 @@
 #include <sourcemod>
 #include <sdktools>
-#include <sendproxy>
+#include <proxysend>
 #include <tf2_stocks>
 #include <trainingmsg>
 
@@ -20,6 +20,8 @@ int player_wants_vgui[MAXPLAYERS+1];
 Handle player_vgui_timer[MAXPLAYERS+1];
 int current_player_menu[MAXPLAYERS+1] = {-1, ...};
 
+char player_last_msg[MAXPLAYERS+1][TRAINING_MSG_MAX_LEN];
+
 UserMsg TrainingObjective = INVALID_MESSAGE_ID;
 UserMsg TrainingMsg = INVALID_MESSAGE_ID;
 
@@ -29,7 +31,6 @@ int m_bIsTrainingHUDVisibleOffset = -1;
 int m_bIsWaitingForTrainingContinueOffset = -1;
 
 //ConVar tf_training_client_message;
-ConVar sm_trainingmsg_setprop;
 
 ArrayList TraningMsgMenus;
 ArrayList TraningMsgMenusFunctions;
@@ -75,10 +76,7 @@ public void OnPluginStart()
 
 	//tf_training_client_message = FindConVar("tf_training_client_message");
 
-	sm_trainingmsg_setprop = CreateConVar("sm_trainingmsg_setprop", "0");
-
 	HookEvent("player_spawn", player_spawn);
-	HookEvent("teamplay_round_start", teamplay_round_start);
 
 	sm_rsay_time = CreateConVar("sm_rsay_time", "10.0");
 
@@ -607,21 +605,6 @@ public void OnNotifyPluginUnloaded(Handle plugin)
 	}
 }
 
-public void OnGameFrame()
-{
-	bool any_enabled = false;
-
-	if(sm_trainingmsg_setprop.BoolValue) {
-		any_enabled = ((num_enabled > 0) && (num_enabled != MaxClients));
-	} else {
-		any_enabled = (num_enabled > 0);
-	}
-
-	if(any_enabled) {
-		ChangeGameRulesState();
-	}
-}
-
 public void OnMapStart()
 {
 	if(g_bLateLoaded) {
@@ -649,6 +632,10 @@ public void OnMapEnd()
 public void OnEntityCreated(int entity, const char[] classname)
 {
 	if(StrEqual(classname, "tf_gamerules")) {
+		if(tf_gamerules != -1) {
+			ThrowError("multiple tf_gamerules");
+		}
+
 		tf_gamerules = entity;
 	}
 }
@@ -660,24 +647,12 @@ public void OnEntityDestroyed(int entity)
 	}
 }
 
-void ChangeGameRulesState()
-{
-	if(tf_gamerules != -1) {
-		ChangeEdictState(tf_gamerules, m_bIsInTrainingOffset);
-		ChangeEdictState(tf_gamerules, m_bIsTrainingHUDVisibleOffset);
-		ChangeEdictState(tf_gamerules, m_bIsWaitingForTrainingContinueOffset);
-	} else {
-		ThrowError("tf_gamerules was not found");
-	}
-}
-
 Action Timer_ResetWantsVgui(Handle timer, int client)
 {
 	client = GetClientOfUserId(client);
 	if(client != -1) {
 		player_vgui_timer[client] = null;
 		player_wants_vgui[client] = 0;
-		ChangeGameRulesState();
 	}
 	return Plugin_Continue;
 }
@@ -686,10 +661,7 @@ Action command_continue(int client, const char[] command, int args)
 {
 	if(msg_enabled[client] && MsgHasContinue(client)) {
 		if(!!(msg_flags[client] & TMSG_REMOVE_ON_CONTINUE)) {
-			int ret = DisableClient(client, _, true, TrainingMsgMenuCancel_Exit);
-			if(ret == 1) {
-				ChangeGameRulesState();
-			}
+			DisableClient(client, _, true, TrainingMsgMenuCancel_Exit);
 		} else {
 			has_continued[client] = true;
 
@@ -709,11 +681,9 @@ Action command_menu(int client, const char[] command, int args)
 				--player_wants_vgui[client];
 				if((player_wants_vgui[client]-3) == 1) {
 					player_wants_vgui[client] = 0;
-					ChangeGameRulesState();
 				}
 			} else {
 				if(player_wants_vgui[client]++ == 0) {
-					ChangeGameRulesState();
 					player_vgui_timer[client] = CreateTimer(0.2, Timer_ResetWantsVgui, GetClientUserId(client));
 
 					BfWrite usrmsg = view_as<BfWrite>(StartMessageOne("HudNotifyCustom", client));
@@ -730,26 +700,26 @@ Action command_menu(int client, const char[] command, int args)
 	return Plugin_Continue;
 }
 
-Action HookIsTraining(const char[] cPropName, int &iValue, const int iElement, const int iClient)
+Action HookIsTraining(int entity, const char[] prop, int &value, int element, int client)
 {
-	if(msg_enabled[iClient]) {
-		if(player_wants_vgui[iClient] != 0) {
-			iValue = 0;
+	if(msg_enabled[client]) {
+		if(player_wants_vgui[client] != 0) {
+			value = 0;
 		} else {
-			iValue = 1;
+			value = 1;
 		}
 	} else {
-		iValue = 0;
+		value = 0;
 	}
 	return Plugin_Changed;
 }
 
-Action HookIsContinue(const char[] cPropName, int &iValue, const int iElement, const int iClient)
+Action HookIsContinue(int entity, const char[] prop, int &value, int element, int client)
 {
-	if(msg_enabled[iClient] && MsgHasContinue(iClient)) {
-		iValue = 1;
+	if(msg_enabled[client] && MsgHasContinue(client)) {
+		value = 1;
 	} else {
-		iValue = 0;
+		value = 0;
 	}
 	return Plugin_Changed;
 }
@@ -757,37 +727,35 @@ Action HookIsContinue(const char[] cPropName, int &iValue, const int iElement, c
 void Unhook(bool value, bool has_continue)
 {
 	if(gamerules_hooked) {
-		SendProxy_UnhookGameRules("m_bIsInTraining", HookIsTraining);
-		SendProxy_UnhookGameRules("m_bIsTrainingHUDVisible", HookIsTraining);
-		SendProxy_UnhookGameRules("m_bIsWaitingForTrainingContinue", HookIsContinue);
+		if(tf_gamerules == -1) {
+			ThrowError("tf_gamerules was not found");
+		}
+
+		proxysend_unhook(tf_gamerules, "m_bIsInTraining", HookIsTraining);
+		proxysend_unhook(tf_gamerules, "m_bIsTrainingHUDVisible", HookIsTraining);
+		proxysend_unhook(tf_gamerules, "m_bIsWaitingForTrainingContinue", HookIsContinue);
 		gamerules_hooked = false;
 	}
 
-	if(sm_trainingmsg_setprop.BoolValue) {
-		GameRules_SetProp("m_bIsInTraining", value);
-		GameRules_SetProp("m_bIsTrainingHUDVisible", value);
-		GameRules_SetProp("m_bIsWaitingForTrainingContinue", has_continue);
-	} else {
-		if(!value) {
-			GameRules_SetProp("m_bIsInTraining", 0);
-			GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
-			GameRules_SetProp("m_bIsWaitingForTrainingContinue", 0);
-		}
+	if(!value) {
+		GameRules_SetProp("m_bIsInTraining", 0);
+		GameRules_SetProp("m_bIsTrainingHUDVisible", 0);
+		GameRules_SetProp("m_bIsWaitingForTrainingContinue", 0);
 	}
-
-	ChangeGameRulesState();
 }
 
 void Hook()
 {
 	if(!gamerules_hooked) {
-		SendProxy_HookGameRules("m_bIsInTraining", Prop_Int, HookIsTraining, true);
-		SendProxy_HookGameRules("m_bIsTrainingHUDVisible", Prop_Int, HookIsTraining, true);
-		SendProxy_HookGameRules("m_bIsWaitingForTrainingContinue", Prop_Int, HookIsContinue, true);
+		if(tf_gamerules == -1) {
+			ThrowError("tf_gamerules was not found");
+		}
+
+		proxysend_hook(tf_gamerules, "m_bIsInTraining", HookIsTraining, true);
+		proxysend_hook(tf_gamerules, "m_bIsTrainingHUDVisible", HookIsTraining, true);
+		proxysend_hook(tf_gamerules, "m_bIsWaitingForTrainingContinue", HookIsContinue, true);
 		gamerules_hooked = true;
 	}
-
-	ChangeGameRulesState();
 }
 
 void EnableClient(int client)
@@ -830,6 +798,7 @@ int DisableClient(int client, bool send_empty = true, bool cancel_menu = true, i
 		msg_enabled[client] = false;
 		msg_flags[client] = TMSG_NOFLAGS;
 		has_continued[client] = false;
+		player_last_msg[client][0] = '\0';
 		--num_enabled;
 
 		if(num_enabled == 0) {
@@ -856,17 +825,13 @@ Action player_spawn(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	int ret = DisableClient(client);
-	if(ret == 1) {
-		ChangeGameRulesState();
+	if(msg_enabled[client]) {
+		int clients[1];
+		clients[0] = client;
+		BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, clients, 1));
+		usrmsg.WriteString(player_last_msg[client]);
+		EndMessage();
 	}
-
-	return Plugin_Continue;
-}
-
-Action teamplay_round_start(Event event, const char[] name, bool dontBroadcast)
-{
-	DisableAll();
 
 	return Plugin_Continue;
 }
@@ -880,6 +845,11 @@ void SendUsrMsgHelper(int[] clients, int numClients, const char[] title, const c
 	usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, clients, numClients));
 	usrmsg.WriteString(msg);
 	EndMessage();
+
+	for(int i = 0; i < numClients; ++i) {
+		int client = clients[i];
+		strcopy(player_last_msg[client], TRAINING_MSG_MAX_LEN, msg);
+	}
 }
 
 void SendToClientsHelper(int[] clients, int numClients, const char[] title, const char[] msg)
@@ -890,11 +860,7 @@ void SendToClientsHelper(int[] clients, int numClients, const char[] title, cons
 
 void SendToAllHelper(int[] clients, int numClients, const char[] title, const char[] msg, bool has_continue)
 {
-	if(!sm_trainingmsg_setprop.BoolValue) {
-		Hook();
-	} else {
-		Unhook(true, has_continue);
-	}
+	Hook();
 	SendUsrMsgHelper(clients, numClients, title, msg);
 }
 
@@ -983,6 +949,11 @@ int ChangeTitleAll(Handle plugin, int params)
 
 int ChangeTextAll(Handle plugin, int params)
 {
+	int length = 0;
+	GetNativeStringLength(1, length);
+	char[] title = new char[++length];
+	GetNativeString(1, title, length);
+
 	int numClients = 0;
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
@@ -991,16 +962,12 @@ int ChangeTextAll(Handle plugin, int params)
 		}
 		if(IsGloballyEnabled() || msg_enabled[i]) {
 			clients[numClients++] = i;
+			strcopy(player_last_msg[i], TRAINING_MSG_MAX_LEN, title);
 			if(CancelTrainingMsgMenu(i)) {
 				//TODO!!! change title
 			}
 		}
 	}
-
-	int length = 0;
-	GetNativeStringLength(1, length);
-	char[] title = new char[++length];
-	GetNativeString(1, title, length);
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, clients, numClients));
 	usrmsg.WriteString(title);
@@ -1040,17 +1007,18 @@ int ChangeText(Handle plugin, int params)
 	int[] clients = new int[numClients];
 	GetNativeArray(1, clients, numClients);
 
-	for(int i = 0; i < numClients; ++i) {
-		int client = clients[i];
-		if(CancelTrainingMsgMenu(client)) {
-			//TODO!!! change title
-		}
-	}
-
 	int length = 0;
 	GetNativeStringLength(3, length);
 	char[] title = new char[++length];
 	GetNativeString(3, title, length);
+
+	for(int i = 0; i < numClients; ++i) {
+		int client = clients[i];
+		strcopy(player_last_msg[client], TRAINING_MSG_MAX_LEN, title);
+		if(CancelTrainingMsgMenu(client)) {
+			//TODO!!! change title
+		}
+	}
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, clients, numClients));
 	usrmsg.WriteString(title);
@@ -1089,41 +1057,26 @@ int SendToClients(Handle plugin, int params)
 
 	TrainingMsgFlags flags = GetNativeCell(5);
 
-	if(sm_trainingmsg_setprop.BoolValue && numClients == MaxClients) {
-		for(int i = 0; i < numClients; ++i) {
-			HandleAllLoop(i, flags);
+	for(int i = 0; i < numClients; ++i) {
+		int client = clients[i];
+		if(!HandleClientLoop(client, flags)) {
+			continue;
 		}
-
-		bool has_continue = !!(flags & TMSG_HAS_CONTINUE);
-
-		SendToAllHelper(clients, numClients, title, msg, has_continue);
-	} else {
-		for(int i = 0; i < numClients; ++i) {
-			int client = clients[i];
-			if(!HandleClientLoop(client, flags)) {
-				continue;
-			}
-		}
-
-		SendToClientsHelper(clients, numClients, title, msg);
 	}
+
+	SendToClientsHelper(clients, numClients, title, msg);
 
 	return 0;
 }
 
 bool HandleAllLoop(int i, TrainingMsgFlags flags)
 {
-	if(sm_trainingmsg_setprop.BoolValue) {
-		DisableClient(i);
-	}
 	if(!IsClientValid(i)) {
 		return false;
 	}
 	CancelTrainingMsgMenu(i);
-	if(!sm_trainingmsg_setprop.BoolValue) {
-		EnableClient(i);
-		msg_flags[i] = flags;
-	}
+	EnableClient(i);
+	msg_flags[i] = flags;
 	return true;
 }
 
@@ -1217,14 +1170,10 @@ int RemoveFromClients(Handle plugin, int params)
 		}
 	}
 
-	ChangeGameRulesState();
-
 	return 0;
 }
 
 public void OnClientDisconnect(int client)
 {
-	if(DisableClient(client, _, false) == 1) {
-		ChangeGameRulesState();
-	}
+	DisableClient(client, _, false);
 }

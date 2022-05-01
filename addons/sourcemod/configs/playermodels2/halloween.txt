@@ -9,9 +9,20 @@
 		"skin" "0"
 		"variations"
 		{
-			"ghost"
+			"ghost merasmus"
 			{
 				"skin" "1"
+			}
+		}
+		"sound_replacements"
+		{
+			"sample"
+			{
+				"^vo\/.*_Pain(:?Sharp|Severe)[0-9][1-9]\.mp3$"
+				{
+					//TODO!!! remove bomb-related voicelines
+					"Halloween.MerasmusHitByBomb" "script"
+				}
 			}
 		}
 	}
@@ -21,6 +32,24 @@
 		"model_class" "demo"
 		"model" "models/bots/headless_hatman.mdl"
 		"flags" "hide_wearables"
+		"sound_replacements"
+		{
+			"sample"
+			{
+				"^vo\/.*_Pain(:?Sharp|Severe)[0-9][1-9]\.mp3$"
+				{
+					"Halloween.HeadlessBossPain" "script"
+				}
+				"^vo\/.*_Laugh(?:Short|Evil|Happy)[0-9][1-9]\.mp3$"
+				{
+					"Halloween.HeadlessBossLaugh" "script"
+				}
+				"^player\/footsteps\/.*\.wav$"
+				{
+					"Halloween.HeadlessBossFootfalls" "script"
+				}
+			}
+		}
 	}
 
 	"skeleton"
@@ -28,6 +57,16 @@
 		"flags" "~no_gameplay|~always_bonemerge"
 		"model_class" "sniper"
 		"model" "models/bots/skeleton_sniper/skeleton_sniper.mdl"
+		"sound_replacements"
+		{
+			"sample"
+			{
+				"^vo\/.*_Laugh(?:Short|Evil|Happy)[0-9][1-9]\.mp3$"
+				{
+					"Halloween.skeleton_laugh_medium" "script"
+				}
+			}
+		}
 	}
 
 	"yeti"
