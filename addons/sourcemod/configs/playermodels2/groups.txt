@@ -23,6 +23,30 @@
 		}
 	}
 
+	"robots"
+	{
+		"flags" ""
+		"override" "models_vip_bronze"
+		"arm_model" "model_class"
+		"sound_variables"
+		{
+			"token" "MVM_"
+			"player_class" "model_class"
+			"player_class_append" "_mvm"
+			"vo" "vo/mvm/norm/"
+		}
+		"sound_replacements"
+		{
+			"sample"
+			{
+				"^player\/footsteps\/.*"
+				{
+					"MVM.BotStep" "script"
+				}
+			}
+		}
+	}
+
 	"tf2 props"
 	{
 		"flags" "no_gameplay|no_wearables|no_weapons|never_bonemerge|no_voicelines"

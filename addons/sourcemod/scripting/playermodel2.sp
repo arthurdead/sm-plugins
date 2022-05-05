@@ -32,18 +32,13 @@ support for hiding hats in specific equip regions
 #define TF_CLASS_COUNT_ALL 10
 
 #define MAX_SOUND_VAR_NAME 32
+#define MAX_SOUND_VAR_VALUE 32
 
 #define BIT_FOR_CLASS(%1) (1 << (view_as<int>(%1)-1))
 
 #define OBS_MODE_IN_EYE 4
 
-enum
-{
-	WL_NotInWater=0,
-	WL_Feet,
-	WL_Waist,
-	WL_Eyes
-};
+#define WL_Eyes 3
 
 #define EF_BONEMERGE 0x001
 #define EF_BONEMERGE_FASTCULL 0x080
@@ -104,12 +99,6 @@ enum struct SoundReplacementInfo
 	ArrayList destinations;
 }
 
-enum struct SoundVariableReplacementInfo
-{
-	char what[MAX_SOUND_VAR_NAME];
-	char with_[MAX_SOUND_VAR_NAME];
-}
-
 enum struct ConfigInfo
 {
 	char name[MODEL_NAME_MAX];
@@ -119,7 +108,7 @@ enum struct ConfigInfo
 	ArrayList sound_precaches;
 
 	ArrayList sound_replacements;
-	ArrayList sound_variables;
+	StringMap sound_variables;
 
 	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
@@ -134,7 +123,7 @@ enum struct PlayerConfigInfo
 	int idx;
 
 	ArrayList sound_replacements;
-	ArrayList sound_variables;
+	StringMap sound_variables;
 
 	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
@@ -581,7 +570,162 @@ static int parse_bodygroups_str(const char[] str)
 	return bodygroups;
 }
 
-static void parse_config_kv(const char[] path, ConfigGroupInfo group, ArrayList sound_variables, char arm_model[PLATFORM_MAX_PATH], config_flags flags)
+static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags flags)
+{
+	bool valid = true;
+
+	char any_file_path[PLATFORM_MAX_PATH];
+	char regex_error_str[128];
+
+	char flags_str[FLAGS_MAX * FLAGS_NUM];
+	kv.GetString("flags", flags_str, sizeof(flags_str), "");
+	info.flags = parse_flags_str(flags_str, flags);
+
+	kv.GetString("arm_model", info.arm_model, PLATFORM_MAX_PATH, info.arm_model);
+
+	SoundInfo sound_info;
+
+	if(kv.JumpToKey("precache")) {
+		if(kv.JumpToKey("sounds")) {
+			if(!info.sound_precaches) {
+				info.sound_precaches = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+			}
+
+			if(kv.GotoFirstSubKey(false)) {
+				char sound_value[32];
+
+				do {
+					kv.GetSectionName(sound_info.path, PLATFORM_MAX_PATH);
+					kv.GetString(NULL_STRING, sound_value, PLATFORM_MAX_PATH, "");
+					sound_info.is_script = StrEqual(sound_value, "script");
+					info.sound_precaches.PushArray(sound_info, sizeof(SoundInfo));
+				} while(kv.GotoNextKey(false));
+				kv.GoBack();
+			}
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+
+	if(kv.JumpToKey("sound_replacements")) {
+		SoundReplacementInfo sound_replace_info;
+
+		if(kv.JumpToKey("sample")) {
+			if(!info.sound_replacements) {
+				info.sound_replacements = new ArrayList(sizeof(SoundReplacementInfo));
+			}
+
+			sound_replace_info.source_is_script = false;
+
+			if(kv.GotoFirstSubKey(false)) {
+				do {
+					kv.GetSectionName(any_file_path, PLATFORM_MAX_PATH);
+
+					RegexError regex_code;
+					sound_replace_info.source_regex = new Regex(any_file_path, PCRE_UTF8, regex_error_str, sizeof(regex_error_str), regex_code);
+					if(regex_code != REGEX_ERROR_NONE) {
+						delete sound_replace_info.source_regex;
+						LogError(PM2_CON_PREFIX ... " config %s has invalid sound replace regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_error_str, regex_code);
+						valid = false;
+						break;
+					}
+
+				#if defined DEBUG
+					PrintToServer(PM2_CON_PREFIX ... "created regex %s", any_file_path);
+				#endif
+
+					if(kv.GotoFirstSubKey(false)) {
+						char value[7];
+
+						sound_replace_info.destinations = new ArrayList(sizeof(SoundInfo));
+
+						do {
+							kv.GetSectionName(sound_info.path, PLATFORM_MAX_PATH);
+							kv.GetString(NULL_STRING, value, 7, "sample");
+							sound_info.is_script = StrEqual(value, "script");
+
+							sound_replace_info.destinations.PushArray(sound_info, sizeof(SoundInfo));
+						} while(kv.GotoNextKey(false));
+						kv.GoBack();
+					}
+
+					info.sound_replacements.PushArray(sound_replace_info, sizeof(SoundReplacementInfo));
+				} while(kv.GotoNextKey(false));
+				kv.GoBack();
+			}
+
+			if(!valid) {
+				delete info.sound_replacements;
+			}
+
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+
+	if(!valid) {
+		return false;
+	}
+
+	if(kv.JumpToKey("sound_variables")) {
+		if(kv.GotoFirstSubKey(false)) {
+			if(!info.sound_variables) {
+				info.sound_variables = new StringMap();
+			}
+
+			char sound_var_name[MAX_SOUND_VAR_NAME];
+			char sound_var_value[MAX_SOUND_VAR_VALUE];
+
+			do {
+				kv.GetSectionName(sound_var_name, MAX_SOUND_VAR_NAME);
+				kv.GetString(NULL_STRING, sound_var_value, MAX_SOUND_VAR_VALUE);
+
+				info.sound_variables.SetString(sound_var_name, sound_var_value);
+			} while(kv.GotoNextKey(false));
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+
+	return true;
+}
+
+void clone_config_basic(ConfigInfo info, ConfigInfo other)
+{
+	strcopy(info.arm_model, MODEL_NAME_MAX, other.arm_model);
+
+	if(other.sound_precaches != null) {
+		info.sound_precaches = other.sound_precaches.Clone();
+	} else {
+		info.sound_precaches = null;
+	}
+
+	if(other.sound_replacements != null) {
+		SoundReplacementInfo other_sound_info;
+		SoundReplacementInfo sound_info;
+
+		info.sound_replacements = other.sound_replacements.Clone();
+
+		int replacements_len = other.sound_replacements.Length;
+		for(int k = 0; k < replacements_len; ++k) {
+			other.sound_replacements.GetArray(k, other_sound_info, sizeof(SoundReplacementInfo));
+			info.sound_replacements.GetArray(k, sound_info, sizeof(SoundReplacementInfo));
+			sound_info.destinations = other_sound_info.destinations.Clone();
+			sound_info.source_regex = view_as<Regex>(CloneHandle(other_sound_info.source_regex));
+			info.sound_replacements.SetArray(k, sound_info, sizeof(SoundReplacementInfo));
+		}
+	} else {
+		info.sound_replacements = null;
+	}
+
+	if(other.sound_variables != null) {
+		info.sound_variables = other.sound_variables.Clone();
+	} else {
+		info.sound_variables = null;
+	}
+}
+
+static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_config_info)
 {
 	KeyValues kv = new KeyValues("playermodel2_config");
 	kv.ImportFromFile(path);
@@ -592,21 +736,22 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ArrayList 
 		ConfigInfo info;
 		ConfigVariationInfo variation;
 
-		char classes_str[CLASS_NAME_MAX * TF_CLASS_COUNT_ALL];
 		char flags_str[FLAGS_MAX * FLAGS_NUM];
+		char classes_str[CLASS_NAME_MAX * TF_CLASS_COUNT_ALL];
 		char int_str[INT_STR_MAX];
 		char classname[CLASS_NAME_MAX];
 		char bodygroups_str[BODYGROUP_NUM * BODYGROUP_MAX];
-		char any_file_path[PLATFORM_MAX_PATH];
-		char regex_error_str[128];
-
-		SoundInfo sound_info;
-		SoundReplacementInfo sound_replace_info;
 
 		do {
 			bool valid = true;
 
 			kv.GetSectionName(info.name, MODEL_NAME_MAX);
+
+			clone_config_basic(info, group_config_info);
+
+			if(!parse_config_kv_basic(kv, info, group_config_info.flags)) {
+				continue;
+			}
 
 			kv.GetString("classes_whitelist", classes_str, sizeof(classes_str), "all");
 
@@ -620,9 +765,6 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ArrayList 
 
 			kv.GetString("model", info.model, PLATFORM_MAX_PATH, "");
 
-			kv.GetString("flags", flags_str, sizeof(flags_str), "");
-			info.flags = parse_flags_str(flags_str, flags);
-
 			kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
 			info.bodygroups = parse_bodygroups_str(bodygroups_str);
 
@@ -634,8 +776,6 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ArrayList 
 			if(info.model_class == TFClass_Unknown) {
 				info.flags |= config_flags_never_bonemerge;
 			}
-
-			kv.GetString("arm_model", info.arm_model, PLATFORM_MAX_PATH, arm_model);
 
 			info.variations = null;
 
@@ -665,86 +805,6 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ArrayList 
 					kv.GoBack();
 				}
 				kv.GoBack();
-			}
-
-			info.sound_precaches = null;
-
-			if(kv.JumpToKey("precache")) {
-				if(kv.JumpToKey("sound_scripts")) {
-					info.sound_precaches = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-
-					if(kv.GotoFirstSubKey(false)) {
-						do {
-							kv.GetString(NULL_STRING, sound_info.path, PLATFORM_MAX_PATH, "");
-							sound_info.is_script = true;
-							info.sound_precaches.PushArray(sound_info, sizeof(SoundInfo));
-						} while(kv.GotoNextKey(false));
-						kv.GoBack();
-					}
-					kv.GoBack();
-				}
-				kv.GoBack();
-			}
-
-			info.sound_replacements = null;
-
-			if(kv.JumpToKey("sound_replacements")) {
-				sound_replace_info.destinations = null;
-
-				if(kv.JumpToKey("sample")) {
-					info.sound_replacements = new ArrayList(sizeof(SoundReplacementInfo));
-
-					sound_replace_info.source_is_script = false;
-
-					if(kv.GotoFirstSubKey(false)) {
-						do {
-							kv.GetSectionName(any_file_path, PLATFORM_MAX_PATH);
-
-							RegexError regex_code;
-							sound_replace_info.source_regex = new Regex(any_file_path, PCRE_UTF8, regex_error_str, sizeof(regex_error_str), regex_code);
-							if(regex_code != REGEX_ERROR_NONE) {
-								delete sound_replace_info.source_regex;
-								LogError(PM2_CON_PREFIX ... " config %s has invalid sound replace regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_error_str, regex_code);
-								valid = false;
-								break;
-							}
-
-						#if defined DEBUG
-							PrintToServer(PM2_CON_PREFIX ... "created regex %s", any_file_path);
-						#endif
-
-							if(kv.GotoFirstSubKey(false)) {
-								char value[7];
-
-								sound_replace_info.destinations = new ArrayList(sizeof(SoundInfo));
-
-								do {
-									kv.GetSectionName(sound_info.path, PLATFORM_MAX_PATH);
-									kv.GetString(NULL_STRING, value, 7, "sample");
-									sound_info.is_script = StrEqual(value, "script");
-
-									sound_replace_info.destinations.PushArray(sound_info, sizeof(SoundInfo));
-								} while(kv.GotoNextKey(false));
-								kv.GoBack();
-							}
-
-							info.sound_replacements.PushArray(sound_replace_info, sizeof(SoundReplacementInfo));
-						} while(kv.GotoNextKey(false));
-						kv.GoBack();
-					}
-
-					if(!valid) {
-						delete info.sound_replacements;
-						continue;
-					}
-
-					kv.GoBack();
-				}
-				kv.GoBack();
-			}
-
-			if(sound_variables != null) {
-				info.sound_variables = sound_variables.Clone();
 			}
 
 			int idx = configs.PushArray(info, sizeof(ConfigInfo));
@@ -777,44 +837,36 @@ static void load_configs()
 		if(kv.GotoFirstSubKey()) {
 			ConfigGroupInfo info;
 
-			char flags_str[FLAGS_MAX * FLAGS_NUM];
-			SoundVariableReplacementInfo sound_variable_replace_info;
+			ConfigInfo group_config_info;
 
-			ArrayList sound_variables;
-
-			char arm_model[PLATFORM_MAX_PATH];
+			SoundReplacementInfo sound_info;
 
 			do {
 				kv.GetSectionName(info.name, MODEL_NAME_MAX);
 				kv.GetString("override", info.override, OVERRIDE_MAX);
 				kv.GetString("steamid", info.steamid, STEAMID_MAX);
 
-				if(kv.JumpToKey("sound_variables")) {
-					if(kv.GotoFirstSubKey(false)) {
-						sound_variables = new ArrayList(sizeof(SoundVariableReplacementInfo));
-
-						do {
-							kv.GetSectionName(sound_variable_replace_info.what, MAX_SOUND_VAR_NAME);
-							kv.GetString(NULL_STRING, sound_variable_replace_info.with_, MAX_SOUND_VAR_NAME);
-
-							sound_variables.PushArray(sound_variable_replace_info, sizeof(SoundVariableReplacementInfo));
-						} while(kv.GotoNextKey(false));
-						kv.GoBack();
-					}
-					kv.GoBack();
+				kv.GetString("file", any_file_path, PLATFORM_MAX_PATH, "");
+				if(any_file_path[0] == '\0') {
+					BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/%s.txt", info.name);
 				}
-
-				kv.GetString("arm_model", arm_model, PLATFORM_MAX_PATH);
-
-				BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/%s.txt", info.name);
 				if(FileExists(any_file_path)) {
-					kv.GetString("flags", flags_str, sizeof(flags_str), "");
-					config_flags flags = parse_flags_str(flags_str);
+					parse_config_kv_basic(kv, group_config_info, config_flags_none);
 
-					parse_config_kv(any_file_path, info, sound_variables, arm_model, flags);
+					parse_config_kv(any_file_path, info, group_config_info);
 				}
 
-				delete sound_variables;
+				if(group_config_info.sound_replacements != null) {
+					int replacements_len = group_config_info.sound_replacements.Length;
+					for(int k = 0; k < replacements_len; ++k) {
+						group_config_info.sound_replacements.GetArray(k, sound_info, sizeof(SoundReplacementInfo));
+						delete sound_info.destinations;
+						delete sound_info.source_regex;
+					}
+				}
+				delete group_config_info.sound_replacements;
+				delete group_config_info.sound_precaches;
+				delete group_config_info.sound_variables;
 
 				groups.PushArray(info, sizeof(ConfigGroupInfo));
 			} while(kv.GotoNextKey());
@@ -1024,14 +1076,40 @@ public void OnPluginStart()
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
-			if(IsPlayerAlive(i) &&
-				GetClientTeam(i) > 1 &&
-				TF2_GetPlayerClass(i) != TFClass_Unknown) {
-				on_player_spawned(i);
-			}
 			OnClientPutInServer(i);
+		} else {
+			continue;
 		}
+
+		if(!IsPlayerAlive(i) ||
+			GetClientTeam(i) < 2 ||
+			TF2_GetPlayerClass(i) == TFClass_Unknown) {
+			continue;
+		}
+
+		on_player_spawned(i);
 	}
+
+	AddCommandListener(say, "say");
+	AddCommandListener(say_team, "say_team");
+}
+
+static Action say(int client, const char[] command, int argc)
+{
+	if(client == 0) {
+		return Plugin_Continue;
+	}
+
+	return Plugin_Continue;
+}
+
+static Action say_team(int client, const char[] command, int argc)
+{
+	if(client == 0) {
+		return Plugin_Continue;
+	}
+
+	return Plugin_Continue;
 }
 
 static void set_player_screen_overlay(int client, const char[] path)
@@ -1053,10 +1131,12 @@ static Action sm_swim(int client, int args)
 
 	if(player_swim[client]) {
 		RequestFrame(frame_enable_swim, client);
-		proxysend_hook(client, "m_nPlayerCondEx2", player_proxysend_cond2, false);
+		proxysend_hook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond, false);
+		proxysend_hook(client, "m_nWaterLevel", player_proxysend_water_level, false);
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now swimming!");
 	} else {
-		proxysend_unhook(client, "m_nPlayerCondEx2", player_proxysend_cond2);
+		proxysend_unhook(client, "m_nWaterLevel", player_proxysend_water_level);
+		proxysend_unhook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond);
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer swimming.");
 	}
 
@@ -1085,12 +1165,12 @@ static Action sm_loser(int client, int args)
 
 	if(player_loser[client]) {
 		TF2_RemoveAllWeapons(client);
-		proxysend_hook(client, "m_nPlayerCond", player_proxysend_cond, false);
+		proxysend_hook_cond(client, TFCond_Dazed, player_proxysend_loser_cond, false);
 		proxysend_hook(client, "m_iStunFlags", player_proxysend_stunflags, false);
 		proxysend_hook(client, "m_iStunIndex", player_proxysend_stunindex, false);
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now a loser! Congratulations.");
 	} else {
-		proxysend_unhook(client, "m_nPlayerCond", player_proxysend_cond);
+		proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
 		proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
 		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer a loser! Congratulations.");
@@ -1347,27 +1427,17 @@ static void unequip_config_basic(int client)
 	}
 }
 
-static void unequip_config(int client, bool force = false, bool from_unload = false)
+static void unequip_config(int client, bool force = false)
 {
 	unequip_config_basic(client);
 
 	player_config[client].clear();
 
-	remove_playermodel(client);
-}
-
-static bool can_equip_config(int client)
-{
-	return (player_thirdparty_model[client].model[0] == '\0');
+	handle_playermodel(client);
 }
 
 static bool equip_config_basic(int client, int idx, ConfigInfo info)
 {
-	if(!can_equip_config(client)) {
-		CPrintToChat(client, PM2_CHAT_PREFIX ... "you cannot equip a model at this time");
-		return false;
-	}
-
 	unequip_config_basic(client);
 
 	player_config[client].clear();
@@ -1684,8 +1754,7 @@ static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	TFClassType player_class = TF2_GetPlayerClass(client);
-	if(player_class == TFClass_Unknown ||
+	if(TF2_GetPlayerClass(client) == TFClass_Unknown ||
 		GetClientTeam(client) < 2) {
 		return;
 	}
@@ -1701,9 +1770,9 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_taunt_prop);
 
-		proxysend_unhook(client, "m_nPlayerCondEx2", player_proxysend_cond2);
+		proxysend_unhook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond);
 
-		proxysend_unhook(client, "m_nPlayerCond", player_proxysend_cond);
+		proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
 		proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
 		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
 
@@ -2508,7 +2577,9 @@ static void handle_weapon_switch(int client, int weapon, bool do_playermodel)
 
 	handle_viewmodel(client, weapon);
 
-	if(do_playermodel && !player_taunt_vars[client].attempting_to_taunt && !TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
+	if(do_playermodel &&
+		!player_taunt_vars[client].attempting_to_taunt &&
+		!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
 		handle_playermodel(client);
 	}
 }
@@ -2522,7 +2593,7 @@ public void OnPluginEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
-			unequip_config(i, true, true);
+			unequip_config(i, true);
 			OnClientDisconnect(i);
 		}
 	}
@@ -2542,20 +2613,29 @@ static void cl_first_person_uses_world_model_query(QueryCookie cookie, int clien
 	}
 }
 
-static Action player_proxysend_cond(int entity, const char[] prop, int &value, int element, int client)
+static Action player_proxysend_loser_cond(int entity, const char[] prop, int &value, int element, int client)
 {
 	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
 	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
-		value |= (1 << view_as<int>(TFCond_Dazed));
+		value |= get_bit_for_cond(TFCond_Dazed);
 		return Plugin_Changed;
 	}
 	return Plugin_Continue;
 }
 
-static Action player_proxysend_cond2(int entity, const char[] prop, int &value, int element, int client)
+static Action player_proxysend_water_level(int entity, const char[] prop, int &value, int element, int client)
 {
 	if(player_swim[entity]) {
-		value |= (1 << (view_as<int>(TFCond_SwimmingCurse) - 64));
+		value = WL_Eyes;
+		return Plugin_Changed;
+	}
+	return Plugin_Continue;
+}
+
+static Action player_proxysend_swim_cond(int entity, const char[] prop, int &value, int element, int client)
+{
+	if(player_swim[entity]) {
+		value |= get_bit_for_cond(TFCond_SwimmingCurse);
 		return Plugin_Changed;
 	}
 	return Plugin_Continue;
@@ -2590,7 +2670,7 @@ public void OnClientPutInServer(int client)
 		QueryClientConVar(client, "cl_first_person_uses_world_model", cl_first_person_uses_world_model_query);
 	}
 
-	//CBaseEntity_ModifyOrAppendCriteria_hook.HookEntity(Hook_Post, client, CBaseEntity_ModifyOrAppendCriteria_detour_post);
+	CBaseEntity_ModifyOrAppendCriteria_hook.HookEntity(Hook_Post, client, CBaseEntity_ModifyOrAppendCriteria_detour_post);
 	//CBasePlayer_GetSceneSoundToken_hook.HookEntity(Hook_Pre, client, CBasePlayer_GetSceneSoundToken_detour);
 }
 
@@ -2610,32 +2690,54 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 		PrintToServer(PM2_CON_PREFIX ... "sound_hook %i %s, %s", entity, sample, soundEntry);
 	#endif
 		if(player_config[entity].idx != -1) {
+			bool was_client_side = is_sound_client_side(sample);
+		#if defined DEBUG
+			PrintToServer(PM2_CON_PREFIX ... "was_client_side = %i", was_client_side);
+		#endif
+
 			bool anything_changed = false;
 
 			if(player_config[entity].sound_variables != null) {
-				SoundVariableReplacementInfo sound_variable_replace_info;
+				char sound_var_value[MAX_SOUND_VAR_VALUE];
 
-				int sounds_len = player_config[entity].sound_variables.Length;
-				for(int i = 0; i < sounds_len; ++i) {
-					player_config[entity].sound_variables.GetArray(i, sound_variable_replace_info, sizeof(SoundVariableReplacementInfo));
+				char player_class_name[CLASS_NAME_MAX + MAX_SOUND_VAR_VALUE];
 
-					if(StrEqual(sound_variable_replace_info.what, "player_class")) {
-						char player_class_name[CLASS_NAME_MAX];
-						TFClassType player_class = get_player_class(entity);
-						get_class_name(player_class, player_class_name, CLASS_NAME_MAX);
-						if(StrEqual(sound_variable_replace_info.with_, "model_class")) {
-							TFClassType model_class = player_config[entity].model_class;
-							if(model_class != TFClass_Unknown) {
-								char model_class_name[CLASS_NAME_MAX];
-								get_class_name(model_class, model_class_name, CLASS_NAME_MAX);
-								ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
-							#if defined DEBUG
-								PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
-							#endif
-								anything_changed = true;
-							}
+				if(player_config[entity].sound_variables.GetString("player_class", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+					TFClassType player_class = get_player_class(entity);
+					get_class_name(player_class, player_class_name, sizeof(player_class_name));
+					if(StrEqual(sound_var_value, "model_class")) {
+						TFClassType model_class = player_config[entity].model_class;
+						if(model_class != TFClass_Unknown) {
+							char model_class_name[CLASS_NAME_MAX];
+							get_class_name(model_class, model_class_name, CLASS_NAME_MAX);
+							ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
+							anything_changed = true;
+						#if defined DEBUG
+							PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
+						#endif
+							strcopy(player_class_name, sizeof(player_class_name), model_class_name);
 						}
 					}
+				}
+
+				if(player_config[entity].sound_variables.GetString("player_class_append", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+					char player_class_name_new[CLASS_NAME_MAX + MAX_SOUND_VAR_VALUE];
+					strcopy(player_class_name_new, sizeof(player_class_name_new), player_class_name);
+					StrCat(player_class_name_new, sizeof(player_class_name_new), sound_var_value);
+					ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, player_class_name_new);
+					anything_changed = true;
+				#if defined DEBUG
+					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, player_class_name_new);
+				#endif
+					strcopy(player_class_name, sizeof(player_class_name), player_class_name_new);
+				}
+
+				if(player_config[entity].sound_variables.GetString("vo", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+					ReplaceString(sample, PLATFORM_MAX_PATH, "vo/", sound_var_value);
+					anything_changed = true;
+				#if defined DEBUG
+					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable vo/ with %s", sound_var_value);
+				#endif
 				}
 			}
 			if(player_config[entity].sound_replacements != null) {
@@ -2676,8 +2778,18 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 			if(anything_changed) {
 				char sound_path[PLATFORM_MAX_PATH];
 				strcopy(sound_path, PLATFORM_MAX_PATH, "sound/");
-				StrCat(sound_path, PLATFORM_MAX_PATH, sample);
+				char sample_clean[PLATFORM_MAX_PATH];
+				strcopy(sample_clean, PLATFORM_MAX_PATH, sample);
+				ReplaceString(sample_clean, PLATFORM_MAX_PATH, ")", "");
+				StrCat(sound_path, PLATFORM_MAX_PATH, sample_clean);
+			#if defined DEBUG
+				PrintToServer(PM2_CON_PREFIX ... "sound_path = %s", sound_path);
+			#endif
 				if(FileExists(sound_path, true)) {
+					PrecacheSound(sample);
+					if(was_client_side) {
+						clients[numClients++] = entity;
+					}
 					return Plugin_Changed;
 				}
 			} else if(player_config[entity].flags & config_flags_no_voicelines) {
@@ -2696,6 +2808,15 @@ static MRESReturn CBaseEntity_ModifyOrAppendCriteria_detour_post(int pThis, DHoo
 
 static MRESReturn CBasePlayer_GetSceneSoundToken_detour(int pThis, DHookReturn hReturn)
 {
+	if(player_config[pThis].sound_variables != null) {
+		char sound_var_value[MAX_SOUND_VAR_VALUE];
+
+		if(player_config[pThis].sound_variables.GetString("token", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+			hReturn.SetString(sound_var_value);
+			return MRES_Supercede;
+		}
+	}
+
 	return MRES_Ignored;
 }
 
@@ -2928,7 +3049,7 @@ static void post_inventory_application(Event event, const char[] name, bool dont
 	int userid = event.GetInt("userid");
 	int client = GetClientOfUserId(userid);
 
-	proxysend_unhook(client, "m_nPlayerCond", player_proxysend_cond);
+	proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
 	proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
 	proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
 
@@ -2998,10 +3119,14 @@ static void player_think_model(int client)
 	int a = 255;
 	GetEntityRenderColor(client, r, g, b, a);
 
-	float invisibility = (1.0 - GetEntDataFloat(client, CTFPlayer_m_flInvisibility_offset));
-	int invisibility_alpha = RoundToCeil(255 * invisibility);
-	if(invisibility_alpha < a) {
-		a = invisibility_alpha;
+	if(get_player_class(client) == TFClass_Spy) {
+		if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
+			float invisibility = (1.0 - GetEntDataFloat(client, CTFPlayer_m_flInvisibility_offset));
+			int invisibility_alpha = RoundToCeil(255 * invisibility);
+			if(invisibility_alpha < a) {
+				a = invisibility_alpha;
+			}
+		}
 	}
 
 	SetEntityRenderColor(entity, r, g, b, a);
@@ -3010,7 +3135,11 @@ static void player_think_model(int client)
 static Action player_proxysend_render_color(int entity, const char[] prop, int &value, int element, int client)
 {
 #if defined DEBUG
-	PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+	static float lastprint = 0.0;
+	if(lastprint <= GetGameTime()) {
+		//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+		lastprint = GetGameTime() + 0.1;
+	}
 #endif
 
 	if(client == entity && get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
@@ -3032,7 +3161,7 @@ static Action player_proxysend_render_color(int entity, const char[] prop, int &
 static Action player_proxysend_render_mode(int entity, const char[] prop, int &value, int element, int client)
 {
 #if defined DEBUG
-	PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+	//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
 #endif
 
 	if(client == entity && get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {

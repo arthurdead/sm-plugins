@@ -1,0 +1,56 @@
+"Playermodels"
+{
+	"spy"
+	{
+		"model_class" "spy"
+		"model" "models/bots/spy/bot_spy.mdl"
+	}
+
+	"heavy"
+	{
+		"model_class" "heavy"
+		"model" "models/bots/heavy/bot_heavy.mdl"
+	}
+
+	"sniper"
+	{
+		"model_class" "sniper"
+		"model" "models/bots/sniper/bot_sniper.mdl"
+	}
+
+	"demoman"
+	{
+		"model_class" "demo"
+		"model" "models/bots/demo/bot_demo.mdl"
+	}
+
+	"medic"
+	{
+		"model_class" "medic"
+		"model" "models/bots/medic/bot_medic.mdl"
+	}
+
+	"scout"
+	{
+		"model_class" "scout"
+		"model" "models/bots/scout/bot_scout.mdl"
+	}
+
+	"soldier"
+	{
+		"model_class" "soldier"
+		"model" "models/bots/soldier/bot_soldier.mdl"
+	}
+
+	"pyro"
+	{
+		"model_class" "pyro"
+		"model" "models/bots/pyro/bot_pyro.mdl"
+	}
+
+	"engineer"
+	{
+		"model_class" "engineer"
+		"model" "models/bots/engineer/bot_engineer.mdl"
+	}
+}
