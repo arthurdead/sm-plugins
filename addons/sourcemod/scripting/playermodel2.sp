@@ -11,7 +11,11 @@
 #include <proxysend>
 #include <regex>
 
-//#define DEBUG
+//#define DEBUG_CONFIG
+//#define DEBUG_MODEL
+//#define DEBUG_VIEWMODEL
+//#define DEBUG_TAUNT
+//#define DEBUG_PROXYSEND
 
 /*
 TODO!!!
@@ -630,7 +634,7 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 						break;
 					}
 
-				#if defined DEBUG
+				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "created regex %s", any_file_path);
 				#endif
 
@@ -1182,15 +1186,16 @@ static Action sm_loser(int client, int args)
 static void tf_always_loser_changed(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			if(IsPlayerAlive(i) &&
-				GetClientTeam(i) > 1 &&
-				TF2_GetPlayerClass(i) != TFClass_Unknown) {
-				if(!player_taunts_in_firstperson(i)) {
-					int weapon = GetEntPropEnt(i, Prop_Send, "m_hActiveWeapon");
-					handle_viewmodel(i, weapon);
-				}
-			}
+		if(!IsClientInGame(i) ||
+			!IsPlayerAlive(i) ||
+			GetClientTeam(i) < 2 ||
+			TF2_GetPlayerClass(i) == TFClass_Unknown) {
+			continue;
+		}
+
+		if(!player_taunts_in_firstperson(i)) {
+			int weapon = GetEntPropEnt(i, Prop_Send, "m_hActiveWeapon");
+			handle_viewmodel(i, weapon);
 		}
 	}
 }
@@ -1358,12 +1363,12 @@ public void OnMapStart()
 					sound_replace_info.destinations.GetArray(k, sound_info, sizeof(SoundInfo));
 					if(sound_info.is_script) {
 						PrecacheScriptSound(sound_info.path);
-					#if defined DEBUG
+					#if defined DEBUG_CONFIG
 						PrintToServer(PM2_CON_PREFIX ... "precached sound script %s from replace", sound_info.path);
 					#endif
 					} else {
 						PrecacheSound(sound_info.path);
-					#if defined DEBUG
+					#if defined DEBUG_CONFIG
 						PrintToServer(PM2_CON_PREFIX ... "precached sound %s from replace", sound_info.path);
 					#endif
 					}
@@ -1377,12 +1382,12 @@ public void OnMapStart()
 				info.sound_precaches.GetArray(j, sound_info, sizeof(SoundInfo));
 				if(sound_info.is_script) {
 					PrecacheScriptSound(sound_info.path);
-				#if defined DEBUG
+				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "precached sound script %s from precache", sound_info.path);
 				#endif
 				} else {
 					PrecacheSound(sound_info.path);
-				#if defined DEBUG
+				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "precached sound %s from precache", sound_info.path);
 				#endif
 				}
@@ -1830,7 +1835,7 @@ static void frame_ragdoll_created(int entity)
 
 static void frame_taunt_prop_created(int entity)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "taunt prop created");
 #endif
 }
@@ -1928,7 +1933,7 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 #if defined _tauntmanager_included_
 public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, TFClassType modelClass, bool hasBonemergeSupport)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "TauntManager_ApplyTauntModel %s %i %i", tauntModel, modelClass, hasBonemergeSupport);
 #endif
 	player_taunt_vars[client].attempting_to_taunt = true;
@@ -1941,7 +1946,7 @@ public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, 
 
 public Action TauntManager_RemoveTauntModel(int client)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "TauntManager_RemoveTauntModel");
 #endif
 	player_custom_taunt_model[client].clear();
@@ -1951,12 +1956,14 @@ public Action TauntManager_RemoveTauntModel(int client)
 
 static void handle_taunt_attempt(int client, ArrayList supported_classes)
 {
-	TFClassType player_class = player_taunt_vars[client].class_pre_taunt;
+	TFClassType player_class = get_player_class(client);
 
 	int len = supported_classes.Length;
 	if(len > 0) {
 		TFClassType desired_class = TFClass_Unknown;
-		if(supported_classes.FindValue(player_class) != -1) {
+		if(player_custom_taunt_model[client].class != TFClass_Unknown) {
+			desired_class = player_custom_taunt_model[client].class;
+		} else if(supported_classes.FindValue(player_class) != -1) {
 			desired_class = player_class;
 		} else {
 			desired_class = supported_classes.Get(GetRandomInt(0, len-1));
@@ -2009,7 +2016,7 @@ static MRESReturn CTFPlayer_Taunt_detour(int pThis, DHookParam hParams)
 
 	delete supported_classes;
 
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::Taunt(%i)::pre", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2059,7 +2066,7 @@ static MRESReturn CTFPlayer_PlayTauntSceneFromItem_detour(int pThis, DHookReturn
 		delete supported_classes;
 	}
 
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::PlayTauntSceneFromItem(%i)::pre", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2087,7 +2094,7 @@ static void handle_taunt_attempt_outro(int client)
 
 static MRESReturn CTFPlayer_Taunt_detour_post(int pThis, DHookParam hParams)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::Taunt(%i)::post", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2099,7 +2106,7 @@ static MRESReturn CTFPlayer_Taunt_detour_post(int pThis, DHookParam hParams)
 
 static MRESReturn CTFPlayer_PlayTauntOutroScene_detour(int pThis, DHookReturn hReturn)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::PlayTauntOutroScene(%i)::pre", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2111,7 +2118,7 @@ static MRESReturn CTFPlayer_PlayTauntOutroScene_detour(int pThis, DHookReturn hR
 
 static MRESReturn CTFPlayer_PlayTauntRemapInputScene_detour(int pThis, DHookReturn hReturn)
 {
-#if defined DEBUG && 0
+#if defined DEBUG_TAUNT && 0
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::PlayTauntRemapInputScene(%i)::pre", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2123,7 +2130,7 @@ static MRESReturn CTFPlayer_PlayTauntRemapInputScene_detour(int pThis, DHookRetu
 
 static MRESReturn CTFPlayer_EndLongTaunt_detour(int pThis, DHookReturn hReturn)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::EndLongTaunt(%i)::pre", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2135,7 +2142,7 @@ static MRESReturn CTFPlayer_EndLongTaunt_detour(int pThis, DHookReturn hReturn)
 
 static MRESReturn CTFPlayer_PlayTauntSceneFromItem_detour_post(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::PlayTauntSceneFromItem(%i)::post", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2147,7 +2154,7 @@ static MRESReturn CTFPlayer_PlayTauntSceneFromItem_detour_post(int pThis, DHookR
 
 static MRESReturn CTFPlayer_EndLongTaunt_detour_post(int pThis, DHookReturn hReturn)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::EndLongTaunt(%i)::post", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2159,7 +2166,7 @@ static MRESReturn CTFPlayer_EndLongTaunt_detour_post(int pThis, DHookReturn hRet
 
 static MRESReturn CTFPlayer_PlayTauntRemapInputScene_detour_post(int pThis, DHookReturn hReturn)
 {
-#if defined DEBUG && 0
+#if defined DEBUG_TAUNT && 0
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::PlayTauntRemapInputScene(%i)::post", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2171,7 +2178,7 @@ static MRESReturn CTFPlayer_PlayTauntRemapInputScene_detour_post(int pThis, DHoo
 
 static MRESReturn CTFPlayer_PlayTauntOutroScene_detour_post(int pThis, DHookReturn hReturn)
 {
-#if defined DEBUG
+#if defined DEBUG_TAUNT
 	PrintToServer(PM2_CON_PREFIX ... "CTFPlayer::PlayTauntOutroScene(%i)::post", pThis);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class = %i", player_taunt_vars[pThis].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_vars.class_pre_taunt = %i", player_taunt_vars[pThis].class_pre_taunt);
@@ -2185,7 +2192,7 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 {
 	switch(condition) {
 		case TFCond_Taunting: {
-		#if defined DEBUG
+		#if defined DEBUG_TAUNT
 			PrintToServer(PM2_CON_PREFIX ... "TF2_OnConditionAdded taunt");
 		#endif
 			player_taunt_vars[client].attempting_to_taunt = true;
@@ -2199,7 +2206,7 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	switch(condition) {
 		case TFCond_Taunting: {
-		#if defined DEBUG
+		#if defined DEBUG_TAUNT
 			PrintToServer(PM2_CON_PREFIX ... "TF2_OnConditionRemoved taunt");
 		#endif
 			player_taunt_vars[client].clear();
@@ -2491,7 +2498,7 @@ static void handle_viewmodel(int client, int weapon)
 			}
 		}
 
-	#if defined DEBUG
+	#if defined DEBUG_VIEWMODEL
 		PrintToServer(PM2_CON_PREFIX ... "  arm_class = %i", arm_class);
 	#endif
 
@@ -2516,7 +2523,7 @@ static void handle_viewmodel(int client, int weapon)
 			} else {
 				get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
 			}
-		#if defined DEBUG
+		#if defined DEBUG_VIEWMODEL
 			PrintToServer(PM2_CON_PREFIX ... "  arm_model = %s", model);
 		#endif
 			idx = get_model_index(model);
@@ -2563,7 +2570,7 @@ static void handle_viewmodel(int client, int weapon)
 
 static void handle_weapon_switch(int client, int weapon, bool do_playermodel)
 {
-#if defined DEBUG
+#if defined DEBUG_VIEWMODEL
 	PrintToServer(PM2_CON_PREFIX ... "handle_weapon_switch(%i)", client);
 #endif
 
@@ -2615,6 +2622,9 @@ static void cl_first_person_uses_world_model_query(QueryCookie cookie, int clien
 
 static Action player_proxysend_loser_cond(int entity, const char[] prop, int &value, int element, int client)
 {
+#if defined DEBUG_PROXYSEND
+	PrintToServer(PM2_CON_PREFIX ... "player_proxysend_loser_cond(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+#endif
 	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
 	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
 		value |= get_bit_for_cond(TFCond_Dazed);
@@ -2686,12 +2696,12 @@ static bool is_sound_client_side(const char[] sample)
 static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
 	if(entity >= 1 && entity <= MaxClients) {
-	#if defined DEBUG
+	#if defined DEBUG_CONFIG
 		PrintToServer(PM2_CON_PREFIX ... "sound_hook %i %s, %s", entity, sample, soundEntry);
 	#endif
 		if(player_config[entity].idx != -1) {
 			bool was_client_side = is_sound_client_side(sample);
-		#if defined DEBUG
+		#if defined DEBUG_CONFIG
 			PrintToServer(PM2_CON_PREFIX ... "was_client_side = %i", was_client_side);
 		#endif
 
@@ -2712,7 +2722,7 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 							get_class_name(model_class, model_class_name, CLASS_NAME_MAX);
 							ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
 							anything_changed = true;
-						#if defined DEBUG
+						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
 						#endif
 							strcopy(player_class_name, sizeof(player_class_name), model_class_name);
@@ -2726,7 +2736,7 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 					StrCat(player_class_name_new, sizeof(player_class_name_new), sound_var_value);
 					ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, player_class_name_new);
 					anything_changed = true;
-				#if defined DEBUG
+				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, player_class_name_new);
 				#endif
 					strcopy(player_class_name, sizeof(player_class_name), player_class_name_new);
@@ -2735,7 +2745,7 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 				if(player_config[entity].sound_variables.GetString("vo", sound_var_value, MAX_SOUND_VAR_VALUE)) {
 					ReplaceString(sample, PLATFORM_MAX_PATH, "vo/", sound_var_value);
 					anything_changed = true;
-				#if defined DEBUG
+				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable vo/ with %s", sound_var_value);
 				#endif
 				}
@@ -2758,7 +2768,7 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 						int destination_idx = GetRandomInt(0, sound_replace_info.destinations.Length-1);
 						sound_replace_info.destinations.GetArray(destination_idx, sound_info, sizeof(SoundInfo));
 						if(sound_info.is_script) {
-						#if defined DEBUG
+						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound script %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
 						#endif
 							if(GetGameSoundParams(sound_info.path, channel, level, volume, pitch, sample, PLATFORM_MAX_PATH, entity)) {
@@ -2766,7 +2776,7 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 								anything_changed = true;
 							}
 						} else {
-						#if defined DEBUG
+						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
 						#endif
 							strcopy(sample, PLATFORM_MAX_PATH, sound_info.path);
@@ -2782,7 +2792,7 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 				strcopy(sample_clean, PLATFORM_MAX_PATH, sample);
 				ReplaceString(sample_clean, PLATFORM_MAX_PATH, ")", "");
 				StrCat(sound_path, PLATFORM_MAX_PATH, sample_clean);
-			#if defined DEBUG
+			#if defined DEBUG_CONFIG
 				PrintToServer(PM2_CON_PREFIX ... "sound_path = %s", sound_path);
 			#endif
 				if(FileExists(sound_path, true)) {
@@ -2890,9 +2900,6 @@ static int get_or_create_player_model_entity(int client)
 
 	SDKHook(client, SDKHook_PostThinkPost, player_think_model);
 
-#if defined DEBUG
-	PrintToServer(PM2_CON_PREFIX ... "proxysend hooked %i", client);
-#endif
 	proxysend_hook(client, "m_clrRender", player_proxysend_render_color, true);
 	proxysend_hook(client, "m_nRenderMode", player_proxysend_render_mode, true);
 
@@ -2924,9 +2931,6 @@ static void delete_player_model_entity(int client)
 
 	SDKUnhook(client, SDKHook_PostThinkPost, player_think_model);
 
-#if defined DEBUG
-	PrintToServer(PM2_CON_PREFIX ... "proxysend unhooked %i", client);
-#endif
 	proxysend_unhook(client, "m_clrRender", player_proxysend_render_color);
 	proxysend_unhook(client, "m_nRenderMode", player_proxysend_render_mode);
 
@@ -3134,7 +3138,7 @@ static void player_think_model(int client)
 
 static Action player_proxysend_render_color(int entity, const char[] prop, int &value, int element, int client)
 {
-#if defined DEBUG
+#if defined DEBUG_PROXYSEND
 	static float lastprint = 0.0;
 	if(lastprint <= GetGameTime()) {
 		//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
@@ -3160,7 +3164,7 @@ static Action player_proxysend_render_color(int entity, const char[] prop, int &
 
 static Action player_proxysend_render_mode(int entity, const char[] prop, int &value, int element, int client)
 {
-#if defined DEBUG
+#if defined DEBUG_PROXYSEND
 	//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
 #endif
 
@@ -3288,7 +3292,7 @@ static int team_for_skin(int skin)
 
 static void handle_playermodel(int client)
 {
-#if defined DEBUG
+#if defined DEBUG_MODEL
 	PrintToServer(PM2_CON_PREFIX ... "handle_playermodel(%i)", client);
 	PrintToServer(PM2_CON_PREFIX ... "  TFCond_Disguised = %i", TF2_IsPlayerInCondition(client, TFCond_Disguised));
 	PrintToServer(PM2_CON_PREFIX ... "  player_taunt_animation_class = %i", player_taunt_vars[client].class);
@@ -3373,7 +3377,7 @@ static void handle_playermodel(int client)
 		}
 	}
 
-#if defined DEBUG
+#if defined DEBUG_MODEL
 	PrintToServer(PM2_CON_PREFIX ... "  animation_model = %s", animation_model);
 	PrintToServer(PM2_CON_PREFIX ... "  player_model = %s", player_model);
 	PrintToServer(PM2_CON_PREFIX ... "  bonemerge = %i", bonemerge);
