@@ -4,7 +4,6 @@
 #include <morecolors>
 #include <tf2items>
 #include <tf_econ_data>
-#tryinclude <tauntmanager>
 #include <teammanager_gameplay>
 #include <tf2utils>
 #include <stocksoup/memory>
@@ -16,6 +15,10 @@
 //#define DEBUG_VIEWMODEL
 //#define DEBUG_TAUNT
 //#define DEBUG_PROXYSEND
+
+#undef REQUIRE_PLUGIN
+#tryinclude <tauntmanager>
+#define REQUIRE_PLUGIN
 
 /*
 TODO!!!
@@ -1940,6 +1943,11 @@ public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, 
 	player_custom_taunt_model[client].bonemerge = hasBonemergeSupport;
 	player_custom_taunt_model[client].class = modelClass;
 	strcopy(player_custom_taunt_model[client].model, PLATFORM_MAX_PATH, tauntModel);
+	if(modelClass != TFClass_Unknown) {
+		player_taunt_vars[client].class = modelClass;
+		player_taunt_vars[client].class_pre_taunt = TF2_GetPlayerClass(client);
+		TF2_SetPlayerClass(client, modelClass);
+	}
 	handle_playermodel(client);
 	return Plugin_Handled;
 }
@@ -1954,6 +1962,7 @@ public Action TauntManager_RemoveTauntModel(int client)
 }
 #endif
 
+//TODO!!! refactor this
 static void handle_taunt_attempt(int client, ArrayList supported_classes)
 {
 	TFClassType player_class = get_player_class(client);
@@ -1976,6 +1985,10 @@ static void handle_taunt_attempt(int client, ArrayList supported_classes)
 
 static bool handle_taunt_attempt_pre(int client)
 {
+	if(player_custom_taunt_model[client].class != TFClass_Unknown) {
+		return false;
+	}
+
 	player_taunt_vars[client].class_pre_taunt = TFClass_Unknown;
 	player_taunt_vars[client].class = TFClass_Unknown;
 
