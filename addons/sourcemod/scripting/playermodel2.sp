@@ -237,6 +237,7 @@ static ArrayList configs;
 static StringMap config_idx_map;
 
 static int no_damage_gameplay_group = INVALID_GAMEPLAY_GROUP;
+static bool tauntmanager_loaded;
 
 static int modelprecache = INVALID_STRING_TABLE;
 
@@ -1287,10 +1288,17 @@ static MRESReturn CTFPlayerShared_RecalculatePlayerBodygroups_detour_post(Addres
 	return MRES_Ignored;
 }
 
+public void OnAllPluginsLoaded()
+{
+	tauntmanager_loaded = LibraryExists("tauntmanager");
+}
+
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "teammanager_gameplay")) {
 		no_damage_gameplay_group = TeamManager_NewGameplayGroup(Gameplay_Friendly);
+	} else if(StrEqual(name, "tauntmanager")) {
+		tauntmanager_loaded = true;
 	}
 }
 
@@ -1298,6 +1306,8 @@ public void OnLibraryRemoved(const char[] name)
 {
 	if(StrEqual(name, "teammanager_gameplay")) {
 		no_damage_gameplay_group = INVALID_GAMEPLAY_GROUP;
+	} else if(StrEqual(name, "tauntmanager")) {
+		tauntmanager_loaded = false;
 	}
 }
 
@@ -2011,10 +2021,14 @@ static MRESReturn CTFPlayer_Taunt_detour(int pThis, DHookParam hParams)
 	ArrayList supported_classes = new ArrayList();
 
 #if defined _tauntmanager_included_
-	TauntManager_CodeTaunt code_taunt = TauntManager_GetCurrentCodeTaunt(pThis);
-	if(code_taunt != TauntManager_InvalidCodeTaunt) {
-		TauntManager_GetCodeTauntUsableClasses(code_taunt, supported_classes);
-	} else
+	TauntManager_CodeTaunt code_taunt = TauntManager_InvalidCodeTaunt;
+	if(tauntmanager_loaded) {
+		code_taunt = TauntManager_GetCurrentCodeTaunt(pThis);
+		if(code_taunt != TauntManager_InvalidCodeTaunt) {
+			TauntManager_GetCodeTauntUsableClasses(code_taunt, supported_classes);
+		}
+	}
+	if(code_taunt == TauntManager_InvalidCodeTaunt)
 #endif
 	{
 		int weapon = GetEntPropEnt(pThis, Prop_Send, "m_hActiveWeapon");
@@ -3149,26 +3163,18 @@ static void player_think_model(int client)
 	SetEntityRenderColor(entity, r, g, b, a);
 }
 
-static Action player_proxysend_render_color(int entity, const char[] prop, int &value, int element, int client)
+static Action player_proxysend_render_color(int entity, const char[] prop, int &r, int &g, int &b, int &a, int element, int client)
 {
 #if defined DEBUG_PROXYSEND
 	static float lastprint = 0.0;
 	if(lastprint <= GetGameTime()) {
-		//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+		PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, [%i, %i, %i, %i], %i, %i)", entity, prop, r, g, b, a, element, client);
 		lastprint = GetGameTime() + 0.1;
 	}
 #endif
 
 	if(client == entity && get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
-		int r = (value & 255);
-		int g = ((value >> 8) & 255);
-		int b = ((value >> 16) & 255);
-		int a = 0;
-
-		value = a;
-		value = (value << 8) + b;
-		value = (value << 8) + g;
-		value = (value << 8) + r;
+		a = 0;
 		return Plugin_Changed;
 	}
 

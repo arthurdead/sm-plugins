@@ -700,26 +700,26 @@ Action command_menu(int client, const char[] command, int args)
 	return Plugin_Continue;
 }
 
-Action HookIsTraining(int entity, const char[] prop, int &value, int element, int client)
+Action HookIsTraining(int entity, const char[] prop, bool &value, int element, int client)
 {
 	if(msg_enabled[client]) {
 		if(player_wants_vgui[client] != 0) {
-			value = 0;
+			value = false;
 		} else {
-			value = 1;
+			value = true;
 		}
 	} else {
-		value = 0;
+		value = false;
 	}
 	return Plugin_Changed;
 }
 
-Action HookIsContinue(int entity, const char[] prop, int &value, int element, int client)
+Action HookIsContinue(int entity, const char[] prop, bool &value, int element, int client)
 {
 	if(msg_enabled[client] && MsgHasContinue(client)) {
-		value = 1;
+		value = true;
 	} else {
-		value = 0;
+		value = false;
 	}
 	return Plugin_Changed;
 }
