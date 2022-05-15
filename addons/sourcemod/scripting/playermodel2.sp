@@ -1097,27 +1097,6 @@ public void OnPluginStart()
 
 		on_player_spawned(i);
 	}
-
-	AddCommandListener(say, "say");
-	AddCommandListener(say_team, "say_team");
-}
-
-static Action say(int client, const char[] command, int argc)
-{
-	if(client == 0) {
-		return Plugin_Continue;
-	}
-
-	return Plugin_Continue;
-}
-
-static Action say_team(int client, const char[] command, int argc)
-{
-	if(client == 0) {
-		return Plugin_Continue;
-	}
-
-	return Plugin_Continue;
 }
 
 static void set_player_screen_overlay(int client, const char[] path)
@@ -1943,7 +1922,6 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 	}
 }
 
-#if defined _tauntmanager_included_
 public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, TFClassType modelClass, bool hasBonemergeSupport)
 {
 #if defined DEBUG_TAUNT
@@ -1953,11 +1931,6 @@ public Action TauntManager_ApplyTauntModel(int client, const char[] tauntModel, 
 	player_custom_taunt_model[client].bonemerge = hasBonemergeSupport;
 	player_custom_taunt_model[client].class = modelClass;
 	strcopy(player_custom_taunt_model[client].model, PLATFORM_MAX_PATH, tauntModel);
-	if(modelClass != TFClass_Unknown) {
-		player_taunt_vars[client].class = modelClass;
-		player_taunt_vars[client].class_pre_taunt = TF2_GetPlayerClass(client);
-		TF2_SetPlayerClass(client, modelClass);
-	}
 	handle_playermodel(client);
 	return Plugin_Handled;
 }
@@ -1970,7 +1943,6 @@ public Action TauntManager_RemoveTauntModel(int client)
 	player_custom_taunt_model[client].clear();
 	return Plugin_Handled;
 }
-#endif
 
 //TODO!!! refactor this
 static void handle_taunt_attempt(int client, ArrayList supported_classes)
@@ -1995,10 +1967,6 @@ static void handle_taunt_attempt(int client, ArrayList supported_classes)
 
 static bool handle_taunt_attempt_pre(int client)
 {
-	if(player_custom_taunt_model[client].class != TFClass_Unknown) {
-		return false;
-	}
-
 	player_taunt_vars[client].class_pre_taunt = TFClass_Unknown;
 	player_taunt_vars[client].class = TFClass_Unknown;
 
