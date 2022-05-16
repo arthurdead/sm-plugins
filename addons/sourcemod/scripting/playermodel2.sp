@@ -2895,8 +2895,8 @@ static int get_or_create_player_model_entity(int client)
 
 	SDKHook(client, SDKHook_PostThinkPost, player_think_model);
 
-	proxysend_hook(client, "m_clrRender", player_proxysend_render_color, true);
-	proxysend_hook(client, "m_nRenderMode", player_proxysend_render_mode, true);
+	proxysend_hook(client, "m_clrRender", player_proxysend_render_color, false);
+	proxysend_hook(client, "m_nRenderMode", player_proxysend_render_mode, false);
 
 	ChangeEdictState(client);
 
@@ -3141,7 +3141,7 @@ static Action player_proxysend_render_color(int entity, const char[] prop, int &
 	}
 #endif
 
-	if(client == entity && get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
+	if(get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
 		a = 0;
 		return Plugin_Changed;
 	}
@@ -3155,7 +3155,7 @@ static Action player_proxysend_render_mode(int entity, const char[] prop, int &v
 	//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
 #endif
 
-	if(client == entity && get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
+	if(get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
 		value = view_as<int>(RENDER_TRANSCOLOR);
 		return Plugin_Changed;
 	}

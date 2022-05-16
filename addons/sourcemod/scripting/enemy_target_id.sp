@@ -67,7 +67,7 @@ static void player_think_post(int client)
 	int ent = TR_GetEntityIndex();
 	if(ent >= 1 && ent <= MaxClients) {
 		m_iIDEntIndex[client] = EntIndexToEntRef(ent);
-		proxysend_hook(client, "m_nPlayerState", player_proxysend_state, true);
+		proxysend_hook(client, "m_nPlayerState", player_proxysend_state, false);
 	} else {
 		m_iIDEntIndex[client] = INVALID_ENT_REFERENCE;
 		proxysend_unhook(client, "m_nPlayerState", player_proxysend_state);
@@ -76,7 +76,7 @@ static void player_think_post(int client)
 
 static Action player_proxysend_state(int entity, const char[] prop, int &value, int element, int client)
 {
-	if(client == entity && m_iIDEntIndex[entity] != INVALID_ENT_REFERENCE) {
+	if(m_iIDEntIndex[entity] != INVALID_ENT_REFERENCE) {
 		value = TF_STATE_DYING;
 		return Plugin_Changed;
 	}
