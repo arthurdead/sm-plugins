@@ -1944,6 +1944,28 @@ public Action TauntManager_RemoveTauntModel(int client)
 	return Plugin_Handled;
 }
 
+public void TauntManager_OnCodeTauntStatePre(int client)
+{
+	handle_taunt_attempt_pre_safe(client);
+
+#if defined _tauntmanager_included_
+	if(tauntmanager_loaded) {
+		TauntManager_CodeTaunt code_taunt = TauntManager_GetCurrentCodeTaunt(client);
+		if(code_taunt != TauntManager_InvalidCodeTaunt) {
+			ArrayList supported_classes = new ArrayList();
+			TauntManager_GetCodeTauntUsableClasses(code_taunt, supported_classes);
+			handle_taunt_attempt(client, supported_classes);
+			delete supported_classes;
+		}
+	}
+#endif
+}
+
+public void TauntManager_OnCodeTauntStatePost(int client)
+{
+	handle_taunt_attempt_post(client);
+}
+
 //TODO!!! refactor this
 static void handle_taunt_attempt(int client, ArrayList supported_classes)
 {
@@ -1963,6 +1985,16 @@ static void handle_taunt_attempt(int client, ArrayList supported_classes)
 		handle_playermodel(client);
 		TF2_SetPlayerClass(client, desired_class);
 	}
+}
+
+static bool handle_taunt_attempt_pre_safe(int client)
+{
+	player_taunt_vars[client].class = TFClass_Unknown;
+
+	player_taunt_vars[client].attempting_to_taunt = true;
+	player_taunt_vars[client].class_pre_taunt = TF2_GetPlayerClass(client);
+
+	return true;
 }
 
 static bool handle_taunt_attempt_pre(int client)
@@ -3137,7 +3169,7 @@ static Action player_proxysend_render_color(int entity, const char[] prop, int &
 	static float lastprint = 0.0;
 	if(lastprint <= GetGameTime()) {
 		PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_color(%i, %s, [%i, %i, %i, %i], %i, %i)", entity, prop, r, g, b, a, element, client);
-		lastprint = GetGameTime() + 0.1;
+		lastprint = GetGameTime() + 1.0;
 	}
 #endif
 
@@ -3152,7 +3184,11 @@ static Action player_proxysend_render_color(int entity, const char[] prop, int &
 static Action player_proxysend_render_mode(int entity, const char[] prop, int &value, int element, int client)
 {
 #if defined DEBUG_PROXYSEND
-	//PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+	static float lastprint = 0.0;
+	if(lastprint <= GetGameTime()) {
+		PrintToServer(PM2_CON_PREFIX ... "player_proxysend_render_mode(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
+		lastprint = GetGameTime() + 1.0;
+	}
 #endif
 
 	if(get_player_model_entity(entity) != -1 && !TF2_IsPlayerInCondition(entity, TFCond_Disguised)) {
