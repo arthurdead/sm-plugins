@@ -15,6 +15,7 @@
 //#define DEBUG_VIEWMODEL
 //#define DEBUG_TAUNT
 //#define DEBUG_PROXYSEND
+//#define DEBUG_WEAPONSWITCH
 
 #undef REQUIRE_PLUGIN
 #tryinclude <tauntmanager>
@@ -209,6 +210,8 @@ static bool player_swim[TF2_MAXPLAYERS+1];
 
 static bool tf_taunt_first_person[TF2_MAXPLAYERS+1];
 static bool cl_first_person_uses_world_model[TF2_MAXPLAYERS+1];
+
+static Handle player_weapon_switch_timer[TF2_MAXPLAYERS+1];
 
 static bool dont_handle_SetCustomModel_call;
 
@@ -2618,9 +2621,41 @@ static void handle_weapon_switch(int client, int weapon, bool do_playermodel)
 	}
 }
 
+static Action timer_handle_weapon_switch(Handle timer, DataPack data)
+{
+	data.Reset();
+
+	int client = GetClientOfUserId(data.ReadCell());
+	if(client == 0) {
+		return Plugin_Continue;
+	}
+
+	player_weapon_switch_timer[client] = null;
+
+	int weapon = EntRefToEntIndex(data.ReadCell());
+	if(!IsValidEntity(weapon)) {
+		return Plugin_Continue;
+	}
+
+	handle_weapon_switch(client, weapon, true);
+
+	return Plugin_Continue;
+}
+
 static void player_weapon_switch(int client, int weapon)
 {
-	handle_weapon_switch(client, weapon, true);
+#if defined DEBUG_WEAPONSWITCH
+	PrintToServer(PM2_CON_PREFIX ... "player_weapon_switch(%i)", client);
+#endif
+
+	if(player_weapon_switch_timer[client] != null) {
+		KillTimer(player_weapon_switch_timer[client]);
+	}
+
+	DataPack data;
+	player_weapon_switch_timer[client] = CreateDataTimer(0.1, timer_handle_weapon_switch, data, TIMER_FLAG_NO_MAPCHANGE);
+	data.WriteCell(GetClientUserId(client));
+	data.WriteCell(EntIndexToEntRef(weapon));
 }
 
 public void OnPluginEnd()
@@ -2993,6 +3028,11 @@ public void OnClientDisconnect(int client)
 
 	tf_taunt_first_person[client] = false;
 	cl_first_person_uses_world_model[client] = false;
+
+	if(player_weapon_switch_timer[client] != null) {
+		KillTimer(player_weapon_switch_timer[client]);
+		player_weapon_switch_timer[client] = null;
+	}
 }
 
 static void remove_all_player_wearables(int client)
