@@ -2632,9 +2632,13 @@ static Action timer_handle_weapon_switch(Handle timer, DataPack data)
 
 	player_weapon_switch_timer[client] = null;
 
-	int weapon = EntRefToEntIndex(data.ReadCell());
-	if(!IsValidEntity(weapon)) {
-		return Plugin_Continue;
+	int weapon = -1;
+	int ref = data.ReadCell();
+	if(ref != INVALID_ENT_REFERENCE) {
+		weapon = EntRefToEntIndex(ref);
+		if(!IsValidEntity(weapon)) {
+			weapon = -1;
+		}
 	}
 
 	handle_weapon_switch(client, weapon, true);
@@ -2655,7 +2659,7 @@ static void player_weapon_switch(int client, int weapon)
 	DataPack data;
 	player_weapon_switch_timer[client] = CreateDataTimer(0.1, timer_handle_weapon_switch, data, TIMER_FLAG_NO_MAPCHANGE);
 	data.WriteCell(GetClientUserId(client));
-	data.WriteCell(EntIndexToEntRef(weapon));
+	data.WriteCell(weapon == -1 ? INVALID_ENT_REFERENCE : EntIndexToEntRef(weapon));
 }
 
 public void OnPluginEnd()

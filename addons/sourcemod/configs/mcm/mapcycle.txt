@@ -1,0 +1,162 @@
+"Mapcycle"
+{
+	"trade_hopi_plaza_v11b_svb"
+	{
+		"holiday_alternative"
+		{
+			"christmas" "trade_hopi_plaza_xmas_svb"
+		}
+	}
+
+	"trade_slider_shore_wv3"
+	{
+		"chance" "0.8"
+	}
+
+	"trade_rustboro_r5a"
+	{
+		"chance" "0.8"
+		"minplayers" "5"
+		"timelimit" "40"
+	}
+
+	"tf_doom_e1m1_v01"
+	{
+		"maxplayers" "16"
+	}
+
+	"trade_coni"
+	{
+		"chance" "0.5"
+	}
+
+	"trade_mega"
+	{
+		"chance" "0.8"
+	}
+
+	"trade_museum_final"
+	{
+		"chance" "0.9"
+	}
+
+	"dm_mariokart2_b3"
+	{
+		"chance" "0.8"
+		"timelimit" "40"
+	}
+
+	"trade_plaza_ox3_b4_fixed"
+	{
+	}
+
+	"Trade_Minecraft_Realms_Final"
+	{
+		"chance" "0.7"
+	}
+
+	"ach_idle_neon_ben_v29"
+	{
+		"chance" "0.6"
+	}
+
+	"achievement_apg_r16c"
+	{
+	}
+
+	"ach_villains_city_day_v3"
+	{
+		"holiday_alternative"
+		{
+			"christmas" "ach_villains_city_winter_v3"
+		}
+	}
+
+	"trade_minecraft_2016_v4"
+	{
+		"chance" "0.6"
+	}
+
+	"unusual_reactor_v34n"
+	{
+		"chance" "0.4"
+		"timelimit" "40"
+	}
+
+	"trade_gtrade_v3b2"
+	{
+		"chance" "0.5"
+		"timelimit" "40"
+	}
+
+	"achievement_idle_awesomebox_negao_v2"
+	{
+		"chance" "0.4"
+		"maxplayers" "12"
+		"timelimit" "40"
+	}
+
+	"trade_shoppa_r10"
+	{
+	}
+
+	"trade_houseofchaos2_fix"
+	{
+		"chance" "0.4"
+		"timelimit" "30"
+	}
+
+	"trade_abstract_abstruse_v3"
+	{
+		"chance" "0.6"
+	}
+
+	"trade_minecraft_neon_v196"
+	{
+		"holiday_alternative"
+		{
+			"christmas" "trade_minecraft_neon_v63_xmas"
+		}
+	}
+
+	"trade_clocktown_b2a_fixb"
+	{
+	}
+
+	"trade_porctory_v4"
+	{
+	}
+
+	"pkmn_goldenrodcity_b3"
+	{
+		"chance" "0.6"
+	}
+
+	"trade_templeofdonger_v71"
+	{
+		"chance" "0.5"
+		"minplayers" "16"
+		"timelimit" "40"
+	}
+
+	"trade_stardust_fix"
+	{
+		"chance" "0.6"
+	}
+
+	"cp_orange_z3"
+	{
+	}
+
+	"trade_what_fix"
+	{
+		"chance" "0.3"
+		"timelimit" "30"
+	}
+
+	"trade_delirium"
+	{
+		"chance" "0.2"
+		"timelimit" "30"
+	}
+}

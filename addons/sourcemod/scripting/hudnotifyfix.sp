@@ -3,7 +3,7 @@
 Handle hud;
 Handle hud_timer[MAXPLAYERS+1];
 
-ConVar hudnotifyfix_max_icon;
+//ConVar hudnotifyfix_max_icon;
 ConVar hudnotifyfix_max_text;
 ConVar hudnotifyfix_duration;
 ConVar hudnotifyfix_mode;
@@ -34,9 +34,9 @@ static void on_mode_change(ConVar convar, const char[] oldValue, const char[] ne
 public void OnPluginStart()
 {
 	hudnotifyfix_max_text = CreateConVar("hudnotifyfix_max_text", "255");
-	hudnotifyfix_max_icon = CreateConVar("hudnotifyfix_max_icon", "32");
-	hudnotifyfix_duration = CreateConVar("hudnotifyfix_duration", "3");
-	hudnotifyfix_mode = CreateConVar("hudnotifyfix_mode", "1", "0 == disable, 1 == hud, 2 == chat");
+	//hudnotifyfix_max_icon = CreateConVar("hudnotifyfix_max_icon", "32");
+	hudnotifyfix_duration = CreateConVar("hudnotifyfix_duration", "3.0");
+	hudnotifyfix_mode = CreateConVar("hudnotifyfix_mode", "1", "0 == disable, 1 == hud, 2 == chat, 3 == hint, 4 == center");
 
 	hudnotifyfix_mode.AddChangeHook(on_mode_change);
 
@@ -91,17 +91,7 @@ static void tf_hud_notification_duration_query(QueryCookie cookie, int client, C
 	if(result == ConVarQuery_Okay) {
 		float value = StringToFloat(cvarValue);
 		tf_hud_notification_duration[client] = value;
-		//RequestFrame(tf_hud_notification_duration_frame, GetClientUserId(client));
 	}
-}
-
-static void tf_hud_notification_duration_frame(int client)
-{
-	client = GetClientOfUserId(client);
-	if(client == 0) {
-		return;
-	}
-	QueryClientConVar(client, "tf_hud_notification_duration", tf_hud_notification_duration_query);
 }
 
 static void cl_hud_minmode_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
@@ -109,17 +99,7 @@ static void cl_hud_minmode_query(QueryCookie cookie, int client, ConVarQueryResu
 	if(result == ConVarQuery_Okay) {
 		int value = StringToInt(cvarValue);
 		cl_hud_minmode[client] = view_as<bool>(value);
-		//RequestFrame(cl_hud_minmode_frame, GetClientUserId(client));
 	}
-}
-
-static void cl_hud_minmode_frame(int client)
-{
-	client = GetClientOfUserId(client);
-	if(client == 0) {
-		return;
-	}
-	QueryClientConVar(client, "cl_hud_minmode", cl_hud_minmode_query);
 }
 
 static Action Timer_HudNotifyCustom(Handle timer, DataPack data)
@@ -136,59 +116,69 @@ static Action Timer_HudNotifyCustom(Handle timer, DataPack data)
 	char[] text = new char[textlen];
 	data.ReadString(text, textlen);
 
-	int iconlen = data.ReadCell();
+	/*int iconlen = data.ReadCell();
 	char[] icon = new char[iconlen];
-	data.ReadString(icon, iconlen);
+	data.ReadString(icon, iconlen);*/
 
 	int team = data.ReadCell();
 
-	if(hudnotifyfix_mode.IntValue == 1) {
-		int r = 255;
-		int g = 255;
-		int b = 255;
+	int mode = hudnotifyfix_mode.IntValue;
+	switch(mode) {
+		case 1: {
+			int r = 255;
+			int g = 255;
+			int b = 255;
 
-		switch(team) {
-			case 2: {
-				g = 0;
-				b = 0;
+			switch(team) {
+				case 2: {
+					g = 0;
+					b = 0;
+				}
+				case 3: {
+					r = 0;
+					g = 0;
+				}
+				case 1: {
+					r = 150;
+					g = 150;
+					b = 150;
+				}
 			}
-			case 3: {
-				r = 0;
-				g = 0;
+
+			float x = (0.5 - ((textlen / 2) * 0.01)) + 0.04;
+
+			float duration = tf_hud_notification_duration[client];
+			if(duration <= 0) {
+				duration = hudnotifyfix_duration.FloatValue;
 			}
-			case 1: {
-				r = 150;
-				g = 150;
-				b = 150;
+
+			ClearSyncHud(client, hud);
+			SetHudTextParams(x, 0.64, duration, r, g, b, 255);
+			ShowSyncHudText(client, hud, "%s", text);
+
+			if(hud_timer[client] != null) {
+				KillTimer(hud_timer[client]);
 			}
+			hud_timer[client] = CreateTimer(duration, Timer_RemoveHud, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 		}
+		case 2: {
+			char code[20];
 
-		float x = (0.5 - ((textlen / 2) * 0.01)) + 0.04;
+			switch(team) {
+				case 0: { strcopy(code, sizeof(code), "\x1\aFFFFFF"); }
+				case 1: { strcopy(code, sizeof(code), "\x1\a717171"); }
+				case 2: { strcopy(code, sizeof(code), "\x1\aFF0000"); }
+				case 3: { strcopy(code, sizeof(code), "\x1\a0000FF"); }
+			}
 
-		float duration = tf_hud_notification_duration[client];
-		if(duration <= 0) {
-			duration = hudnotifyfix_duration.FloatValue;
+			PrintToChat(client, "%s[HudNotify] \x01%s", code, text);
 		}
-
-		ClearSyncHud(client, hud);
-		SetHudTextParams(x, 0.64, duration, r, g, b, 255);
-		ShowSyncHudText(client, hud, "%s", text);
-
-		if(hud_timer[client] != null) {
-			KillTimer(hud_timer[client]);
+		case 3: {
+			PrintHintText(client, "%s", text);
 		}
-		hud_timer[client] = CreateTimer(duration, Timer_RemoveHud, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
-	} else if(hudnotifyfix_mode.IntValue == 2) {
-		char code[20];
-
-		switch(team) {
-			case 0: { strcopy(code, sizeof(code), "\x1\aFFFFFF"); }
-			case 1: { strcopy(code, sizeof(code), "\x1\a717171"); }
-			case 2: { strcopy(code, sizeof(code), "\x1\aFF0000"); }
-			case 3: { strcopy(code, sizeof(code), "\x1\a0000FF"); }
+		case 4: {
+			PrintCenterText(client, "%s", text);
 		}
-
-		PrintToChat(client, "%s[HudNotify] \x01%s", code, text);
 	}
 
 	return Plugin_Handled;
@@ -218,11 +208,11 @@ static Action HudNotifyCustom(UserMsg msg_id, BfRead msg, const int[] players, i
 		data.WriteCell(textlen);
 		data.WriteString(text);
 
-		int iconlen = hudnotifyfix_max_icon.IntValue;
+		/*int iconlen = hudnotifyfix_max_icon.IntValue;
 		char[] icon = new char[iconlen];
 		iconlen = msg.ReadString(icon, iconlen)+1;
 		data.WriteCell(iconlen);
-		data.WriteString(icon);
+		data.WriteString(icon);*/
 
 		int team = msg.ReadByte();
 		data.WriteCell(team);

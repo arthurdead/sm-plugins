@@ -95,6 +95,12 @@
 		"model" "models/freak_fortress_2/ricardo_milos/ricardo_milos.mdl"
 	}
 
+	"HL:A G-Man"
+	{
+		"model_class" "spy"
+		"model" "models/dfs/thataveragejoe/halflifealyx/gman_decimated.mdl"
+	}
+
 	"Trollface"
 	{
 		"flags" "hide_wearables"
