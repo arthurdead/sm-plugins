@@ -193,7 +193,7 @@ static Action HudNotifyCustom(UserMsg msg_id, BfRead msg, const int[] players, i
 	for(int i = 0; i < playersNum; ++i) {
 		int client = players[i];
 
-		if(!cl_hud_minmode[i] && tf_hud_notification_duration[i] > 0) {
+		if(!cl_hud_minmode[client] && tf_hud_notification_duration[client] > 0) {
 			continue;
 		}
 
