@@ -1788,7 +1788,10 @@ static Action timer_ragdoll_reset_model(Handle timer, DataPack data)
 {
 	data.Reset();
 
-	int owner = data.ReadCell();
+	int owner = GetClientOfUserId(data.ReadCell());
+	if(owner == 0) {
+		return Plugin_Continue;
+	}
 
 	char model_original[PLATFORM_MAX_PATH];
 	data.ReadString(model_original, PLATFORM_MAX_PATH);
@@ -1824,7 +1827,7 @@ static void frame_ragdoll_created(int entity)
 
 	DataPack data;
 	CreateDataTimer(0.1, timer_ragdoll_reset_model, data);
-	data.WriteCell(owner);
+	data.WriteCell(GetClientUserId(owner));
 	data.WriteString(model_original);
 }
 
@@ -2503,97 +2506,99 @@ static void handle_viewmodel(int client, int weapon)
 	TFClassType weapon_class = get_class_for_weapon(weapon, player_class);
 
 	if(weapon_class != TFClass_Unknown) {
-		char model[PLATFORM_MAX_PATH];
-		get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
-
 		int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
 		int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
 
-		SetEntPropString(viewmodel, Prop_Data, "m_ModelName", model);
-		int idx = get_model_index(model);
-		SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
-		SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
+		if(viewmodel != -1) {
+			char model[PLATFORM_MAX_PATH];
+			get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
 
-		TFClassType arm_class = player_class;
+			SetEntPropString(viewmodel, Prop_Data, "m_ModelName", model);
+			int idx = get_model_index(model);
+			SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
+			SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
 
-		bool has_custom_arm_model = false;
+			TFClassType arm_class = player_class;
 
-		if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
-			if(StrEqual(player_config[client].arm_model, "model_class")) {
-				if(player_config[client].model_class != TFClass_Unknown) {
-					arm_class = player_config[client].model_class;
+			bool has_custom_arm_model = false;
+
+			if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
+				if(StrEqual(player_config[client].arm_model, "model_class")) {
+					if(player_config[client].model_class != TFClass_Unknown) {
+						arm_class = player_config[client].model_class;
+					}
+				} else if(player_config[client].arm_model[0] != '\0') {
+					has_custom_arm_model = true;
 				}
-			} else if(player_config[client].arm_model[0] != '\0') {
-				has_custom_arm_model = true;
 			}
-		}
 
-	#if defined DEBUG_VIEWMODEL
-		PrintToServer(PM2_CON_PREFIX ... "  arm_class = %i", arm_class);
-	#endif
-
-		bool different_class = (arm_class != weapon_class);
-
-		if(different_class || has_custom_arm_model) {
-			delete_player_viewmodel_entity(client, 0);
-
-			int entity = get_or_create_player_viewmodel_entity(client, 0);
-
-			SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
-
-			SetVariantString("!activator");
-			AcceptEntityInput(entity, "SetParent", viewmodel);
-
-			int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-			effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
-			SetEntProp(entity, Prop_Send, "m_fEffects", effects);
-
-			if(has_custom_arm_model) {
-				strcopy(model, PLATFORM_MAX_PATH, player_config[client].arm_model);
-			} else {
-				get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
-			}
 		#if defined DEBUG_VIEWMODEL
-			PrintToServer(PM2_CON_PREFIX ... "  arm_model = %s", model);
+			PrintToServer(PM2_CON_PREFIX ... "  arm_class = %i", arm_class);
 		#endif
-			idx = get_model_index(model);
 
-			SetEntityModel(entity, model);
-			SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
-			SetEntProp(entity, Prop_Send, "m_nBody", 0);
+			bool different_class = (arm_class != weapon_class);
 
-			delete_player_viewmodel_entity(client, 1);
+			if(different_class || has_custom_arm_model) {
+				delete_player_viewmodel_entity(client, 0);
 
-			idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
-			if(idx != -1) {
-				entity = get_or_create_player_viewmodel_entity(client, 1);
+				int entity = get_or_create_player_viewmodel_entity(client, 0);
 
 				SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
-
-				get_model_index_path(idx, model, PLATFORM_MAX_PATH);
-
-				SetEntityModel(entity, model);
-				SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
 
 				SetVariantString("!activator");
 				AcceptEntityInput(entity, "SetParent", viewmodel);
 
-				effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+				int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
 				effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
 				SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+
+				if(has_custom_arm_model) {
+					strcopy(model, PLATFORM_MAX_PATH, player_config[client].arm_model);
+				} else {
+					get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
+				}
+			#if defined DEBUG_VIEWMODEL
+				PrintToServer(PM2_CON_PREFIX ... "  arm_model = %s", model);
+			#endif
+				idx = get_model_index(model);
+
+				SetEntityModel(entity, model);
+				SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+				SetEntProp(entity, Prop_Send, "m_nBody", 0);
+
+				delete_player_viewmodel_entity(client, 1);
+
+				idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
+				if(idx != -1) {
+					entity = get_or_create_player_viewmodel_entity(client, 1);
+
+					SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
+
+					get_model_index_path(idx, model, PLATFORM_MAX_PATH);
+
+					SetEntityModel(entity, model);
+					SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+
+					SetVariantString("!activator");
+					AcceptEntityInput(entity, "SetParent", viewmodel);
+
+					effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+					effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+					SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+				}
 			}
-		}
 
-		if(different_class || has_custom_arm_model) {
-			int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-			effects |= EF_NODRAW;
-			SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
-		} else {
-			delete_player_viewmodel_entities(client, weapon);
+			if(different_class || has_custom_arm_model) {
+				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+				effects |= EF_NODRAW;
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+			} else {
+				delete_player_viewmodel_entities(client, weapon);
 
-			int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-			effects &= ~EF_NODRAW;
-			SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+				effects &= ~EF_NODRAW;
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+			}
 		}
 	}
 }
@@ -3117,6 +3122,8 @@ static void post_inventory_application_frame(int userid)
 	if(player_config[client].flags & config_flags_no_wearables) {
 		remove_all_player_wearables(client);
 	}
+
+	handle_playermodel(client);
 }
 
 static void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
