@@ -5,7 +5,7 @@ void ShouldCollideCreate(GameData gamedata)
 	dhShouldCollide = DHookCreateFromConf(gamedata, "CBaseEntity::ShouldCollide");
 }
 
-void ShouldCollideEntityCreated(int entity, const char[] classname)
+void ShouldCollideEntityCreated(int entity)
 {
 	//SDKHook(entity, SDKHook_ShouldCollide, ShouldCollideSDKHook);
 	if(dhShouldCollide) {

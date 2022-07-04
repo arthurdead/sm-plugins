@@ -314,7 +314,7 @@ int NativePlrMissi_Get(Handle plugin, int args)
 	int usrid = GetClientUserId(client);
 	int id = PlayerMissiCache[client].GetID(idx);
 
-	return PackInts2(usrid, id);
+	return pack_2_ints(usrid, id);
 }
 
 int NativePlrMissi_GetEntry(Handle plugin, int args)
@@ -323,7 +323,7 @@ int NativePlrMissi_GetEntry(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -339,7 +339,7 @@ int NativePlrMissi_AwardProgress(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -385,7 +385,7 @@ int NativePlrMissi_RemoveProgress(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -461,7 +461,7 @@ int NativePlrMissi_Complete(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -504,7 +504,7 @@ int handle_cancel_native(bool cancel)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -551,7 +551,7 @@ int NativePlrMissi_SetParamValue(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -586,7 +586,7 @@ int NativePlrMissi_GetParamValue(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -604,7 +604,7 @@ int NativePlrMissi_GetPluginData(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -622,7 +622,7 @@ int NativePlrMissi_GetProgress(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -638,7 +638,7 @@ int NativePlrMissi_GetCompleted(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -654,7 +654,7 @@ int NativePlrMissi_GetOwner(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -670,7 +670,7 @@ int NativePlrMissi_GetID(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {
@@ -686,7 +686,7 @@ int NativePlrMissi_SetPluginData(Handle plugin, int args)
 
 	int usrid;
 	int id;
-	UnpackInts2(packed, usrid, id);
+	unpack_2_ints(packed, usrid, id);
 
 	int client = GetClientOfUserId(usrid);
 	if(client == 0) {

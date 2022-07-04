@@ -7,17 +7,15 @@ void DeflectProjectilesCreate(GameData gamedata)
 	dhDeflectEntity = DHookCreateFromConf(gamedata, "CTFWeaponBase::DeflectEntity");
 }
 
-void DeflectProjectilesEntityCreated(int entity, const char[] classname)
+void DeflectProjectilesEntityCreated(int entity)
 {
-	if(StrEqual(classname, "tf_weapon_flamethrower")) {
-		if(dhDeflectPlayer) {
-			DHookEntity(dhDeflectPlayer, false, entity, INVALID_FUNCTION, DeflectPlayerPre);
-			DHookEntity(dhDeflectPlayer, true, entity, INVALID_FUNCTION, DeflectPlayerPost);
-		}
-		if(dhDeflectEntity) {
-			DHookEntity(dhDeflectEntity, false, entity, INVALID_FUNCTION, DeflectEntityPre);
-			DHookEntity(dhDeflectEntity, true, entity, INVALID_FUNCTION, DeflectEntityPost);
-		}
+	if(dhDeflectPlayer) {
+		DHookEntity(dhDeflectPlayer, false, entity, INVALID_FUNCTION, DeflectPlayerPre);
+		DHookEntity(dhDeflectPlayer, true, entity, INVALID_FUNCTION, DeflectPlayerPost);
+	}
+	if(dhDeflectEntity) {
+		DHookEntity(dhDeflectEntity, false, entity, INVALID_FUNCTION, DeflectEntityPre);
+		DHookEntity(dhDeflectEntity, true, entity, INVALID_FUNCTION, DeflectEntityPost);
 	}
 }
 

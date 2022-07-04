@@ -244,11 +244,45 @@ public void OnEntityCreated(int entity, const char[] classname)
 	PrintToServer("%s", classname);
 #endif
 
-	ShouldCollideEntityCreated(entity, classname);
-	JarExplodeEntityCreated(entity, classname);
-	ExplodeEntityCreated(entity, classname);
-	CanPerformBackstabAgainstTargetEntityCreated(entity, classname);
-	DeflectProjectilesEntityCreated(entity, classname);
+	ShouldCollideEntityCreated(entity);
+
+	int len = strlen(classname);
+
+	if(len > 14 && classname[2] == '_' && classname[3] == 'p' && classname[13] == '_') {
+		switch(classname[14]) {
+			case 'j','c': {
+				JarExplodeEntityCreated(entity);
+			}
+			case 's': {
+				if(classname[15] == 'p') {
+					JarExplodeEntityCreated(entity);
+				}
+			}
+			case 'r','f','a','h','g': {
+				ExplodeEntityCreated(entity);
+			}
+			case 'e': {
+				switch(classname[21]) {
+					case 'b': {
+						ExplodeEntityCreated(entity);
+					}
+				}
+			}
+		}
+	} else if(len > 9 && classname[2] == '_' && classname[3] == 'w' && classname[9] == '_') {
+		switch(classname[10]) {
+			case 'k': {
+				if(classname[11] == 'n') {
+					CanPerformBackstabAgainstTargetEntityCreated(entity);
+				}
+			}
+			case 'f': {
+				if(classname[13] == 'm') {
+					DeflectProjectilesEntityCreated(entity);
+				}
+			}
+		}
+	}
 }
 
 public void OnEntityDestroyed(int entity)

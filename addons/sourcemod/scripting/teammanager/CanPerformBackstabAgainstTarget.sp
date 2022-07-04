@@ -18,16 +18,14 @@ void CanPerformBackstabAgainstTargetCreate(GameData gamedata)
 	#define CGameTracem_pEntOffset 76
 }
 
-void CanPerformBackstabAgainstTargetEntityCreated(int entity, const char[] classname)
+void CanPerformBackstabAgainstTargetEntityCreated(int entity)
 {
-	if(StrEqual(classname, "tf_weapon_knife")) {
-		if(dhDoSwingTrace) {
-			DHookEntity(dhDoSwingTrace, true, entity, INVALID_FUNCTION, DoSwingTracePost);
-		}
-		if(dhPrimaryAttack) {
-			DHookEntity(dhPrimaryAttack, false, entity, INVALID_FUNCTION, PrimaryAttackPre);
-			DHookEntity(dhPrimaryAttack, true, entity, INVALID_FUNCTION, PrimaryAttackPost);
-		}
+	if(dhDoSwingTrace) {
+		DHookEntity(dhDoSwingTrace, true, entity, INVALID_FUNCTION, DoSwingTracePost);
+	}
+	if(dhPrimaryAttack) {
+		DHookEntity(dhPrimaryAttack, false, entity, INVALID_FUNCTION, PrimaryAttackPre);
+		DHookEntity(dhPrimaryAttack, true, entity, INVALID_FUNCTION, PrimaryAttackPost);
 	}
 }
 

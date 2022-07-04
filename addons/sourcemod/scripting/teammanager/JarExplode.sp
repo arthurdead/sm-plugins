@@ -10,15 +10,11 @@ void JarExplodeCreate(GameData gamedata)
 	DHookEnableDetour(dhJarExplode, true, JarExplodePost);
 }
 
-void JarExplodeEntityCreated(int entity, const char[] classname)
+void JarExplodeEntityCreated(int entity)
 {
 	if(dhJarOnHit) {
-		if(StrContains(classname, "tf_projectile_jar") != -1 ||
-			StrEqual(classname, "tf_projectile_cleaver") ||
-			StrContains(classname, "tf_projectile_spell") != -1) {
-			DHookEntity(dhJarOnHit, false, entity, INVALID_FUNCTION, JarOnHitPre);
-			DHookEntity(dhJarOnHit, true, entity, INVALID_FUNCTION, JarOnHitPost);
-		}
+		DHookEntity(dhJarOnHit, false, entity, INVALID_FUNCTION, JarOnHitPre);
+		DHookEntity(dhJarOnHit, true, entity, INVALID_FUNCTION, JarOnHitPost);
 	}
 }
 

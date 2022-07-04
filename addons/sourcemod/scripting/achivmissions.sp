@@ -3,6 +3,7 @@
 #include <tf2_stocks>
 #include <stocksoup/tf/tempents_stocks.inc>
 #include <achivmissions>
+#include <bit>
 
 //#define DEBUG
 

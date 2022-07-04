@@ -5,18 +5,11 @@ void ExplodeCreate(GameData gamedata)
 	dhExplode = DHookCreateFromConf(gamedata, "CTFBaseRocket::Explode");
 }
 
-void ExplodeEntityCreated(int entity, const char[] classname)
+void ExplodeEntityCreated(int entity)
 {
 	if(dhExplode) {
-		if(StrEqual(classname, "tf_projectile_rocket") ||
-			StrEqual(classname, "tf_projectile_energy_ball") ||
-			StrEqual(classname, "tf_projectile_flare") ||
-			StrEqual(classname, "tf_projectile_arrow") ||
-			StrEqual(classname, "tf_projectile_healing_bolt") ||
-			StrEqual(classname, "tf_projectile_grapplinghook")) {
-			DHookEntity(dhExplode, false, entity, INVALID_FUNCTION, ExplodePre);
-			DHookEntity(dhExplode, true, entity, INVALID_FUNCTION, ExplodePost);
-		}
+		DHookEntity(dhExplode, false, entity, INVALID_FUNCTION, ExplodePre);
+		DHookEntity(dhExplode, true, entity, INVALID_FUNCTION, ExplodePost);
 	}
 }
 

@@ -612,6 +612,7 @@ static void find_mapchooser()
 	}
 
 	static const char mapchooser_paths[][PLATFORM_MAX_PATH] = {
+		"thirdparty_edited/mapchooser_extended.smx",
 		"thirdparty/mapchooser_extended.smx",
 		"thirdparty/nativevotes_mapchooser.smx",
 		"mapchooser_extended.smx",

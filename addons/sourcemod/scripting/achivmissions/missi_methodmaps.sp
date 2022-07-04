@@ -220,14 +220,14 @@ methodmap MMissiCache < Handle
 
 	public void SetParamInfo(int id, int param, MissionParamType type, int min = 0, int max = 0, int idx = -1)
 	{
-		int value = PackInts3(view_as<int>(type), min, max);
+		int value = pack_3_ints(view_as<int>(type), min, max);
 		this.__GenericSet(id, value, MISSICACHE_PARAM_IDX(param), idx);
 	}
 
 	public void GetParamInfo(int id, int param, MissionParamType &type = MPARAM_INT, int &min = 0, int &max = 0, int idx = -1)
 	{
 		int value = this.__GenericGet(id, MISSICACHE_PARAM_IDX(param), idx);
-		UnpackInts3(value, view_as<int>(type), min, max);
+		unpack_3_ints(value, view_as<int>(type), min, max);
 	}
 
 	public void NullDesc(int id, int idx = -1)
@@ -282,7 +282,7 @@ methodmap MMissiMap < Handle
 		} else {
 			instances = missions.Get(midx, 1);
 		}
-		int packed = PackInts2(usrid, instid);
+		int packed = pack_2_ints(usrid, instid);
 		instances.Push(packed);
 	}
 
@@ -329,7 +329,7 @@ methodmap MMissiMap < Handle
 
 		int usrid = GetClientUserId(client);
 
-		int iidx = instances.FindValue(PackInts2(usrid, instid));
+		int iidx = instances.FindValue(pack_2_ints(usrid, instid));
 		if(iidx == -1) {
 			return;
 		}
