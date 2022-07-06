@@ -1,0 +1,93 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CTFPlayer::PlayTauntSceneFromItem"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer22PlayTauntSceneFromItemEPK13CEconItemView"
+				"windows" "\x55\x8B\xEC\x81\xEC\x0C\x01\x00\x00\x53\x8B\x5D\x08\x57\x8B"
+			}
+			"CTFPlayer::StopTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer9StopTauntEb"
+				"windows" "\x55\x8B\xEC\x8B\x15\x2A\x2A\x2A\x2A\x53\x56\x8B\xF1"
+			}
+			"CTFPlayer::CancelTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer11CancelTauntEv"
+			}
+			"CTFPlayer::IsAllowedToTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer16IsAllowedToTauntEv"
+				"windows" "\x55\x8B\xEC\x51\x56\x8B\xF1\x8B\x06\x8B\x80\x2A\x2A\x2A\x2A\xFF\xD0\x84\xC0\x75\x05"
+			}
+			"CTFPlayer::ShouldStopTaunting"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer18ShouldStopTauntingEv"
+				"windows" "\x80\xB9\x2A\x2A\x2A\x2A\x02\x76"
+			}
+			"CTFPlayerShared::StunPlayer"
+			{
+				"library" "server"
+				"linux" "@_ZN15CTFPlayerShared10StunPlayerEffiP9CTFPlayer"
+			}
+		}
+		"Functions"
+		{
+			"CTFPlayerShared::StunPlayer"
+			{
+				"signature" "CTFPlayerShared::StunPlayer"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "address"
+				"arguments"
+				{
+					"flTime"
+					{
+						"type" "float"
+					}
+					"flReductionAmount"
+					{
+						"type" "float"
+					}
+					"iStunFlags"
+					{
+						"type" "int"
+					}
+					"pAttacker"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CTFPlayer::StopTaunt"
+			{
+				"signature" "CTFPlayer::StopTaunt"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+			}
+			"CTFPlayer::IsAllowedToTaunt"
+			{
+				"signature" "CTFPlayer::IsAllowedToTaunt"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+			}
+			"CTFPlayer::ShouldStopTaunting"
+			{
+				"signature" "CTFPlayer::ShouldStopTaunting"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "entity"
+			}
+		}
+	}
+}

@@ -123,6 +123,7 @@ Action sm_use(int client, int args)
 	return Plugin_Handled;
 }
 
+#if 0
 public void OnEntityCreated(int entity, const char[] classname)
 {
 	if(StrEqual(classname, "func_door") ||
@@ -147,3 +148,4 @@ void OnButtonSpawnPost(int entity)
 	int flags = GetEntProp(entity, Prop_Data, "m_spawnflags");
 	SetEntProp(entity, Prop_Data, "m_spawnflags", flags);
 }
+#endif

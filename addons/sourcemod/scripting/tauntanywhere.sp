@@ -26,7 +26,8 @@ public void OnPluginStart()
 		return;
 	}
 
-	m_flNextAllowTauntRemapInputTime_offset = FindSendPropInfo("CTFPlayer", "m_iSpawnCounter") - gamedata.GetOffset("CTFPlayer::m_flNextAllowTauntRemapInputTime");
+	m_flNextAllowTauntRemapInputTime_offset = FindSendPropInfo("CTFPlayer", "m_iSpawnCounter");
+	m_flNextAllowTauntRemapInputTime_offset -= gamedata.GetOffset("CTFPlayer::m_flNextAllowTauntRemapInputTime");
 
 	DynamicDetour tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::IsAllowedToTaunt");
 	if(!tmp || !tmp.Enable(Hook_Pre, IsAllowedToTaunt)) {
@@ -57,6 +58,9 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		if(m_iTauntIndex == TAUNT_LONG) {
 			int m_iTauntItemDefIndex = GetEntProp(client, Prop_Send, "m_iTauntItemDefIndex");
 			if(m_iTauntItemDefIndex == 1196) {
+				return Plugin_Continue;
+			}
+			if(TF2_IsPlayerInCondition(client, TFCond_HalloweenKart)) {
 				return Plugin_Continue;
 			}
 			SetEntDataFloat(client, m_flNextAllowTauntRemapInputTime_offset, GetGameTime() - 1.0);
