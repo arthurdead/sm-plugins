@@ -11,7 +11,7 @@
 #include <sdkhooks>
 #include <svb-game-translations>
 
-#define DEBUG
+//#define DEBUG
 
 #define TKART_CON_PREFIX "[TKART] "
 #define TKART_CHAT_PREFIX "{dodgerblue}[TKART]{default} "
@@ -102,7 +102,7 @@ public void OnPluginStart()
 		return;
 	}
 	if(!tmp.Enable(Hook_Post, CTFPlayerShared_StunPlayer_detour_post)) {
-		SetFailState("Failed to enable pre detour for CTFPlayerShared::StunPlayer");
+		SetFailState("Failed to enable post detour for CTFPlayerShared::StunPlayer");
 		delete gamedata;
 		return;
 	}
@@ -136,7 +136,10 @@ public void OnPluginStart()
 
 	tauntkart_menu = new Menu(menuhandler_tauntkart);
 	tauntkart_menu.SetTitle("Tauntkart");
+}
 
+public void OnAllPluginsLoaded()
+{
 	add_taunt_to_menu(1157);
 	add_taunt_to_menu(1162);
 	add_taunt_to_menu(1168);

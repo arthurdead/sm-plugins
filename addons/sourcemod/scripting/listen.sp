@@ -4,7 +4,7 @@
 
 #define	MAX_OVERLAY_DIST_SQR 90000000.0
 
-ConVar localplayer_index = null;
+static ConVar localplayer_index = null;
 
 public void OnPluginStart()
 {
@@ -18,7 +18,7 @@ public void OnPluginStart()
 
 	delete gamedata;
 
-	localplayer_index = CreateConVar("localplayer_index", "1");
+	localplayer_index = CreateConVar("localplayer_index", "-1");
 
 	UTIL_GetLocalPlayerDetour.Enable(Hook_Pre, UTIL_GetLocalPlayer);
 	UTIL_GetListenServerHostDetour.Enable(Hook_Pre, UTIL_GetListenServerHost);
@@ -27,9 +27,9 @@ public void OnPluginStart()
 	NDebugOverlayTriangleDetour.Enable(Hook_Pre, NDebugOverlayTriangle);
 }
 
-int halo = -1;
-int laser = -1;
-int arrow = -1;
+static int halo = -1;
+static int laser = -1;
+static int arrow = -1;
 
 public void OnMapStart()
 {
@@ -47,8 +47,29 @@ public void OnMapStart()
 	}
 }
 
-void DrawLine(int client, float origin[3], float target[3], int r, int g, int b, bool noDepthTest, float duration)
+static void DrawLine(float origin[3], float target[3], int r, int g, int b, bool noDepthTest, float duration)
 {
+	int num_clients = 0;
+
+	int local = localplayer_index.IntValue;
+
+	int[] clients = new int[MaxClients];
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(!IsClientInGame(i) ||
+			IsFakeClient(i)) {
+			continue;
+		}
+
+		if((local != -1 && local == i) ||
+			!!(GetUserFlagBits(i) & ADMFLAG_ROOT)) {
+			clients[++num_clients] = i;
+		}
+	}
+
+	if(num_clients == 0) {
+		return;
+	}
+
 	if(duration < 0.1) {
 		duration = 0.1;
 	}
@@ -67,16 +88,38 @@ void DrawLine(int client, float origin[3], float target[3], int r, int g, int b,
 	color[3] = 255;
 
 	TE_SetupBeamPoints(origin, target, mdl, hal, 0, 0, duration, 1.0, 1.0, 1, 1.0, color, 0);
-	TE_SendToClient(client);
+	TE_Send(clients, num_clients);
 }
 
-MRESReturn NDebugOverlayLine(DHookParam hParams)
+static void DrawTriangle(float p1[3], float p2[3], float p3[3], int r, int g, int b, int a, bool noDepthTest, float duration)
+{
+	
+}
+
+static MRESReturn UTIL_GetLocalPlayer(DHookReturn hReturn)
 {
 	int client = localplayer_index.IntValue;
-	if(!IsClientInGame(client)) {
-		return MRES_Supercede;
+	if(client != -1 && IsClientInGame(client)) {
+		hReturn.Value = client;
+	} else {
+		hReturn.Value = -1;
 	}
+	return MRES_Supercede;
+}
 
+static MRESReturn UTIL_GetListenServerHost(DHookReturn hReturn)
+{
+	int client = localplayer_index.IntValue;
+	if(client != -1 && IsClientInGame(client)) {
+		hReturn.Value = client;
+	} else {
+		hReturn.Value = -1;
+	}
+	return MRES_Supercede;
+}
+
+static MRESReturn NDebugOverlayLine(DHookParam hParams)
+{
 	float origin[3];
 	hParams.GetVector(1, origin);
 
@@ -91,23 +134,13 @@ MRESReturn NDebugOverlayLine(DHookParam hParams)
 
 	float duration = hParams.Get(7);
 
-	DrawLine(client, origin, target, r, g, b, noDepthTest, duration);
+	DrawLine(origin, target, r, g, b, noDepthTest, duration);
 
 	return MRES_Supercede;
 }
 
-void DrawTriangle(int client, float p1[3], float p2[3], float p3[3], int r, int g, int b, int a, bool noDepthTest, float duration)
+static MRESReturn NDebugOverlayTriangle(DHookParam hParams)
 {
-	
-}
-
-MRESReturn NDebugOverlayTriangle(DHookParam hParams)
-{
-	int client = localplayer_index.IntValue;
-	if(!IsClientInGame(client)) {
-		return MRES_Supercede;
-	}
-
 	float p1[3];
 	hParams.GetVector(1, p1);
 
@@ -126,18 +159,13 @@ MRESReturn NDebugOverlayTriangle(DHookParam hParams)
 
 	float duration = hParams.Get(9);
 
-	DrawTriangle(client, p1, p2, p3, r, g, b, a, noDepthTest, duration);
+	DrawTriangle(p1, p2, p3, r, g, b, a, noDepthTest, duration);
 
 	return MRES_Supercede;
 }
 
-MRESReturn NDebugOverlayCircle(DHookParam hParams)
+static MRESReturn NDebugOverlayCircle(DHookParam hParams)
 {
-	int client = localplayer_index.IntValue;
-	if(!IsClientInGame(client)) {
-		return MRES_Supercede;
-	}
-
 	float position[3];
 	hParams.GetVector(1, position);
 
@@ -187,37 +215,13 @@ MRESReturn NDebugOverlayCircle(DHookParam hParams)
 		ScaleVector(tmpvec, flSin * radius);
 		AddVectors(vecPosition, tmpvec, vecPosition);
 
-		DrawLine(client, vecLastPosition, vecPosition, r, g, b, noDepthTest, duration);
+		DrawLine(vecLastPosition, vecPosition, r, g, b, noDepthTest, duration);
 
 		if(a && i > 1)
 		{
-			DrawTriangle(client, vecStart, vecLastPosition, vecPosition, r, g, b, a, noDepthTest, duration);
+			DrawTriangle(vecStart, vecLastPosition, vecPosition, r, g, b, a, noDepthTest, duration);
 		}
 	}
 
-	return MRES_Supercede;
-}
-
-MRESReturn UTIL_GetLocalPlayer(DHookReturn hReturn)
-{
-	int client = localplayer_index.IntValue;
-	
-	if(IsClientInGame(client)) {
-		hReturn.Value = client;
-	} else {
-		hReturn.Value = -1;
-	}
-	return MRES_Supercede;
-}
-
-MRESReturn UTIL_GetListenServerHost(DHookReturn hReturn)
-{
-	int client = localplayer_index.IntValue;
-	
-	if(IsClientInGame(client)) {
-		hReturn.Value = client;
-	} else {
-		hReturn.Value = -1;
-	}
 	return MRES_Supercede;
 }

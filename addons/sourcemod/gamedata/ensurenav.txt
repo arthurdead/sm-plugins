@@ -1,0 +1,46 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"CNavMesh::m_generationState"
+			{
+				"linux" "1292"
+			}
+			"CNavMesh::m_generationMode"
+			{
+				"linux" "1296"
+			}
+			"CNavMesh::m_isAnalyzed"
+			{
+				"linux" "54"
+			}
+		}
+		"Signatures"
+		{
+			"CNavMesh::UpdateGeneration"
+			{
+				"library" "server"
+				"linux" "@_ZN8CNavMesh16UpdateGenerationEf"
+			}
+		}
+		"Functions"
+		{
+			"CNavMesh::UpdateGeneration"
+			{
+				"signature" "CNavMesh::UpdateGeneration"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "address"
+				"arguments"
+				{
+					"maxTime"
+					{
+						"type" "float"
+					}
+				}
+			}
+		}
+	}
+}
