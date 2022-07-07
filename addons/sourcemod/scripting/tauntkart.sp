@@ -140,17 +140,13 @@ public void OnPluginStart()
 
 public void OnAllPluginsLoaded()
 {
+	add_taunt_to_menu(1118);
 	add_taunt_to_menu(1157);
-	add_taunt_to_menu(1162);
 	add_taunt_to_menu(1168);
 	add_taunt_to_menu(1172);
-	add_taunt_to_menu(1174);
-	add_taunt_to_menu(1175);
 	add_taunt_to_menu(1196);
 	add_taunt_to_menu(1197);
-	add_taunt_to_menu(30671);
 	add_taunt_to_menu(30672);
-	add_taunt_to_menu(30763);
 	add_taunt_to_menu(30840);
 	add_taunt_to_menu(30845);
 	add_taunt_to_menu(30919);
@@ -380,7 +376,7 @@ static bool play_taunt(int client, int defidx)
 static bool taunt_has_m2_remap(int defidx)
 {
 	switch(defidx) {
-		case 1162, 30919, 30920, 31156, 31239: {
+		case 30919, 30920, 31156, 31239: {
 			return true;
 		}
 	}
@@ -391,7 +387,7 @@ static bool taunt_has_m2_remap(int defidx)
 static bool taunt_needs_move(int defidx)
 {
 	switch(defidx) {
-		case 1168, 30763: {
+		case 1168: {
 			return true;
 		}
 	}
