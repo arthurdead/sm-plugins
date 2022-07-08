@@ -9,6 +9,7 @@
 #include <stocksoup/memory>
 #include <proxysend>
 #include <regex>
+#include <bit>
 
 //#define DEBUG_CONFIG
 //#define DEBUG_MODEL
@@ -18,6 +19,7 @@
 //#define DEBUG_WEAPONSWITCH
 
 #undef REQUIRE_PLUGIN
+#tryinclude <economy>
 #tryinclude <tauntmanager>
 #define REQUIRE_PLUGIN
 
@@ -133,6 +135,7 @@ enum struct PlayerConfigInfo
 	ArrayList sound_replacements;
 	StringMap sound_variables;
 
+	int classes_allowed;
 	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
 	TFClassType model_class;
@@ -143,6 +146,7 @@ enum struct PlayerConfigInfo
 	void clear()
 	{
 		this.idx = -1;
+		this.classes_allowed = 0;
 		this.sound_replacements = null;
 		this.sound_variables = null;
 		this.flags = config_flags_none;
@@ -201,6 +205,8 @@ static ThirdpartyModelInfo player_thirdparty_model[TF2_MAXPLAYERS+1];
 static ThirdpartyModelInfo player_custom_taunt_model[TF2_MAXPLAYERS+1];
 static PlayerConfigInfo player_config[TF2_MAXPLAYERS+1];
 
+static PlayerConfigInfo player_econ_configs[TF2_MAXPLAYERS+1][TF_CLASS_COUNT_ALL];
+
 static int player_model_entity[TF2_MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 static int player_viewmodel_entities[TF2_MAXPLAYERS+1][2];
 
@@ -214,6 +220,9 @@ static bool cl_first_person_uses_world_model[TF2_MAXPLAYERS+1];
 static Handle player_weapon_switch_timer[TF2_MAXPLAYERS+1];
 
 static bool dont_handle_SetCustomModel_call;
+
+static char player_custom_model[TF2_MAXPLAYERS+1][PLATFORM_MAX_PATH];
+static char player_entity_model[TF2_MAXPLAYERS+1][PLATFORM_MAX_PATH];
 
 static ArrayList weapons_class_cache;
 static ConVar tf_always_loser;
@@ -239,8 +248,12 @@ static ArrayList groups;
 static ArrayList configs;
 static StringMap config_idx_map;
 
+static ConfigGroupInfo econ_group;
+static StringMap econ_to_config_map;
+
 static int no_damage_gameplay_group = INVALID_GAMEPLAY_GROUP;
 static bool tauntmanager_loaded;
+static bool economy_loaded;
 
 static int modelprecache = INVALID_STRING_TABLE;
 
@@ -303,6 +316,7 @@ static void unload_configs()
 	}
 	delete configs;
 	delete config_idx_map;
+	delete econ_to_config_map;
 }
 
 static bool parse_classes_str(int &classes, const char[] str, const char[] modelname)
@@ -831,10 +845,27 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 	delete kv;
 }
 
+static void free_group_config_info(ConfigInfo group_config_info)
+{
+	if(group_config_info.sound_replacements != null) {
+		int replacements_len = group_config_info.sound_replacements.Length;
+		SoundReplacementInfo sound_info;
+		for(int k = 0; k < replacements_len; ++k) {
+			group_config_info.sound_replacements.GetArray(k, sound_info, sizeof(SoundReplacementInfo));
+			delete sound_info.destinations;
+			delete sound_info.source_regex;
+		}
+	}
+	delete group_config_info.sound_replacements;
+	delete group_config_info.sound_precaches;
+	delete group_config_info.sound_variables;
+}
+
 static void load_configs()
 {
 	configs = new ArrayList(sizeof(ConfigInfo));
 	config_idx_map = new StringMap();
+	econ_to_config_map = new StringMap();
 
 	groups = new ArrayList(sizeof(ConfigGroupInfo));
 
@@ -849,8 +880,6 @@ static void load_configs()
 			ConfigGroupInfo info;
 
 			ConfigInfo group_config_info;
-
-			SoundReplacementInfo sound_info;
 
 			do {
 				kv.GetSectionName(info.name, MODEL_NAME_MAX);
@@ -867,17 +896,7 @@ static void load_configs()
 					parse_config_kv(any_file_path, info, group_config_info);
 				}
 
-				if(group_config_info.sound_replacements != null) {
-					int replacements_len = group_config_info.sound_replacements.Length;
-					for(int k = 0; k < replacements_len; ++k) {
-						group_config_info.sound_replacements.GetArray(k, sound_info, sizeof(SoundReplacementInfo));
-						delete sound_info.destinations;
-						delete sound_info.source_regex;
-					}
-				}
-				delete group_config_info.sound_replacements;
-				delete group_config_info.sound_precaches;
-				delete group_config_info.sound_variables;
+				free_group_config_info(group_config_info);
 
 				groups.PushArray(info, sizeof(ConfigGroupInfo));
 			} while(kv.GotoNextKey());
@@ -886,6 +905,13 @@ static void load_configs()
 		}
 
 		delete kv;
+	}
+
+	BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/econ.txt");
+	if(FileExists(any_file_path)) {
+		ConfigInfo group_config_info;
+		parse_config_kv(any_file_path, econ_group, group_config_info);
+		free_group_config_info(group_config_info);
 	}
 }
 
@@ -900,6 +926,9 @@ public void OnPluginStart()
 		player_thirdparty_model[i].clear();
 		player_custom_taunt_model[i].clear();
 		player_config[i].clear();
+		for(TFClassType j = TFClass_Scout; j <= TFClass_Engineer; ++j) {
+			player_econ_configs[i][j].clear();
+		}
 	}
 
 	GameData gamedata = new GameData("playermodel2");
@@ -1050,6 +1079,8 @@ public void OnPluginStart()
 
 	HookEvent("post_inventory_application", post_inventory_application);
 
+	//HookEvent("player_changeclass", player_changeclass);
+
 	dummy_item_view = TF2Items_CreateItem(OVERRIDE_ALL|FORCE_GENERATION);
 	TF2Items_SetClassname(dummy_item_view, "tf_wearable");
 	TF2Items_SetItemIndex(dummy_item_view, 65535);
@@ -1086,20 +1117,29 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_swim", sm_swim);
 
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			OnClientPutInServer(i);
-		} else {
+		if(!IsClientInGame(i)) {
 			continue;
 		}
 
-		if(!IsPlayerAlive(i) ||
-			GetClientTeam(i) < 2 ||
-			TF2_GetPlayerClass(i) == TFClass_Unknown) {
+		OnClientPutInServer(i);
+
+		if(!is_player_state_valid(i)) {
 			continue;
 		}
 
 		on_player_spawned(i);
 	}
+}
+
+static bool is_player_state_valid(int client)
+{
+	if(!IsPlayerAlive(client) ||
+		GetClientTeam(client) < 2 ||
+		TF2_GetPlayerClass(client) == TFClass_Unknown) {
+		return false;
+	}
+
+	return true;
 }
 
 static void set_player_screen_overlay(int client, const char[] path)
@@ -1173,9 +1213,7 @@ static void tf_always_loser_changed(ConVar convar, const char[] oldValue, const 
 {
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(!IsClientInGame(i) ||
-			!IsPlayerAlive(i) ||
-			GetClientTeam(i) < 2 ||
-			TF2_GetPlayerClass(i) == TFClass_Unknown) {
+			!is_player_state_valid(i)) {
 			continue;
 		}
 
@@ -1273,7 +1311,86 @@ static MRESReturn CTFPlayerShared_RecalculatePlayerBodygroups_detour_post(Addres
 public void OnAllPluginsLoaded()
 {
 	tauntmanager_loaded = LibraryExists("tauntmanager");
+	economy_loaded = LibraryExists("economy");
 }
+
+public Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx)
+{
+	if(!StrEqual(classname2, "playermodel")) {
+		return Plugin_Continue;
+	}
+
+	int conf_idx1 = econ_idx_to_conf_idx(item1_idx);
+	int conf_idx2 = econ_idx_to_conf_idx(item2_idx);
+
+	int classes1 = configs.Get(conf_idx1, ConfigInfo::classes_allowed);
+	int classes2 = configs.Get(conf_idx2, ConfigInfo::classes_allowed);
+
+	if(classes1 & classes2) {
+		return Plugin_Handled;
+	}
+
+	return Plugin_Continue;
+}
+
+static int econ_idx_to_conf_idx(int idx)
+{
+	char str[5];
+	pack_int_in_str(idx, str);
+
+	int conf_idx = -1;
+	econ_to_config_map.GetValue(str, conf_idx);
+
+	return conf_idx;
+}
+
+public void econ_cache_item(const char[] classname, int item_idx, StringMap settings)
+{
+	char name[MODEL_NAME_MAX];
+	settings.GetString("config", name, MODEL_NAME_MAX);
+
+	int conf_idx = -1;
+	config_idx_map.GetValue(name, conf_idx);
+
+	char str[5];
+	pack_int_in_str(item_idx, str);
+
+	econ_to_config_map.SetValue(str, conf_idx);
+}
+
+#if defined __economy_inc
+public void econ_handle_item(int client, const char[] classname, int item_idx, int inv_idx, econ_item_action action)
+{
+	switch(action) {
+		case econ_item_equip: {
+			unequip_config(client, true);
+
+			int conf_idx = econ_idx_to_conf_idx(item_idx);
+
+			ConfigInfo config_info;
+			configs.GetArray(conf_idx, config_info, sizeof(ConfigInfo));
+
+			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+				if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
+					copy_config_vars(client, player_econ_configs[client][i], conf_idx, config_info);
+				}
+			}
+		}
+		case econ_item_unequip: {
+			int conf_idx = econ_idx_to_conf_idx(item_idx);
+
+			ConfigInfo config_info;
+			configs.GetArray(conf_idx, config_info, sizeof(ConfigInfo));
+
+			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+				if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
+					player_econ_configs[client][i].clear();
+				}
+			}
+		}
+	}
+}
+#endif
 
 public void OnLibraryAdded(const char[] name)
 {
@@ -1281,6 +1398,11 @@ public void OnLibraryAdded(const char[] name)
 		no_damage_gameplay_group = TeamManager_NewGameplayGroup(Gameplay_Friendly);
 	} else if(StrEqual(name, "tauntmanager")) {
 		tauntmanager_loaded = true;
+	} else if(StrEqual(name, "economy")) {
+	#if defined __economy_inc
+		econ_register_item_class("playermodel", true);
+	#endif
+		economy_loaded = true;
 	}
 }
 
@@ -1290,6 +1412,10 @@ public void OnLibraryRemoved(const char[] name)
 		no_damage_gameplay_group = INVALID_GAMEPLAY_GROUP;
 	} else if(StrEqual(name, "tauntmanager")) {
 		tauntmanager_loaded = false;
+	} else if(StrEqual(name, "economy")) {
+		delete econ_to_config_map;
+		econ_to_config_map = new StringMap();
+		economy_loaded = false;
 	}
 }
 
@@ -1418,12 +1544,16 @@ static void unequip_config_basic(int client)
 
 	if(player_config[client].flags & config_flags_hide_wearables) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_wearables_alpha);
-		toggle_player_wearables(client, true);
+		if(is_player_state_valid(client)) {
+			toggle_player_wearables(client, true);
+		}
 	}
 
 	if(player_config[client].flags & config_flags_hide_weapons) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_weapons_alpha);
-		toggle_player_weapons(client, true);
+		if(is_player_state_valid(client)) {
+			toggle_player_weapons(client, true);
+		}
 	}
 }
 
@@ -1436,55 +1566,64 @@ static void unequip_config(int client, bool force = false)
 	handle_playermodel(client);
 }
 
-static bool equip_config_basic(int client, int idx, ConfigInfo info)
+static void copy_config_vars(int client, PlayerConfigInfo plrinfo, int idx, ConfigInfo info)
 {
-	unequip_config_basic(client);
+	plrinfo.clear();
 
-	player_config[client].clear();
-
-	player_config[client].idx = idx;
+	plrinfo.idx = idx;
 
 	if(info.model[0] != '\0') {
-		strcopy(player_config[client].model, PLATFORM_MAX_PATH, info.model);
+		strcopy(plrinfo.model, PLATFORM_MAX_PATH, info.model);
 	}
 
 	if(info.arm_model[0] != '\0') {
-		strcopy(player_config[client].arm_model, PLATFORM_MAX_PATH, info.arm_model);
+		strcopy(plrinfo.arm_model, PLATFORM_MAX_PATH, info.arm_model);
 	}
 
 	if(info.skin != -1) {
-		player_config[client].skin = info.skin;
+		plrinfo.skin = info.skin;
 	}
 
 	if(info.bodygroups != -1) {
-		player_config[client].bodygroups = info.bodygroups;
+		plrinfo.bodygroups = info.bodygroups;
 	}
 
-	player_config[client].sound_variables = info.sound_variables;
-	player_config[client].sound_replacements = info.sound_replacements;
-	player_config[client].flags = info.flags;
-	player_config[client].model_class = info.model_class;
+	plrinfo.classes_allowed = info.classes_allowed;
 
-	if(player_config[client].flags & config_flags_no_gameplay) {
+	plrinfo.sound_variables = info.sound_variables;
+	plrinfo.sound_replacements = info.sound_replacements;
+	plrinfo.flags = info.flags;
+	plrinfo.model_class = info.model_class;
+
+	if(plrinfo.flags & config_flags_no_gameplay) {
 		TeamManager_AddPlayerToGameplayGroup(client, no_damage_gameplay_group);
 		CPrintToChat(client, PM2_CHAT_PREFIX ... "the model you equipped can not participate in normal gameplay");
 	}
 
-	if(player_config[client].flags & config_flags_no_weapons) {
-		TF2_RemoveAllWeapons(client);
+	if(is_player_state_valid(client)) {
+		if(plrinfo.flags & config_flags_no_weapons) {
+			TF2_RemoveAllWeapons(client);
+		}
+
+		if(plrinfo.flags & config_flags_no_wearables) {
+			remove_all_player_wearables(client);
+		}
 	}
 
-	if(player_config[client].flags & config_flags_no_wearables) {
-		remove_all_player_wearables(client);
-	}
-
-	if(player_config[client].flags & config_flags_hide_wearables) {
+	if(plrinfo.flags & config_flags_hide_wearables) {
 		SDKHook(client, SDKHook_PostThinkPost, player_think_wearables_alpha);
 	}
 
-	if(player_config[client].flags & config_flags_hide_weapons) {
+	if(plrinfo.flags & config_flags_hide_weapons) {
 		SDKHook(client, SDKHook_PostThinkPost, player_think_weapons_alpha);
 	}
+}
+
+static bool equip_config_basic(int client, int idx, ConfigInfo info)
+{
+	unequip_config_basic(client);
+
+	copy_config_vars(client, player_config[client], idx, info);
 
 	return true;
 }
@@ -1495,12 +1634,14 @@ static void equip_config(int client, int idx, ConfigInfo info)
 		return;
 	}
 
-	if(!player_taunts_in_firstperson(client)) {
-		int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-		handle_viewmodel(client, weapon);
-	}
+	if(is_player_state_valid(client)) {
+		if(!player_taunts_in_firstperson(client)) {
+			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			handle_viewmodel(client, weapon);
+		}
 
-	handle_playermodel(client);
+		handle_playermodel(client);
+	}
 }
 
 static void equip_config_variation(int client, int idx, ConfigInfo info, ConfigVariationInfo variation)
@@ -1664,11 +1805,19 @@ static void display_group_menu(int client, int idx)
 
 	ConfigInfo info;
 
+	TFClassType class = TF2_GetPlayerClass(client);
+
 	int len = group.configs.Length;
 	for(int i = 0; i < len; ++i) {
 		idx = group.configs.Get(i);
 
 		configs.GetArray(idx, info, sizeof(ConfigInfo));
+
+		if(info.classes_allowed != 0) {
+			if(!(info.classes_allowed & BIT_FOR_CLASS(class))) {
+				continue;
+			}
+		}
 
 		IntToString(idx, int_str, INT_STR_MAX);
 		menu.AddItem(int_str, info.name);
@@ -1809,16 +1958,31 @@ static void frame_ragdoll_created(int entity)
 	char model_original[PLATFORM_MAX_PATH];
 	GetEntPropString(owner, Prop_Send, "m_iszCustomModel", model_original, PLATFORM_MAX_PATH);
 
+	TFClassType player_class = get_player_class(owner);
+
+	bool config_valid = (player_config[owner].model[0] != '\0');
+
+	if(player_config[owner].classes_allowed != 0) {
+		if(!(player_config[owner].classes_allowed & BIT_FOR_CLASS(player_class))) {
+			config_valid = false;
+		}
+	}
+
 	char model[PLATFORM_MAX_PATH];
 	if(player_thirdparty_model[owner].model[0] != '\0') {
 		strcopy(model, PLATFORM_MAX_PATH, player_thirdparty_model[owner].model);
 		if(player_thirdparty_model[owner].class != TFClass_Unknown) {
 			SetEntProp(entity, Prop_Send, "m_iClass", player_thirdparty_model[owner].class);
 		}
-	} else if(player_config[owner].model[0] != '\0') {
+	} else if(config_valid) {
 		strcopy(model, PLATFORM_MAX_PATH, player_config[owner].model);
 		if(player_config[owner].model_class != TFClass_Unknown) {
 			SetEntProp(entity, Prop_Send, "m_iClass", player_config[owner].model_class);
+		}
+	} else if(player_econ_configs[owner][player_class].model[0] != '\0') {
+		strcopy(model, PLATFORM_MAX_PATH, player_econ_configs[owner][player_class].model);
+		if(player_econ_configs[owner][player_class].model_class != TFClass_Unknown) {
+			SetEntProp(entity, Prop_Send, "m_iClass", player_econ_configs[owner][player_class].model_class);
 		}
 	}
 
@@ -2998,6 +3162,7 @@ static void delete_player_model_entity(int client)
 		TF2_RemoveWearable(client, entity);
 		RemoveEntity(entity);
 		player_model_entity[client] = INVALID_ENT_REFERENCE;
+		player_entity_model[client][0] = '\0';
 	}
 
 	SDKUnhook(client, SDKHook_PostThinkPost, player_think_model);
@@ -3018,6 +3183,9 @@ static void delete_player_model_entity(int client)
 
 public void OnClientDisconnect(int client)
 {
+	player_custom_model[client][0] = '\0';
+	player_entity_model[client][0] = '\0';
+
 	player_thirdparty_model[client].clear();
 	player_custom_taunt_model[client].clear();
 	player_config[client].clear();
@@ -3027,6 +3195,10 @@ public void OnClientDisconnect(int client)
 	player_tpose[client] = false;
 	player_loser[client] = false;
 	player_swim[client] = false;
+
+	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+		player_econ_configs[client][i].clear();
+	}
 
 	player_weapon_animation_class[client] = TFClass_Unknown;
 
@@ -3255,6 +3427,7 @@ static void set_player_custom_model(int client, const char[] model)
 	dont_handle_SetCustomModel_call = true;
 	SetVariantString(model);
 	AcceptEntityInput(client, "SetCustomModel");
+	strcopy(player_custom_model[client], PLATFORM_MAX_PATH, model);
 }
 
 static void recalculate_player_bodygroups(int client)
@@ -3272,13 +3445,14 @@ static void recalculate_player_bodygroups(int client)
 
 static void remove_playermodel(int client)
 {
-	set_player_custom_model(client, "");
-	SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
+	if(player_custom_model[client][0] != '\0') {
+		set_player_custom_model(client, "");
+		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
+		recalculate_player_bodygroups(client);
+	}
 
 	//SetEntProp(client, Prop_Send, "m_bForcedSkin", 0);
 	//SetEntProp(client, Prop_Send, "m_nForcedSkin", 0);
-
-	recalculate_player_bodygroups(client);
 
 	delete_player_model_entity(client);
 	delete_player_viewmodel_entities(client);
@@ -3295,15 +3469,6 @@ static int get_player_model_entity(int client)
 		}
 	}
 
-	return entity;
-}
-
-static int get_model_entity_or_client(int client)
-{
-	int entity = get_model_entity(client);
-	if(entity == -1) {
-		entity = client;
-	}
 	return entity;
 }
 
@@ -3390,7 +3555,19 @@ static void handle_playermodel(int client)
 
 	TFClassType player_class = get_player_class(client);
 
-	bool has_any_model = (player_thirdparty_model[client].model[0] != '\0' || player_config[client].model[0] != '\0');
+	bool config_valid = (player_config[client].model[0] != '\0');
+
+	if(player_config[client].classes_allowed != 0) {
+		if(!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
+			config_valid = false;
+		}
+	}
+
+	bool has_any_model = (
+		player_thirdparty_model[client].model[0] != '\0' ||
+		config_valid ||
+		player_econ_configs[client][player_class].model[0] != '\0'
+	);
 
 	TFClassType anim_class = player_class;
 
@@ -3412,7 +3589,7 @@ static void handle_playermodel(int client)
 	}
 
 	bool bonemerge = true;
-	bool from_config = false;
+	int from = 0;
 	TFClassType model_class = player_class;
 
 	char player_model[PLATFORM_MAX_PATH];
@@ -3435,8 +3612,8 @@ static void handle_playermodel(int client)
 		} else {
 			bonemerge = false;
 		}
-	} else if(player_config[client].model[0] != '\0') {
-		from_config = true;
+	} else if(config_valid) {
+		from = 1;
 		strcopy(player_model, PLATFORM_MAX_PATH, player_config[client].model);
 		model_class = player_config[client].model_class;
 
@@ -3444,6 +3621,20 @@ static void handle_playermodel(int client)
 			bonemerge = false;
 		} else if(!(player_config[client].flags & config_flags_always_bonemerge)) {
 			if(player_config[client].model_class == player_class) {
+				if(animation_model[0] == '\0') {
+					bonemerge = false;
+				}
+			}
+		}
+	} else if(player_econ_configs[client][player_class].model[0] != '\0') {
+		from = 2;
+		strcopy(player_model, PLATFORM_MAX_PATH, player_econ_configs[client][player_class].model);
+		model_class = player_econ_configs[client][player_class].model_class;
+
+		if(player_econ_configs[client][player_class].flags & config_flags_never_bonemerge) {
+			bonemerge = false;
+		} else if(!(player_econ_configs[client][player_class].flags & config_flags_always_bonemerge)) {
+			if(player_econ_configs[client][player_class].model_class == player_class) {
 				if(animation_model[0] == '\0') {
 					bonemerge = false;
 				}
@@ -3463,13 +3654,6 @@ static void handle_playermodel(int client)
 		remove_playermodel(client);
 		return;
 	} else if(bonemerge) {
-		delete_player_model_entity(client);
-
-		if(animation_model[0] == '\0' && player_model[0] == '\0') {
-			LogError(PM2_CON_PREFIX ... "tried to set empty model");
-			return;
-		}
-
 		if(animation_model[0] == '\0') {
 			get_model_for_class(player_class, animation_model, PLATFORM_MAX_PATH);
 			anim_class = player_class;
@@ -3479,43 +3663,75 @@ static void handle_playermodel(int client)
 			model_class = player_class;
 		}
 
-		set_player_custom_model(client, animation_model);
-		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
+		if(animation_model[0] == '\0' && player_model[0] == '\0') {
+			LogError(PM2_CON_PREFIX ... "tried to set empty model");
+			return;
+		}
 
-		int entity = get_or_create_player_model_entity(client);
+		bool same_custom_model = StrEqual(player_custom_model[client], animation_model);
+		bool same_entity_model = StrEqual(player_entity_model[client], player_model) && get_player_model_entity(client) != -1;
 
-		bool set_bodygroups = true;
+		if(same_custom_model && same_entity_model) {
+			return;
+		}
 
-		if(from_config) {
-			int bodygroups = player_config[client].bodygroups;
-			if(bodygroups != -1) {
+		if(!same_custom_model) {
+			set_player_custom_model(client, animation_model);
+			SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
+		}
+
+		if(!same_entity_model) {
+			delete_player_model_entity(client);
+			int entity = get_or_create_player_model_entity(client);
+
+			bool set_bodygroups = true;
+
+			if(from == 1) {
+				int bodygroups = player_config[client].bodygroups;
+				if(bodygroups != -1) {
+					SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
+					set_bodygroups = false;
+				}
+
+				int skin = player_config[client].skin;
+				if(skin != -1) {
+					SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(skin));
+				}
+			} else if(from == 2) {
+				int bodygroups = player_econ_configs[client][player_class].bodygroups;
+				if(bodygroups != -1) {
+					SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
+					set_bodygroups = false;
+				}
+
+				int skin = player_econ_configs[client][player_class].skin;
+				if(skin != -1) {
+					SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(skin));
+				}
+			}
+
+			if(set_bodygroups) {
+				int bodygroups = GetEntProp(client, Prop_Send, "m_nBody");
+				if(model_class != player_class) {
+					bodygroups = translate_classes_bodygroups(bodygroups, player_class, model_class);
+				}
 				SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
-				set_bodygroups = false;
 			}
 
-			int skin = player_config[client].skin;
-			if(skin != -1) {
-				SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(skin));
-			}
+			SetEntityModel(entity, player_model);
+			strcopy(player_entity_model[client], PLATFORM_MAX_PATH, player_model);
 		}
-
-		if(set_bodygroups) {
-			int bodygroups = GetEntProp(client, Prop_Send, "m_nBody");
-			if(model_class != player_class) {
-				bodygroups = translate_classes_bodygroups(bodygroups, player_class, model_class);
-			}
-			SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
-		}
-
-		SetEntityModel(entity, player_model);
 	} else {
-		delete_player_model_entity(client);
-
 		if(player_model[0] == '\0') {
 			LogError(PM2_CON_PREFIX ... "tried to set empty model");
 			return;
 		}
 
+		if(StrEqual(player_custom_model[client], player_model)) {
+			return;
+		}
+
+		delete_player_model_entity(client);
 		set_player_custom_model(client, player_model);
 		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
 	}

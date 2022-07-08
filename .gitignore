@@ -1,10 +1,5 @@
 .vscode/
 
-addons/sourcemod/scripting/economy.sql
-addons/sourcemod/scripting/economy.sp
-addons/sourcemod/scripting/include/economy.inc
-addons/sourcemod/scripting/economy/
-
 addons/sourcemod/scripting/gcmessages.sp
 addons/sourcemod/scripting/include/gcmessages.inc
 addons/sourcemod/gamedata/gcmessages.txt
