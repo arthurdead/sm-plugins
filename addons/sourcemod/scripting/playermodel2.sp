@@ -126,6 +126,9 @@ enum struct ConfigInfo
 	config_flags flags;
 	int skin;
 	int bodygroups;
+
+	char econ_description[ECON_MAX_ITEM_DESCRIPTION];
+	int econ_price;
 }
 
 enum struct PlayerConfigInfo
@@ -750,7 +753,7 @@ void clone_config_basic(ConfigInfo info, ConfigInfo other)
 	}
 }
 
-static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_config_info)
+static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_config_info, bool econ = false)
 {
 	KeyValues kv = new KeyValues("playermodel2_config");
 	kv.ImportFromFile(path);
@@ -776,6 +779,12 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 			if(!parse_config_kv_basic(kv, info, group_config_info.flags)) {
 				continue;
+			}
+
+			if(econ) {
+				info.econ_price = kv.GetNum("price");
+
+				kv.GetString("description", info.econ_description, ECON_MAX_ITEM_DESCRIPTION, "");
 			}
 
 			kv.GetString("classes_whitelist", classes_str, sizeof(classes_str), "all");
@@ -910,7 +919,7 @@ static void load_configs()
 	BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/econ.txt");
 	if(FileExists(any_file_path)) {
 		ConfigInfo group_config_info;
-		parse_config_kv(any_file_path, econ_group, group_config_info);
+		parse_config_kv(any_file_path, econ_group, group_config_info, true);
 		free_group_config_info(group_config_info);
 	}
 }
@@ -1314,6 +1323,38 @@ public void OnAllPluginsLoaded()
 	economy_loaded = LibraryExists("economy");
 }
 
+static void on_econ_cat_registered(int cat_idx)
+{
+	ConfigInfo info;
+
+	int len = econ_group.configs.Length;
+	for(int i = 0; i < len; ++i) {
+		int conf_idx = econ_group.configs.Get(i);
+
+		configs.GetArray(conf_idx, info, sizeof(ConfigInfo));
+
+		int item_idx = econ_find_item(cat_idx, info.name);
+		if(item_idx == -1) {
+			StringMap settings = new StringMap();
+			settings.SetString("config", info.name);
+			econ_register_item(cat_idx, info.name, "", "playermodel", info.econ_price, settings);
+		} else {
+			econ_set_item_price(item_idx, info.econ_price);
+			econ_set_item_setting(item_idx, "config", info.name);
+		}
+	}
+}
+
+public void econ_loaded()
+{
+	int idx = econ_find_category("Playermodels");
+	if(idx == -1) {
+		econ_register_category("Playermodels", on_econ_cat_registered);
+	} else {
+		on_econ_cat_registered(idx);
+	}
+}
+
 public Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx)
 {
 	if(!StrEqual(classname2, "playermodel")) {
@@ -1358,6 +1399,36 @@ public void econ_cache_item(const char[] classname, int item_idx, StringMap sett
 	econ_to_config_map.SetValue(str, conf_idx);
 }
 
+public void econ_modify_menu(const char[] classname, int item_idx)
+{
+	int conf_idx = econ_idx_to_conf_idx(item_idx);
+	if(conf_idx == -1) {
+		return;
+	}
+
+	ConfigInfo config_info;
+	configs.GetArray(conf_idx, config_info, sizeof(ConfigInfo));
+
+	int classes_str_len = (CLASS_NAME_MAX * TF_CLASS_COUNT_ALL);
+	char[] classes_str = new char[classes_str_len];
+	strcopy(classes_str, classes_str_len, "Classes: ");
+
+	char tmp_classname[CLASS_NAME_MAX];
+	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+		if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
+			get_class_name(i, tmp_classname, CLASS_NAME_MAX);
+
+			StrCat(classes_str, classes_str_len, tmp_classname);
+			StrCat(classes_str, classes_str_len, "|");
+		}
+	}
+
+	classes_str_len = strlen(classes_str);
+	classes_str[classes_str_len-1] = '\0';
+
+	econ_menu_add_item(classes_str);
+}
+
 #if defined __economy_inc
 public void econ_handle_item(int client, const char[] classname, int item_idx, int inv_idx, econ_item_action action)
 {
@@ -1375,9 +1446,14 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 					copy_config_vars(client, player_econ_configs[client][i], conf_idx, config_info);
 				}
 			}
+
+			handle_playermodel(client);
 		}
 		case econ_item_unequip: {
 			int conf_idx = econ_idx_to_conf_idx(item_idx);
+			if(conf_idx == -1) {
+				return;
+			}
 
 			ConfigInfo config_info;
 			configs.GetArray(conf_idx, config_info, sizeof(ConfigInfo));
@@ -1387,6 +1463,8 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 					player_econ_configs[client][i].clear();
 				}
 			}
+
+			handle_playermodel(client);
 		}
 	}
 }

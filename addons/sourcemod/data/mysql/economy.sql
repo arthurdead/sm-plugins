@@ -17,7 +17,8 @@ create table item_setting (
 	item int not null,
 	foreign key (item) references item(id),
 	name varchar(64) not null,
-	value varchar(64) not null
+	value varchar(64) not null,
+	unique(item,name)
 );
 
 create table player_currency (

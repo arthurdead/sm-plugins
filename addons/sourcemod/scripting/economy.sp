@@ -15,19 +15,10 @@
 #define ECON_CON_PREFIX "[ECON] "
 #define ECON_CHAT_PREFIX "{dodgerblue}[ECON]{default} "
 
-#define MAX_ITEM_CAT_NAME 64
-
-#define MAX_ITEM_NAME 64
-#define MAX_ITEM_DESC  64
-#define MAX_ITEM_CLASS 64
-
-#define MAX_ITEM_SETT_NAME 64
-#define MAX_ITEM_SETT_VALUE 64
-
 enum struct ItemCategoryInfo
 {
 	int id;
-	char name[MAX_ITEM_CAT_NAME];
+	char name[ECON_MAX_ITEM_CATEGORY_NAME];
 	ArrayList items;
 	Menu shop_menu;
 }
@@ -35,9 +26,9 @@ enum struct ItemCategoryInfo
 enum struct ItemInfo
 {
 	int id;
-	char name[MAX_ITEM_NAME];
-	char desc[MAX_ITEM_DESC];
-	char classname[MAX_ITEM_CLASS];
+	char name[ECON_MAX_ITEM_NAME];
+	char desc[ECON_MAX_ITEM_DESCRIPTION];
+	char classname[ECON_MAX_ITEM_CLASSNAME];
 	StringMap settings;
 	int price;
 	int category;
@@ -63,12 +54,14 @@ enum struct ItemHandler
 	PrivateForward handle_fwd;
 	PrivateForward cache_fwd;
 	PrivateForward conflict_fwd;
+	PrivateForward menu_fwd;
 }
 
 static StringMap item_id_cache_idx_map;
 static ArrayList items;
 static StringMap category_id_cache_idx_map;
 static ArrayList categories;
+static StringMap category_map;
 static StringMap item_class_buckets;
 static Menu shop_menu;
 
@@ -85,6 +78,10 @@ static bool playing_shop_music[TF2_MAXPLAYERS+1];
 
 static StringMap item_handlers;
 
+static int current_menu_type;
+static Menu current_menu;
+
+static GlobalForward fwd_loaded;
 static Database econ_db;
 
 static void query_error(Database db, DBResultSet results, const char[] error, any data)
@@ -400,6 +397,8 @@ static void object_destroyed(Event event, const char[] name, bool dontBroadcast)
 
 public void OnPluginStart()
 {
+	fwd_loaded = new GlobalForward("econ_loaded", ET_Ignore);
+
 	if(SQL_CheckConfig("economy")) {
 		Database.Connect(database_connect, "economy");
 	}
@@ -707,6 +706,7 @@ static int native_econ_register_item_class(Handle plugin, int params)
 		hndlr.handle_fwd = new PrivateForward(ET_Ignore, Param_Cell, Param_String, Param_Cell, Param_Cell, Param_Cell);
 		hndlr.cache_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell, Param_Cell);
 		hndlr.conflict_fwd = new PrivateForward(ET_Hook, Param_String, Param_Cell, Param_String, Param_Cell);
+		hndlr.menu_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell);
 		item_handlers.SetArray(classname, hndlr, sizeof(ItemHandler));
 	}
 
@@ -725,6 +725,11 @@ static int native_econ_register_item_class(Handle plugin, int params)
 		hndlr.conflict_fwd.AddFunction(plugin, func);
 	}
 
+	func = GetFunctionByName(plugin, "econ_modify_menu");
+	if(func != INVALID_FUNCTION) {
+		hndlr.menu_fwd.AddFunction(plugin, func);
+	}
+
 	return 0;
 }
 
@@ -735,12 +740,346 @@ static int native_econ_item_settings(Handle plugin, int params)
 	return items.Get(idx, ItemInfo::settings);
 }
 
+static int native_econ_find_category(Handle plugin, int params)
+{
+	int length = 0;
+	GetNativeStringLength(1, length);
+	char[] name = new char[++length];
+	GetNativeString(1, name, length);
+
+	int idx = -1;
+	category_map.GetValue(name, idx);
+	return idx;
+}
+
+static void query_item_category_added(Database db, DBResultSet results, const char[] error, DataPack data)
+{
+	if(!results) {
+		LogError("%s", error);
+		return;
+	}
+
+	data.Reset();
+
+	char name[ECON_MAX_ITEM_NAME];
+	data.ReadString(name, ECON_MAX_ITEM_NAME);
+
+	Handle plugin = data.ReadCell();
+	Function registered = data.ReadFunction();
+
+	delete data;
+
+	int id = results.InsertId;
+
+	int idx = category_loaded(id, name);
+
+	Call_StartFunction(plugin, registered);
+	Call_PushCell(idx);
+	Call_Finish();
+}
+
+static int native_econ_register_category(Handle plugin, int params)
+{
+	int length = 0;
+	GetNativeStringLength(1, length);
+	char[] name = new char[++length];
+	GetNativeString(1, name, length);
+
+	Function registered = GetNativeFunction(2);
+
+	char query[QUERY_STR_MAX];
+	econ_db.Format(query, QUERY_STR_MAX,
+		"insert into item_category " ...
+		" (name) " ...
+		" values " ...
+		" ('%s') " ...
+		";"
+		,name
+	);
+	DataPack data = new DataPack();
+	data.WriteString(name);
+	data.WriteCell(plugin);
+	data.WriteFunction(registered);
+	econ_db.Query(query_item_category_added, query, data);
+
+	return 0;
+}
+
+static int native_econ_find_item(Handle plugin, int params)
+{
+	int category = GetNativeCell(1);
+
+	int length = 0;
+	GetNativeStringLength(2, length);
+	char[] name = new char[++length];
+	GetNativeString(2, name, length);
+
+	ArrayList cat_items = categories.Get(category, ItemCategoryInfo::items);
+
+	ItemInfo info;
+
+	int len = cat_items.Length;
+	for(int i = 0; i < len; ++i) {
+		int idx = cat_items.Get(i);
+
+		items.GetArray(idx, info, sizeof(ItemInfo));
+
+		if(StrEqual(info.name, name)) {
+			return idx;
+		}
+	}
+
+	return -1;
+}
+
+static void query_item_added(Database db, DBResultSet results, const char[] error, DataPack data)
+{
+	if(!results) {
+		LogError("%s", error);
+		return;
+	}
+
+	data.Reset();
+
+	int cat_id = data.ReadCell();
+
+	char name[ECON_MAX_ITEM_NAME];
+	data.ReadString(name, ECON_MAX_ITEM_NAME);
+
+	char description[ECON_MAX_ITEM_DESCRIPTION];
+	data.ReadString(description, ECON_MAX_ITEM_DESCRIPTION);
+
+	char classname[ECON_MAX_ITEM_CLASSNAME];
+	data.ReadString(classname, ECON_MAX_ITEM_CLASSNAME);
+
+	int price = data.ReadCell();
+
+	StringMap settings = data.ReadCell();
+
+	delete data;
+
+	int id = results.InsertId;
+
+	int idx = item_loaded(id, cat_id, name, description, classname, price);
+
+	if(settings != null) {
+		Transaction tr = new Transaction();
+
+		char sett_name[ECON_MAX_ITEM_SETTING_NAME];
+		char sett_value[ECON_MAX_ITEM_SETTING_VALUE];
+
+		char query[QUERY_STR_MAX];
+
+		StringMapSnapshot snap = settings.Snapshot();
+		int len = snap.Length;
+		for(int i = 0; i < len; ++i) {
+			snap.GetKey(i, sett_name, ECON_MAX_ITEM_SETTING_NAME);
+
+			settings.GetString(sett_name, sett_value, ECON_MAX_ITEM_SETTING_VALUE);
+
+			econ_db.Format(query, QUERY_STR_MAX,
+				"insert into item_setting " ...
+				" (item,name,value) " ...
+				" values " ...
+				" (%i,'%s','%s') " ...
+				";"
+				,id,sett_name,sett_value
+			);
+			tr.AddQuery(query);
+
+			item_setting_loaded(id, sett_name, sett_value);
+		}
+		delete snap;
+
+		econ_db.Execute(tr, INVALID_FUNCTION, transaction_error);
+	}
+
+	ItemHandler hndlr;
+	if(item_handlers.GetArray(classname, hndlr, sizeof(ItemHandler))) {
+		Call_StartForward(hndlr.cache_fwd);
+		Call_PushString(classname);
+		Call_PushCell(idx);
+		Call_PushCell(settings);
+		Call_Finish();
+
+		Menu menu = items.Get(idx, ItemInfo::shop_menu);
+
+		current_menu_type = 1;
+		current_menu = menu;
+
+		Call_StartForward(hndlr.menu_fwd);
+		Call_PushString(classname);
+		Call_PushCell(idx);
+		Call_Finish();
+
+		current_menu_type = 0;
+		current_menu = null;
+	}
+
+	delete settings;
+}
+
+static int native_econ_register_item(Handle plugin, int params)
+{
+	int category = GetNativeCell(1);
+	int cat_id = cache_idx_to_cat_id(category);
+
+	int length = 0;
+	GetNativeStringLength(2, length);
+	char[] name = new char[++length];
+	GetNativeString(2, name, length);
+
+	length = 0;
+	GetNativeStringLength(3, length);
+	char[] description = new char[++length];
+	GetNativeString(3, description, length);
+
+	length = 0;
+	GetNativeStringLength(4, length);
+	char[] classname = new char[++length];
+	GetNativeString(4, classname, length);
+
+	int price = GetNativeCell(5);
+
+	StringMap settings = GetNativeCell(6);
+
+	char query[QUERY_STR_MAX];
+	econ_db.Format(query, QUERY_STR_MAX,
+		"insert into item " ...
+		" (category,name,description,classname,price) " ...
+		" values " ...
+		" (%i,'%s','%s','%s',%i) " ...
+		";"
+		,cat_id,name,description,classname,price
+	);
+	DataPack data = new DataPack();
+	data.WriteCell(cat_id);
+	data.WriteString(name);
+	data.WriteString(description);
+	data.WriteString(classname);
+	data.WriteCell(price);
+	data.WriteCell(settings);
+	econ_db.Query(query_item_added, query, data);
+
+	return 0;
+}
+
+static int native_econ_set_item_price(Handle plugin, int params)
+{
+	int idx = GetNativeCell(1);
+	int item_id = cache_idx_to_item_id(idx);
+
+	int price = GetNativeCell(2);
+
+	char query[QUERY_STR_MAX];
+	econ_db.Format(query, QUERY_STR_MAX,
+		"update item " ...
+		" set price=%i " ...
+		" where " ...
+		" id=%i " ...
+		";"
+		,price,item_id
+	);
+	econ_db.Query(query_error, query);
+
+	items.Set(idx, price, ItemInfo::price);
+
+	return 0;
+}
+
+static int native_econ_set_item_description(Handle plugin, int params)
+{
+	int idx = GetNativeCell(1);
+	int item_id = cache_idx_to_item_id(idx);
+
+	int length = 0;
+	GetNativeStringLength(2, length);
+	char[] description = new char[++length];
+	GetNativeString(2, description, length);
+
+	char query[QUERY_STR_MAX];
+	econ_db.Format(query, QUERY_STR_MAX,
+		"update item set" ...
+		" description='%s' " ...
+		" where " ...
+		" id=%i " ...
+		";"
+		,description,item_id
+	);
+	econ_db.Query(query_error, query);
+
+	ItemInfo info;
+	items.GetArray(idx, info, sizeof(ItemInfo));
+	strcopy(info.desc, ECON_MAX_ITEM_DESCRIPTION, description);
+	items.SetArray(idx, info, sizeof(ItemInfo));
+
+	return 0;
+}
+
+static int native_econ_set_item_setting(Handle plugin, int params)
+{
+	int idx = GetNativeCell(1);
+	int item_id = cache_idx_to_item_id(idx);
+
+	int length = 0;
+	GetNativeStringLength(2, length);
+	char[] name = new char[++length];
+	GetNativeString(2, name, length);
+
+	length = 0;
+	GetNativeStringLength(3, length);
+	char[] value = new char[++length];
+	GetNativeString(3, value, length);
+
+	char query[QUERY_STR_MAX];
+	econ_db.Format(query, QUERY_STR_MAX,
+		"replace into item_setting set " ...
+		" item=%i,name='%s',value='%s' " ...
+		";"
+		,item_id,name,value
+	);
+	econ_db.Query(query_error, query);
+
+	StringMap settings = items.Get(idx, ItemInfo::settings);
+	settings.SetString(name, value);
+
+	return 0;
+}
+
+static int native_econ_menu_add_item(Handle plugin, int params)
+{
+	int length = 0;
+	GetNativeStringLength(1, length);
+	char[] display = new char[++length];
+	GetNativeString(1, display, length);
+
+	if(!current_menu) {
+		return 0;
+	}
+
+	if(current_menu_type == 1) {
+		current_menu.InsertItem(1, "", display, ITEMDRAW_DISABLED);
+	} else if(current_menu_type == 2) {
+		current_menu.AddItem("", display, ITEMDRAW_DISABLED);
+	}
+
+	return 0;
+}
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("economy");
 	item_handlers = new StringMap();
 	CreateNative("econ_register_item_class", native_econ_register_item_class);
 	CreateNative("econ_item_settings", native_econ_item_settings);
+	CreateNative("econ_find_category", native_econ_find_category);
+	CreateNative("econ_register_category", native_econ_register_category);
+	CreateNative("econ_find_item", native_econ_find_item);
+	CreateNative("econ_register_item", native_econ_register_item);
+	CreateNative("econ_set_item_price", native_econ_set_item_price);
+	CreateNative("econ_set_item_description", native_econ_set_item_description);
+	CreateNative("econ_set_item_setting", native_econ_set_item_setting);
+	CreateNative("econ_menu_add_item", native_econ_menu_add_item);
 	return APLRes_Success;
 }
 
@@ -762,7 +1101,7 @@ static void database_connect(Database db, const char[] error, any data)
 		" id int primary key auto_increment, " ...
 		" name varchar(%i) not null " ...
 		");"
-		,MAX_ITEM_CAT_NAME
+		,ECON_MAX_ITEM_CATEGORY_NAME
 	);
 	tr.AddQuery(query);
 
@@ -776,9 +1115,9 @@ static void database_connect(Database db, const char[] error, any data)
 		" classname varchar(%i) not null, " ...
 		" price int not null " ...
 		");"
-		,MAX_ITEM_NAME,
-		MAX_ITEM_DESC,
-		MAX_ITEM_CLASS
+		,ECON_MAX_ITEM_NAME,
+		ECON_MAX_ITEM_DESCRIPTION,
+		ECON_MAX_ITEM_CLASSNAME
 	);
 	tr.AddQuery(query);
 
@@ -787,10 +1126,11 @@ static void database_connect(Database db, const char[] error, any data)
 		" item int not null, " ...
 		" foreign key (item) references item(id), " ...
 		" name varchar(%i) not null, " ...
-		" value varchar(%i) not null " ...
+		" value varchar(%i) not null, " ...
+		" unique(item, name) " ...
 		");"
-		,MAX_ITEM_SETT_NAME,
-		MAX_ITEM_SETT_VALUE
+		,ECON_MAX_ITEM_SETTING_NAME,
+		ECON_MAX_ITEM_SETTING_VALUE
 	);
 	tr.AddQuery(query);
 
@@ -841,11 +1181,12 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 	items = new ArrayList(sizeof(ItemInfo));
 	item_class_buckets = new StringMap();
 	category_id_cache_idx_map = new StringMap();
+	category_map = new StringMap();
 	categories = new ArrayList(sizeof(ItemCategoryInfo));
 
 	shop_menu = new Menu(menuhandler_shop, MENU_ACTIONS_DEFAULT|MenuAction_DisplayItem|MenuAction_Display);
 	shop_menu.SetTitle("Shop");
-	shop_menu.AddItem("", "", ITEMDRAW_DISABLED);
+	shop_menu.AddItem("", "");
 
 	handle_result_set(results[numQueries-3], cache_categories);
 #if defined DEBUG
@@ -854,14 +1195,14 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 	handle_result_set(results[numQueries-2], cache_items);
 	handle_result_set(results[numQueries-1], cache_items_settings);
 
-	char classname[MAX_ITEM_CLASS];
+	char classname[ECON_MAX_ITEM_CLASSNAME];
 
 	ItemHandler hndlr;
 
 	StringMapSnapshot snap = item_class_buckets.Snapshot();
 	int len = snap.Length;
 	for(int i = 0; i < len; ++i) {
-		snap.GetKey(i, classname, MAX_ITEM_CLASS);
+		snap.GetKey(i, classname, ECON_MAX_ITEM_CLASSNAME);
 
 		ArrayList bucket = null;
 		if(item_class_buckets.GetValue(classname, bucket) &&
@@ -871,12 +1212,24 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 				int idx = bucket.Get(j);
 
 				StringMap settings = items.Get(idx, ItemInfo::settings);
+				Menu menu = items.Get(idx, ItemInfo::shop_menu);
 
 				Call_StartForward(hndlr.cache_fwd);
 				Call_PushString(classname);
 				Call_PushCell(idx);
 				Call_PushCell(settings);
 				Call_Finish();
+
+				current_menu_type = 1;
+				current_menu = menu;
+
+				Call_StartForward(hndlr.menu_fwd);
+				Call_PushString(classname);
+				Call_PushCell(idx);
+				Call_Finish();
+
+				current_menu_type = 0;
+				current_menu = null;
 			}
 		}
 	}
@@ -887,6 +1240,9 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 			query_player_data(i);
 		}
 	}
+
+	Call_StartForward(fwd_loaded);
+	Call_Finish();
 }
 
 static void handle_result_set(DBResultSet set, Function func, any data=0)
@@ -931,17 +1287,22 @@ static int cat_id_to_cache_idx(int id)
 	return idx;
 }
 
+static int cache_idx_to_cat_id(int idx)
+{
+	return categories.Get(idx, ItemCategoryInfo::id);
+}
+
 static int cache_idx_to_item_id(int idx)
 {
 	return items.Get(idx, ItemInfo::id);
 }
 
-static void cache_categories(DBResultSet set)
+static int category_loaded(int id, const char[] name)
 {
 	ItemCategoryInfo info;
 
-	info.id = set.FetchInt(0);
-	set.FetchString(1, info.name, MAX_ITEM_NAME);
+	info.id = id;
+	strcopy(info.name, ECON_MAX_ITEM_NAME, name);
 
 	info.shop_menu = new Menu(menuhandler_shop_cat);
 	info.shop_menu.ExitBackButton = true;
@@ -955,33 +1316,50 @@ static void cache_categories(DBResultSet set)
 	pack_int_in_str(info.id, str);
 	category_id_cache_idx_map.SetValue(str, idx);
 
+	category_map.SetValue(info.name, idx);
+
 	pack_int_in_str(idx, str);
 	shop_menu.AddItem(str, info.name);
+
+	return idx;
 }
 
-static void cache_items(DBResultSet set)
+static void cache_categories(DBResultSet set)
+{
+	int id = set.FetchInt(0);
+
+	char name[ECON_MAX_ITEM_NAME];
+	set.FetchString(1, name, ECON_MAX_ITEM_NAME);
+
+	category_loaded(id, name);
+}
+
+static int item_loaded(int id, int cat_id, const char[] name, const char[] desc, const char[] classname, int price)
 {
 	ItemInfo info;
 	info.settings = new StringMap();
 
-	info.id = set.FetchInt(0);
+	info.id = id;
 
-	int cat_id = set.FetchInt(1);
 	int cat_idx = cat_id_to_cache_idx(cat_id);
 
 	info.category = cat_idx;
 
-	set.FetchString(2, info.name, MAX_ITEM_NAME);
-	set.FetchString(3, info.desc, MAX_ITEM_DESC);
-	set.FetchString(4, info.classname, MAX_ITEM_CLASS);
+	strcopy(info.name, ECON_MAX_ITEM_NAME, name);
+	strcopy(info.desc, ECON_MAX_ITEM_DESCRIPTION, desc);
+	strcopy(info.classname, ECON_MAX_ITEM_CLASSNAME, classname);
 
-	info.price = set.FetchInt(5);
+	info.price = price;
 
 	info.shop_menu = new Menu(menuhandler_shop_cat_item, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem);
 	info.shop_menu.ExitBackButton = true;
 	info.shop_menu.SetTitle(info.name);
 	info.shop_menu.AddItem("", info.desc, ITEMDRAW_DISABLED);
-	info.shop_menu.AddItem("", "", ITEMDRAW_SPACER);
+
+	ItemHandler hndlr;
+	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
+		info.equipable = hndlr.equipable;
+	}
 
 	if(info.price != -1) {
 		char price_str[15];
@@ -989,11 +1367,6 @@ static void cache_items(DBResultSet set)
 		Format(price_str, sizeof(price_str), "Price: %s", price_str);
 
 		info.shop_menu.AddItem("", price_str, ITEMDRAW_DISABLED);
-	}
-
-	ItemHandler hndlr;
-	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
-		info.equipable = hndlr.equipable;
 	}
 
 	int idx = items.PushArray(info, sizeof(ItemInfo));
@@ -1029,22 +1402,49 @@ static void cache_items(DBResultSet set)
 	PrintToServer("  %s", info.classname);
 	PrintToServer("  %i, %i, %i", info.id, idx, info.equipable);
 #endif
+
+	return idx;
+}
+
+static void cache_items(DBResultSet set)
+{
+	int id = set.FetchInt(0);
+	int cat_id = set.FetchInt(1);
+
+	char name[ECON_MAX_ITEM_NAME];
+	set.FetchString(2, name, ECON_MAX_ITEM_NAME);
+
+	char desc[ECON_MAX_ITEM_DESCRIPTION];
+	set.FetchString(3, desc, ECON_MAX_ITEM_DESCRIPTION);
+
+	char classname[ECON_MAX_ITEM_CLASSNAME];
+	set.FetchString(4, classname, ECON_MAX_ITEM_CLASSNAME);
+
+	int price = set.FetchInt(5);
+
+	item_loaded(id, cat_id, name, desc, classname, price);
+}
+
+static void item_setting_loaded(int id, const char[] name, const char[] value)
+{
+	int idx = item_id_to_cache_idx(id);
+
+	StringMap settings = items.Get(idx, ItemInfo::settings);
+
+	settings.SetString(name, value);
 }
 
 static void cache_items_settings(DBResultSet set)
 {
 	int id = set.FetchInt(0);
-	int idx = item_id_to_cache_idx(id);
 
-	StringMap settings = items.Get(idx, ItemInfo::settings);
+	char name[ECON_MAX_ITEM_SETTING_NAME];
+	set.FetchString(1, name, ECON_MAX_ITEM_SETTING_NAME);
 
-	char name[MAX_ITEM_SETT_NAME];
-	set.FetchString(1, name, MAX_ITEM_SETT_NAME);
+	char value[ECON_MAX_ITEM_SETTING_VALUE];
+	set.FetchString(2, value, ECON_MAX_ITEM_SETTING_VALUE);
 
-	char value[MAX_ITEM_SETT_VALUE];
-	set.FetchString(2, value, MAX_ITEM_SETT_VALUE);
-
-	settings.SetString(name, value);
+	item_setting_loaded(id, name, value);
 }
 
 static int GetClientOfSteamAccountID(int accid)
@@ -1191,7 +1591,7 @@ static int menuhandler_inv_cat_item(Menu menu, MenuAction action, int param1, in
 		case MenuAction_Cancel: {
 			if(param2 == MenuCancel_ExitBack) {
 				char str[10];
-				menu.GetItem(1, str, sizeof(str));
+				menu.GetItem(menu.ItemCount-1, str, sizeof(str));
 
 				int idx = unpack_int_in_str(str, 0);
 
@@ -1207,7 +1607,7 @@ static int menuhandler_inv_cat_item(Menu menu, MenuAction action, int param1, in
 			}
 		}
 		case MenuAction_DisplayItem: {
-			if(param2 == 1) {
+			if(param2 == menu.ItemCount-1) {
 				char str[10];
 				menu.GetItem(param2, str, sizeof(str));
 
@@ -1244,6 +1644,21 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 			inv_menu.ExitBackButton = true;
 			inv_menu.SetTitle(info.name);
 			inv_menu.AddItem("", info.desc, ITEMDRAW_DISABLED);
+
+			ItemHandler hndlr;
+			if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
+				current_menu_type = 2;
+				current_menu = inv_menu;
+
+				Call_StartForward(hndlr.menu_fwd);
+				Call_PushString(info.classname);
+				Call_PushCell(idx);
+				Call_Finish();
+
+				current_menu_type = 0;
+				current_menu = null;
+			}
+
 			if(info.equipable) {
 				inv_menu.AddItem(str, "");
 			}
@@ -1300,7 +1715,7 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 		case MenuAction_Cancel: {
 			if(param2 == MenuCancel_ExitBack) {
 				char str[10];
-				menu.GetItem(3, str, sizeof(str));
+				menu.GetItem(menu.ItemCount-1, str, sizeof(str));
 
 				int idx = unpack_int_in_str(str, 0);
 				int cat_idx = items.Get(idx, ItemInfo::category);
@@ -1313,22 +1728,33 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 			}
 		}
 		case MenuAction_DrawItem: {
-			switch(param2) {
-				case 0: return ITEMDRAW_DISABLED;
-				case 1: return ITEMDRAW_SPACER;
-				case 2: return ITEMDRAW_DISABLED;
-				case 3: {
-					char str[10];
-					menu.GetItem(param2, str, sizeof(str));
+			int count = menu.ItemCount;
 
-					int idx = unpack_int_in_str(str, 0);
-					int price = unpack_int_in_str(str, 4);
+			int price_pos = ((count > 3) ? (count-2) : (count-3));
+			int buy_pos = (count-1);
 
-					if(player_currency[param1] < price || player_has_item(param1, idx) || (player_purchase_queue[param1].FindValue(idx) != -1)) {
-						return ITEMDRAW_DISABLED;
-					}
+			bool has_custom = (count > 3);
+
+			if(param2 == price_pos || param2 == 0) {
+				return ITEMDRAW_DISABLED;
+			} else if(param2 == buy_pos) {
+				char str[10];
+				menu.GetItem(param2, str, sizeof(str));
+
+				int idx = unpack_int_in_str(str, 0);
+				int price = unpack_int_in_str(str, 4);
+
+				if(player_currency[param1] < price || player_has_item(param1, idx) || (player_purchase_queue[param1].FindValue(idx) != -1)) {
+					return ITEMDRAW_DISABLED;
+				} else {
+					return ITEMDRAW_DEFAULT;
+				}
+			} else if(has_custom) {
+				if(param2 < price_pos && param2 > 0) {
+					return ITEMDRAW_DISABLED;
 				}
 			}
+
 			return ITEMDRAW_DEFAULT;
 		}
 	}
@@ -1371,13 +1797,24 @@ static int menuhandler_shop(Menu menu, MenuAction action, int param1, int param2
 			}
 		}
 		case MenuAction_Select: {
-			char str[5];
-			menu.GetItem(param2, str, sizeof(str));
+			if(param2 == 0) {
+				StopGameSound(param1, "music.mvm_upgrade_machine");
+				playing_shop_music[param1] = false;
 
-			int idx = unpack_int_in_str(str);
+				if(player_inventory_menu[param1] != null) {
+					player_inventory_menu[param1].Display(param1, MENU_TIME_FOREVER);
+				} else {
+					
+				}
+			} else {
+				char str[5];
+				menu.GetItem(param2, str, sizeof(str));
 
-			Menu cat_shop_menu = categories.Get(idx, ItemCategoryInfo::shop_menu);
-			cat_shop_menu.Display(param1, MENU_TIME_FOREVER);
+				int idx = unpack_int_in_str(str);
+
+				Menu cat_shop_menu = categories.Get(idx, ItemCategoryInfo::shop_menu);
+				cat_shop_menu.Display(param1, MENU_TIME_FOREVER);
+			}
 		}
 		case MenuAction_DisplayItem: {
 			if(param2 == 0) {
