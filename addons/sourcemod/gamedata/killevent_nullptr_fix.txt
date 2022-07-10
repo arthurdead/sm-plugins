@@ -1,0 +1,47 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"EconItemInterface_OnOwnerKillEaterEvent_Batched"
+			{
+				"library" "server"
+				"linux" "@_Z47EconItemInterface_OnOwnerKillEaterEvent_BatchedP18IEconItemInterfaceP9CTFPlayerS2_18kill_eater_event_ti"
+			}
+		}
+		"Functions"
+		{
+			"EconItemInterface_OnOwnerKillEaterEvent_Batched"
+			{
+				"signature" "EconItemInterface_OnOwnerKillEaterEvent_Batched"
+				"callconv" "cdecl"
+				"return" "void"
+				"this" "ignore"
+				"arguments"
+				{
+					"pEconInterface"
+					{
+						"type" "objectptr"
+					}
+					"pOwner"
+					{
+						"type" "cbaseentity"
+					}
+					"pVictim"
+					{
+						"type" "cbaseentity"
+					}
+					"eEventType"
+					{
+						"type" "int"
+					}
+					"nIncrementValue"
+					{
+						"type" "int"
+					}
+				}
+			}
+		}
+	}
+}

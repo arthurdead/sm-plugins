@@ -331,7 +331,7 @@ public void OnPluginStart()
 	cvWind	    =    CreateConVar("sm_themes_wind", "1");
 	cvWindTimer	  =  CreateConVar("sm_themes_wind_timer", "0.2");
 
-	cvManifests = CreateConVar("sm_themes_anifests", "0");
+	cvManifests = CreateConVar("sm_themes_manifests", "0");
 	cvCreateManifests = CreateConVar("sm_themes_create_manifests", "1");
 	cvAutoBZ2 = CreateConVar("sm_themes_bz2_manifests", "1");
 	cvBZ2Compression = CreateConVar("sm_themes_bz2_compression", "9", "1,3,5,7,9");

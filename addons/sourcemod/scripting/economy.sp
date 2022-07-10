@@ -5,6 +5,7 @@
 #include <tf2_stocks>
 #include <morecolors>
 #include <bit>
+#include <animstate>
 
 //#define DEBUG
 
@@ -77,6 +78,7 @@ static ArrayList player_purchase_queue[TF2_MAXPLAYERS+1];
 static Handle player_point_timer[TF2_MAXPLAYERS+1];
 
 static bool playing_shop_music[TF2_MAXPLAYERS+1];
+static int player_taunt_stage[TF2_MAXPLAYERS+1];
 
 static StringMap item_handlers;
 
@@ -196,7 +198,7 @@ static void remove_items_from_player_inv(int client, int idx)
 
 	i = 0;
 	while((i = player_inventory_equipped[client].FindValue(idx, PlayerItemInfo::idx)) != -1) {
-		player_inventory_equipped[client].GetArray(idx, plrinfo, sizeof(PlayerItemInfo));
+		player_inventory_equipped[client].GetArray(i, plrinfo, sizeof(PlayerItemInfo));
 		items.GetArray(plrinfo.idx, info, sizeof(ItemInfo));
 
 		if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
@@ -1589,6 +1591,8 @@ static int menuhandler_inv_cat_item(Menu menu, MenuAction action, int param1, in
 			set_item_equipped(param1, idx, id, !player_has_item_equipped(param1, id));
 
 			//menu.Display(param1, MENU_TIME_FOREVER);
+
+			on_player_close_inv(param1);
 		}
 		case MenuAction_Cancel: {
 			if(param2 == MenuCancel_ExitBack) {
@@ -1606,6 +1610,8 @@ static int menuhandler_inv_cat_item(Menu menu, MenuAction action, int param1, in
 				player_inventory_categories[param1].GetArray(catinfo.name, plrinvcat, sizeof(PlayerInventoryCategory));
 
 				plrinvcat.menu.Display(param1, MENU_TIME_FOREVER);
+			} else {
+				on_player_close_inv(param1);
 			}
 		}
 		case MenuAction_DisplayItem: {
@@ -1669,6 +1675,8 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 		case MenuAction_Cancel: {
 			if(param2 == MenuCancel_ExitBack) {
 				player_inventory_menu[param1].Display(param1, MENU_TIME_FOREVER);
+			} else {
+				on_player_close_inv(param1);
 			}
 		}
 	}
@@ -1678,22 +1686,77 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 
 static int menuhandler_inv(Menu menu, MenuAction action, int param1, int param2)
 {
-	if(action == MenuAction_Select) {
-		char str[5];
-		menu.GetItem(param2, str, sizeof(str));
+	switch(action) {
+		case MenuAction_Display: {
+			if(!playing_shop_music[param1]) {
+				on_player_open_inv(param1);
+			}
+		}
+		case MenuAction_Select: {
+			char str[5];
+			menu.GetItem(param2, str, sizeof(str));
 
-		int idx = unpack_int_in_str(str, 0);
+			int idx = unpack_int_in_str(str, 0);
 
-		ItemCategoryInfo catinfo;
-		categories.GetArray(idx, catinfo, sizeof(ItemCategoryInfo));
+			ItemCategoryInfo catinfo;
+			categories.GetArray(idx, catinfo, sizeof(ItemCategoryInfo));
 
-		PlayerInventoryCategory plrinvcat;
-		player_inventory_categories[param1].GetArray(catinfo.name, plrinvcat, sizeof(PlayerInventoryCategory));
+			PlayerInventoryCategory plrinvcat;
+			player_inventory_categories[param1].GetArray(catinfo.name, plrinvcat, sizeof(PlayerInventoryCategory));
 
-		plrinvcat.menu.Display(param1, MENU_TIME_FOREVER);
+			plrinvcat.menu.Display(param1, MENU_TIME_FOREVER);
+		}
+		case MenuAction_Cancel: {
+			on_player_close_inv(param1);
+		}
 	}
 
 	return 0;
+}
+
+public void TF2_OnConditionRemoved(int client, TFCond condition)
+{
+	if(condition == TFCond_Taunting) {
+		if(player_taunt_stage[client] == 1) {
+			CancelClientMenu(client, true);
+		}
+	}
+}
+
+static void on_player_open_inv(int client)
+{
+	playing_shop_music[client] = true;
+
+	if(animstate_is_allowed_to_taunt(client)) {
+		if(animstate_play_taunt_activity_3_stage(client, "ACT_MP_CYOA_PDA_INTRO","ACT_MP_CYOA_PDA_IDLE","ACT_MP_CYOA_PDA_OUTRO")) {
+			player_taunt_stage[client] = 1;
+		}
+	}
+}
+
+static void on_player_open_shop(int client)
+{
+	on_player_open_inv(client);
+	EmitGameSoundToClient(client, "music.mvm_upgrade_machine");
+}
+
+static void on_player_close_inv(int client)
+{
+	playing_shop_music[client] = false;
+
+	if(player_taunt_stage[client] == 1) {
+		animstate_cancel_taunt(client);
+	}
+}
+
+static void on_player_close_shop(int client, bool inv = false)
+{
+	StopGameSound(client, "music.mvm_upgrade_machine");
+	playing_shop_music[client] = false;
+
+	if(!inv) {
+		on_player_close_inv(client);
+	}
 }
 
 static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, int param2)
@@ -1725,8 +1788,7 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 				Menu cat_shop_menu = categories.Get(cat_idx, ItemCategoryInfo::shop_menu);
 				cat_shop_menu.Display(param1, MENU_TIME_FOREVER);
 			} else {
-				StopGameSound(param1, "music.mvm_upgrade_machine");
-				playing_shop_music[param1] = false;
+				on_player_close_shop(param1);
 			}
 		}
 		case MenuAction_DrawItem: {
@@ -1744,7 +1806,9 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 				int idx = unpack_int_in_str(str, 0);
 				int price = unpack_int_in_str(str, 4);
 
-				if(player_currency[param1] < price || player_has_item(param1, idx) || (player_purchase_queue[param1].FindValue(idx) != -1)) {
+				if((player_currency[param1] < price) ||
+					player_has_item(param1, idx) ||
+					(player_purchase_queue[param1].FindValue(idx) != -1)) {
 					return ITEMDRAW_DISABLED;
 				} else {
 					return ITEMDRAW_DEFAULT;
@@ -1776,8 +1840,7 @@ static int menuhandler_shop_cat(Menu menu, MenuAction action, int param1, int pa
 			if(param2 == MenuCancel_ExitBack) {
 				shop_menu.Display(param1, MENU_TIME_FOREVER);
 			} else {
-				StopGameSound(param1, "music.mvm_upgrade_machine");
-				playing_shop_music[param1] = false;
+				on_player_close_shop(param1);
 			}
 		}
 	}
@@ -1790,14 +1853,12 @@ static int menuhandler_shop(Menu menu, MenuAction action, int param1, int param2
 	switch(action) {
 		case MenuAction_Display: {
 			if(!playing_shop_music[param1]) {
-				EmitGameSoundToClient(param1, "music.mvm_upgrade_machine");
-				playing_shop_music[param1] = true;
+				on_player_open_shop(param1);
 			}
 		}
 		case MenuAction_Select: {
 			if(param2 == 0) {
-				StopGameSound(param1, "music.mvm_upgrade_machine");
-				playing_shop_music[param1] = false;
+				on_player_close_shop(param1, true);
 
 				if(player_inventory_menu[param1] != null) {
 					player_inventory_menu[param1].Display(param1, MENU_TIME_FOREVER);
@@ -1823,8 +1884,7 @@ static int menuhandler_shop(Menu menu, MenuAction action, int param1, int param2
 			}
 		}
 		case MenuAction_Cancel: {
-			StopGameSound(param1, "music.mvm_upgrade_machine");
-			playing_shop_music[param1] = false;
+			on_player_close_shop(param1);
 		}
 	}
 
@@ -1843,7 +1903,7 @@ static void cache_player_data(Database db, any data, int numQueries, DBResultSet
 
 	player_inventory_categories[client] = new StringMap();
 
-	player_inventory_menu[client] = new Menu(menuhandler_inv);
+	player_inventory_menu[client] = new Menu(menuhandler_inv, MENU_ACTIONS_DEFAULT|MenuAction_Display);
 	player_inventory_menu[client].SetTitle("Inventory");
 
 #if defined DEBUG
@@ -1904,7 +1964,7 @@ public void OnClientPutInServer(int client)
 			query_player_data(client);
 		}
 
-		player_point_timer[client] = CreateTimer(float(30 * 60), timer_give_points, GetClientUserId(client));
+		player_point_timer[client] = CreateTimer(float(30 * 60), timer_give_points, GetClientUserId(client), TIMER_REPEAT);
 	}
 }
 
@@ -1918,6 +1978,7 @@ public void OnClientDisconnect(int client)
 	}
 
 	playing_shop_music[client] = false;
+	player_taunt_stage[client] = 0;
 
 	player_currency[client] = 0;
 

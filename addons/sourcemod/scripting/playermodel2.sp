@@ -45,6 +45,7 @@ support for hiding hats in specific equip regions
 #define MAX_SOUND_VAR_VALUE 32
 
 #define BIT_FOR_CLASS(%1) (1 << (view_as<int>(%1)-1))
+#define MASK_ALL_CLASSES 0xFFF
 
 #define OBS_MODE_IN_EYE 4
 
@@ -325,7 +326,7 @@ static void unload_configs()
 static bool parse_classes_str(int &classes, const char[] str, const char[] modelname)
 {
 	if(StrEqual(str, "all") || StrEqual(str, "any")) {
-		classes = 0;
+		classes = MASK_ALL_CLASSES;
 		return true;
 	}
 
@@ -1367,7 +1368,8 @@ public Action econ_items_conflict(const char[] classname1, int item1_idx, const 
 	int classes1 = configs.Get(conf_idx1, ConfigInfo::classes_allowed);
 	int classes2 = configs.Get(conf_idx2, ConfigInfo::classes_allowed);
 
-	if(classes1 & classes2) {
+	if(classes1 == classes2 ||
+		classes1 & classes2) {
 		return Plugin_Handled;
 	}
 
@@ -1413,18 +1415,22 @@ public void econ_modify_menu(const char[] classname, int item_idx)
 	char[] classes_str = new char[classes_str_len];
 	strcopy(classes_str, classes_str_len, "Classes: ");
 
-	char tmp_classname[CLASS_NAME_MAX];
-	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
-			get_class_name(i, tmp_classname, CLASS_NAME_MAX);
+	if(config_info.classes_allowed == MASK_ALL_CLASSES) {
+		StrCat(classes_str, classes_str_len, "all");
+	} else {
+		char tmp_classname[CLASS_NAME_MAX];
+		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+			if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
+				get_class_name(i, tmp_classname, CLASS_NAME_MAX);
 
-			StrCat(classes_str, classes_str_len, tmp_classname);
-			StrCat(classes_str, classes_str_len, "|");
+				StrCat(classes_str, classes_str_len, tmp_classname);
+				StrCat(classes_str, classes_str_len, "|");
+			}
 		}
-	}
 
-	classes_str_len = strlen(classes_str);
-	classes_str[classes_str_len-1] = '\0';
+		classes_str_len = strlen(classes_str);
+		classes_str[classes_str_len-1] = '\0';
+	}
 
 	econ_menu_add_item(classes_str);
 }
@@ -1890,10 +1896,8 @@ static void display_group_menu(int client, int idx)
 
 		configs.GetArray(idx, info, sizeof(ConfigInfo));
 
-		if(info.classes_allowed != 0) {
-			if(!(info.classes_allowed & BIT_FOR_CLASS(class))) {
-				continue;
-			}
+		if(!(info.classes_allowed & BIT_FOR_CLASS(class))) {
+			continue;
 		}
 
 		IntToString(idx, int_str, INT_STR_MAX);
@@ -2039,10 +2043,8 @@ static void frame_ragdoll_created(int entity)
 
 	bool config_valid = (player_config[owner].model[0] != '\0');
 
-	if(player_config[owner].classes_allowed != 0) {
-		if(!(player_config[owner].classes_allowed & BIT_FOR_CLASS(player_class))) {
-			config_valid = false;
-		}
+	if(!(player_config[owner].classes_allowed & BIT_FOR_CLASS(player_class))) {
+		config_valid = false;
 	}
 
 	char model[PLATFORM_MAX_PATH];
@@ -3210,6 +3212,7 @@ static int get_or_create_player_model_entity(int client)
 
 	SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
 
+	SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
 	SDKHook(client, SDKHook_PostThinkPost, player_think_model);
 
 	proxysend_hook(client, "m_clrRender", player_proxysend_render_color, false);
@@ -3634,10 +3637,8 @@ static void handle_playermodel(int client)
 
 	bool config_valid = (player_config[client].model[0] != '\0');
 
-	if(player_config[client].classes_allowed != 0) {
-		if(!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
-			config_valid = false;
-		}
+	if(!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
+		config_valid = false;
 	}
 
 	bool has_any_model = (

@@ -1,0 +1,134 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"CEconItemView::m_iAttributeDefinitionIndex"
+			{
+				"linux" "4"
+				"windows" "4"
+			}
+			"CTFPlayer::m_flTauntAttackTime"
+			{
+				"linux" "32"
+				"windows" "32"
+			}
+			"CTFPlayer::m_bTauntMimic"
+			{
+				"linux" "37"
+				"windows" "37"
+			}
+			"CTFPlayer::m_bInitTaunt"
+			{
+				"linux" "36"
+				"windows" "36"
+			}
+			"CTFPlayer::m_flLastTauntRemoveTime"
+			{
+				"linux" "60"
+				"windows" "60"
+			}
+			"CBaseEntity::ModifyOrAppendCriteria"
+			{
+				"linux" "122"
+				"windows" "121"
+			}
+			"CAI_Expresser::m_pOuter"
+			{
+				"linux" "64"
+				"windows" "64"
+			}
+			"AI_Response::m_szResponseName"
+			{
+				"linux" "1"
+				"windows" "1"
+			}
+			"CTFPlayer::m_TauntStage"
+			{
+				"linux" "67"
+				"windows" "67"
+			}
+			"CTFPlayer::m_bAllowedToRemoveTaunt"
+			{
+				"linux" "68"
+				"windows" "68"
+			}
+			"CTFPlayer::m_flTauntStartTime"
+			{
+				"linux" "64"
+				"windows" "64"
+			}
+			"CTFPlayer::m_flTauntRemoveTime"
+			{
+				"linux" "60"
+				"windows" "60"
+			}
+			"CTFPlayer::m_flTauntOutroTime"
+			{
+				"linux" "64"
+				"windows" "64"
+			}
+			"CTFPlayer::m_vecTauntStartPosition"
+			{
+				"linux" "48"
+				"windows" "48"
+			}
+			"CTFPlayer::m_angTauntCamera"
+			{
+				"linux" "16"
+				"windows" "16"
+			}
+			"CTFPlayer::m_hTauntItem"
+			{
+				"linux" "4"
+				"windows" "4"
+			}
+			"CTFPlayer::m_flPrevTauntYaw"
+			{
+				"linux" "24"
+				"windows" "24"
+			}
+			"CTFPlayer::m_flNextAllowTauntRemapInputTime"
+			{
+				"linux" "36"
+			}
+		}
+		"Signatures"
+		{
+			"CTFPlayer::PlaySpecificSequence"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer20PlaySpecificSequenceEPKc"
+				"windows" "\x55\x8B\xEC\x83\xEC\x30\x53\x56\x8B\x75\x08\x57\x56\x8B\xF9\xE8\x2A\x2A\x2A\x2A\x8B\xD8\x83\xFB\xFF\x74\x2A\x8B\x35\x2A\x2A\x2A\x2A\x8B\xCE\x8B\x16\xFF\x52\x2A\x8B\x8F\x2A\x2A\x2A\x2A\x53\x6A\x13\x8B\x01\xFF\x50"
+			}
+			"CTFPlayer::PlayGesture"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer11PlayGestureEPKc"
+			}
+			"CTFPlayer::DoAnimationEvent"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer16DoAnimationEventE17PlayerAnimEvent_ti"
+			}
+			"CTFPlayer::CancelTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer11CancelTauntEv"
+			}
+			"CTFPlayer::IsAllowedToTaunt"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer16IsAllowedToTauntEv"
+				"windows" "\x55\x8B\xEC\x51\x56\x8B\xF1\x8B\x06\x8B\x80\x2A\x2A\x2A\x2A\xFF\xD0\x84\xC0\x75\x05"
+			}
+			"CTFPlayer::PlayTauntSceneFromItem"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer22PlayTauntSceneFromItemEPK13CEconItemView"
+				"windows" "\x55\x8B\xEC\x81\xEC\x0C\x01\x00\x00\x53\x8B\x5D\x08\x57\x8B"
+			}
+		}
+	}
+}
