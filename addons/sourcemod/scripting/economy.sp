@@ -74,6 +74,8 @@ static StringMap player_inventory_categories[TF2_MAXPLAYERS+1];
 static Menu player_inventory_menu[TF2_MAXPLAYERS+1];
 static ArrayList player_purchase_queue[TF2_MAXPLAYERS+1];
 
+static Handle player_point_timer[TF2_MAXPLAYERS+1];
+
 static bool playing_shop_music[TF2_MAXPLAYERS+1];
 
 static StringMap item_handlers;
@@ -1730,10 +1732,8 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 		case MenuAction_DrawItem: {
 			int count = menu.ItemCount;
 
-			int price_pos = ((count > 3) ? (count-2) : (count-3));
 			int buy_pos = (count-1);
-
-			bool has_custom = (count > 3);
+			int price_pos = (buy_pos-1);
 
 			if(param2 == price_pos || param2 == 0) {
 				return ITEMDRAW_DISABLED;
@@ -1749,10 +1749,8 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 				} else {
 					return ITEMDRAW_DEFAULT;
 				}
-			} else if(has_custom) {
-				if(param2 < price_pos && param2 > 0) {
-					return ITEMDRAW_DISABLED;
-				}
+			} else if(param2 > 0 && param2 < price_pos) {
+				return ITEMDRAW_DISABLED;
 			}
 
 			return ITEMDRAW_DEFAULT;
@@ -1885,6 +1883,18 @@ static void query_player_data(int client)
 	econ_db.Execute(tr, cache_player_data, transaction_error, usrid);
 }
 
+static Action timer_give_points(Handle timer, int client)
+{
+	client = GetClientOfUserId(client);
+	if(client == 0) {
+		return Plugin_Stop;
+	}
+
+	modify_player_currency(client, 50);
+
+	return Plugin_Continue;
+}
+
 public void OnClientPutInServer(int client)
 {
 	if(!IsFakeClient(client)) {
@@ -1893,12 +1903,19 @@ public void OnClientPutInServer(int client)
 		if(econ_db != null) {
 			query_player_data(client);
 		}
+
+		player_point_timer[client] = CreateTimer(float(30 * 60), timer_give_points, GetClientUserId(client));
 	}
 }
 
 public void OnClientDisconnect(int client)
 {
 	handle_player_inventory(client, econ_item_unequip);
+
+	if(player_point_timer[client] != null) {
+		KillTimer(player_point_timer[client]);
+		player_point_timer[client] = null;
+	}
 
 	playing_shop_music[client] = false;
 

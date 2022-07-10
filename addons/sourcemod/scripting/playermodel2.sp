@@ -1491,8 +1491,7 @@ public void OnLibraryRemoved(const char[] name)
 	} else if(StrEqual(name, "tauntmanager")) {
 		tauntmanager_loaded = false;
 	} else if(StrEqual(name, "economy")) {
-		delete econ_to_config_map;
-		econ_to_config_map = new StringMap();
+		econ_to_config_map.Clear();
 		economy_loaded = false;
 	}
 }

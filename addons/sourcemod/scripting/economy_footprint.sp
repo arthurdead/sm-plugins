@@ -14,6 +14,11 @@ public void OnPluginStart()
 	footprint_value_map = new StringMap();
 }
 
+public void OnClientDisconnect(int client)
+{
+	player_footprint[client] = 0.0;
+}
+
 static void register_footprint(int cat_idx, const char[] name, int price, float value)
 {
 	char val_str[ECON_MAX_ITEM_SETTING_VALUE];
@@ -63,7 +68,7 @@ public void econ_loaded()
 
 public void econ_cache_item(const char[] classname, int item_idx, StringMap settings)
 {
-	char value_str[10];
+	char value_str[ECON_MAX_ITEM_SETTING_VALUE];
 	settings.GetString("value", value_str, sizeof(value_str));
 
 	float value = StringToFloat(value_str);
@@ -112,7 +117,6 @@ public void OnLibraryAdded(const char[] name)
 public void OnLibraryRemoved(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		delete footprint_value_map;
-		footprint_value_map = new StringMap();
+		footprint_value_map.Clear();
 	}
 }
