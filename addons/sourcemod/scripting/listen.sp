@@ -25,6 +25,35 @@ public void OnPluginStart()
 	NDebugOverlayLineDetour.Enable(Hook_Pre, NDebugOverlayLine);
 	NDebugOverlayCircleDetour.Enable(Hook_Pre, NDebugOverlayCircle);
 	NDebugOverlayTriangleDetour.Enable(Hook_Pre, NDebugOverlayTriangle);
+
+	RegAdminCmd("sm_listen", sm_listen, ADMFLAG_ROOT);
+}
+
+public void OnConfigsExecuted()
+{
+	localplayer_index.IntValue = -1;
+}
+
+public void OnClientDisconnect(int client)
+{
+	if(client == localplayer_index.IntValue) {
+		localplayer_index.IntValue = -1;
+	}
+}
+
+static Action sm_listen(int client, int params)
+{
+	localplayer_index.IntValue = client;
+	return Plugin_Handled;
+}
+
+static int get_local_player()
+{
+	int local = localplayer_index.IntValue;
+	if(local <= 0 || local > MaxClients) {
+		local = -1;
+	}
+	return local;
 }
 
 static int halo = -1;
@@ -51,7 +80,7 @@ static void DrawLine(float origin[3], float target[3], int r, int g, int b, bool
 {
 	int num_clients = 0;
 
-	int local = localplayer_index.IntValue;
+	int local = get_local_player();
 
 	int[] clients = new int[MaxClients];
 	for(int i = 1; i <= MaxClients; ++i) {
@@ -62,7 +91,7 @@ static void DrawLine(float origin[3], float target[3], int r, int g, int b, bool
 
 		if((local != -1 && local == i) ||
 			!!(GetUserFlagBits(i) & ADMFLAG_ROOT)) {
-			clients[++num_clients] = i;
+			clients[num_clients++] = i;
 		}
 	}
 
@@ -98,7 +127,7 @@ static void DrawTriangle(float p1[3], float p2[3], float p3[3], int r, int g, in
 
 static MRESReturn UTIL_GetLocalPlayer(DHookReturn hReturn)
 {
-	int client = localplayer_index.IntValue;
+	int client = get_local_player();
 	if(client != -1 && IsClientInGame(client)) {
 		hReturn.Value = client;
 	} else {
@@ -109,7 +138,7 @@ static MRESReturn UTIL_GetLocalPlayer(DHookReturn hReturn)
 
 static MRESReturn UTIL_GetListenServerHost(DHookReturn hReturn)
 {
-	int client = localplayer_index.IntValue;
+	int client = get_local_player();
 	if(client != -1 && IsClientInGame(client)) {
 		hReturn.Value = client;
 	} else {

@@ -21,18 +21,7 @@ public void OnClientDisconnect(int client)
 
 static void register_footprint(int cat_idx, const char[] name, int price, float value)
 {
-	char val_str[ECON_MAX_ITEM_SETTING_VALUE];
-	FloatToString(value, val_str, ECON_MAX_ITEM_SETTING_VALUE);
-
-	int item_idx = econ_find_item(cat_idx, name);
-	if(item_idx == -1) {
-		StringMap settings = new StringMap();
-		settings.SetString("value", val_str);
-		econ_register_item(cat_idx, name, "", "footprint", price, settings);
-	} else {
-		econ_set_item_price(item_idx, price);
-		econ_set_item_setting(item_idx, "value", val_str);
-	}
+	econ_get_or_register_item(cat_idx, name, "", "footprint", price, econ_single_setting_float("value", value));
 }
 
 static void on_econ_cat_registered(int cat_idx)
@@ -58,12 +47,7 @@ static void on_econ_cat_registered(int cat_idx)
 
 public void econ_loaded()
 {
-	int idx = econ_find_category("Footprints");
-	if(idx == -1) {
-		econ_register_category("Footprints", on_econ_cat_registered);
-	} else {
-		on_econ_cat_registered(idx);
-	}
+	econ_get_or_register_category("Footprints", ECON_INVALID_CATEGORY, on_econ_cat_registered);
 }
 
 public void econ_cache_item(const char[] classname, int item_idx, StringMap settings)

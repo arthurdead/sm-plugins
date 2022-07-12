@@ -1,6 +1,8 @@
 create table item_category (
 	id int primary key auto_increment,
-	name varchar(64) not null
+	name varchar(64) not null,
+	parent int default null,
+	foreign key (parent) references item_category(id)
 );
 
 create table item (

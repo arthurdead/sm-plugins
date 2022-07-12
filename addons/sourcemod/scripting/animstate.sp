@@ -3,7 +3,7 @@
 #include <tf2items>
 #include <dhooks>
 #include <animstate>
-#include <datamaps>
+//#include <datamaps>
 #include <animhelpers>
 
 #define TF2_MAXPLAYERS 33

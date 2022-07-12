@@ -1334,26 +1334,13 @@ static void on_econ_cat_registered(int cat_idx)
 
 		configs.GetArray(conf_idx, info, sizeof(ConfigInfo));
 
-		int item_idx = econ_find_item(cat_idx, info.name);
-		if(item_idx == -1) {
-			StringMap settings = new StringMap();
-			settings.SetString("config", info.name);
-			econ_register_item(cat_idx, info.name, "", "playermodel", info.econ_price, settings);
-		} else {
-			econ_set_item_price(item_idx, info.econ_price);
-			econ_set_item_setting(item_idx, "config", info.name);
-		}
+		econ_get_or_register_item(cat_idx, info.name, "", "playermodel", info.econ_price, null);
 	}
 }
 
 public void econ_loaded()
 {
-	int idx = econ_find_category("Playermodels");
-	if(idx == -1) {
-		econ_register_category("Playermodels", on_econ_cat_registered);
-	} else {
-		on_econ_cat_registered(idx);
-	}
+	econ_get_or_register_category("Playermodels", ECON_INVALID_CATEGORY, on_econ_cat_registered);
 }
 
 public Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx)
@@ -1389,8 +1376,8 @@ static int econ_idx_to_conf_idx(int idx)
 
 public void econ_cache_item(const char[] classname, int item_idx, StringMap settings)
 {
-	char name[MODEL_NAME_MAX];
-	settings.GetString("config", name, MODEL_NAME_MAX);
+	char name[ECON_MAX_ITEM_NAME];
+	econ_get_item_name(item_idx, name, ECON_MAX_ITEM_NAME);
 
 	int conf_idx = -1;
 	config_idx_map.GetValue(name, conf_idx);
@@ -1443,6 +1430,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 			unequip_config(client, true);
 
 			int conf_idx = econ_idx_to_conf_idx(item_idx);
+			if(conf_idx == -1) {
+				return;
+			}
 
 			ConfigInfo config_info;
 			configs.GetArray(conf_idx, config_info, sizeof(ConfigInfo));

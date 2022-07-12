@@ -21,9 +21,15 @@ public void OnPluginStart()
 
 static MRESReturn EconItemInterface_OnOwnerKillEaterEvent_Batched_detour(DHookParam hParams)
 {
+	Address addr = hParams.GetAddress(2);
+	if(addr == Address_Null) {
+		return MRES_Supercede;
+	}
+
 	int ent = hParams.Get(2);
 	if(ent == -1) {
 		return MRES_Supercede;
 	}
+
 	return MRES_Ignored;
 }
