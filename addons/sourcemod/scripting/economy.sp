@@ -473,10 +473,10 @@ public void OnPluginStart()
 	}
 }
 
-static Action sm_remei(int client, int args)
+static Action sm_remi(int client, int args)
 {
 	if(args != 2) {
-		ReplyToCommand(client, "[SM] Usage: sm_remei <filter> <idx>");
+		ReplyToCommand(client, "[SM] Usage: sm_remi <filter> <idx>");
 		return Plugin_Handled;
 	}
 
@@ -709,6 +709,7 @@ public void OnPluginEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i) && !IsFakeClient(i)) {
+			handle_player_inventory(i, econ_item_remove);
 			handle_player_inventory(i, econ_item_unequip);
 		}
 	}
