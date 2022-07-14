@@ -32,6 +32,8 @@ forward void econ_modify_menu(const char[] classname, int item_idx);
 forward Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx);
 forward void econ_handle_item(int client, const char[] classname, int item_idx, int inv_idx, econ_item_action action);
 
+//forward void econ_item_preview(int client, const char[] classname, int item_idx, bool start);
+
 forward void econ_loaded();
 
 native StringMap econ_item_settings(int idx);

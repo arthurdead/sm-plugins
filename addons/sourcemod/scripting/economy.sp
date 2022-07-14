@@ -7,7 +7,7 @@
 #include <bit>
 #include <animstate>
 
-#define DEBUG
+//#define DEBUG
 
 #define QUERY_STR_MAX 1024
 
@@ -37,7 +37,6 @@ enum struct ItemInfo
 	int price;
 	int category;
 	Menu shop_menu;
-	bool equipable;
 }
 
 enum struct PlayerInventoryCategory
@@ -60,6 +59,7 @@ enum struct ItemHandler
 	PrivateForward cache_fwd;
 	PrivateForward conflict_fwd;
 	PrivateForward menu_fwd;
+	//PrivateForward preview_fwd;
 }
 
 static StringMap item_id_cache_idx_map;
@@ -179,43 +179,6 @@ static void add_item_to_player_inv_menu(int client, int id, int idx)
 	plrinvcat.menu.AddItem(str, info.name);
 }
 
-static void query_player_inv_added(Database db, DBResultSet results, const char[] error, DataPack data)
-{
-	data.Reset();
-
-	int client = GetClientOfUserId(data.ReadCell());
-	if(client == 0) {
-		delete data;
-		return;
-	}
-
-	int idx = data.ReadCell();
-
-	delete data;
-
-	int pq = player_purchase_queue[client].FindValue(idx);
-	if(pq != -1) {
-		player_purchase_queue[client].Erase(pq);
-	}
-
-	if(!results) {
-		LogError("%s", error);
-		return;
-	}
-
-	int id = results.InsertId;
-
-	PlayerItemInfo info;
-	info.idx = idx;
-	info.id = id;
-
-	player_inventory[client].PushArray(info, sizeof(PlayerItemInfo));
-
-	add_item_to_player_inv_menu(client, id, idx);
-
-	set_item_equipped(client, idx, id, true);
-}
-
 static void remove_items_from_player_inv(int client, int idx)
 {
 	int item_id = cache_idx_to_item_id(idx);
@@ -258,25 +221,73 @@ static void remove_items_from_player_inv(int client, int idx)
 	}
 }
 
-static void add_item_to_player_inv(int client, int idx)
+static void query_player_inv_added(Database db, DBResultSet results, const char[] error, DataPack data)
+{
+	data.Reset();
+
+	int client = GetClientOfUserId(data.ReadCell());
+	if(client == 0) {
+		delete data;
+		return;
+	}
+
+	int idx = data.ReadCell();
+
+	bool equipped = view_as<bool>(data.ReadCell());
+
+	bool msg = view_as<bool>(data.ReadCell());
+
+	delete data;
+
+	int pq = player_purchase_queue[client].FindValue(idx);
+	if(pq != -1) {
+		player_purchase_queue[client].Erase(pq);
+	}
+
+	if(!results) {
+		LogError("%s", error);
+		return;
+	}
+
+	int id = results.InsertId;
+
+	if(msg && equipped) {
+		CPrintToChat(client, ECON_CHAT_PREFIX ... "Your item was equipped. Use !inv to unequip it.");
+	}
+
+	player_item_loaded(client, idx, id, equipped);
+}
+
+static void add_item_to_player_inv(int client, int idx, bool msg = true)
 {
 	int item_id = cache_idx_to_item_id(idx);
 
 	player_purchase_queue[client].Push(idx);
+
+	ItemInfo info;
+	items.GetArray(idx, info, sizeof(ItemInfo));
+
+	bool equipped = false;
+
+	ItemHandler hndlr;
+	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
+		equipped = hndlr.equipable;
+	}
 
 	char query[QUERY_STR_MAX];
 	econ_db.Format(query, QUERY_STR_MAX,
 		"insert into player_inventory " ...
 		" (accid,item,equipped) " ...
 		" values " ...
-		" (%i,%i,0) " ...
+		" (%i,%i,%i) " ...
 		";"
-		,GetSteamAccountID(client),
-		item_id
+		,GetSteamAccountID(client),item_id,equipped ? 1 : 0
 	);
 	DataPack data = new DataPack();
 	data.WriteCell(GetClientUserId(client));
 	data.WriteCell(idx);
+	data.WriteCell(equipped);
+	data.WriteCell(msg);
 	econ_db.Query(query_player_inv_added, query, data);
 }
 
@@ -535,9 +546,17 @@ static Action sm_givei(int client, int args)
 		if(idx == -1) {
 			int len = items.Length;
 			for(int j = 0; j < len; ++j) {
-				add_item_to_player_inv(target, j);
+				if(player_has_item(target, j)) {
+					continue;
+				}
+
+				add_item_to_player_inv(target, j, false);
 			}
 		} else {
+			if(player_has_item(target, idx)) {
+				continue;
+			}
+
 			add_item_to_player_inv(target, idx);
 		}
 	}
@@ -762,6 +781,7 @@ static int native_econ_register_item_class(Handle plugin, int params)
 		hndlr.cache_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell, Param_Cell);
 		hndlr.conflict_fwd = new PrivateForward(ET_Hook, Param_String, Param_Cell, Param_String, Param_Cell);
 		hndlr.menu_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell);
+		//hndlr.preview_fwd = new PrivateForward(ET_Ignore, Param_Cell, Param_String, Param_Cell, Param_Cell);
 		item_handlers.SetArray(classname, hndlr, sizeof(ItemHandler));
 	}
 
@@ -784,6 +804,11 @@ static int native_econ_register_item_class(Handle plugin, int params)
 	if(func != INVALID_FUNCTION) {
 		hndlr.menu_fwd.AddFunction(plugin, func);
 	}
+
+	/*func = GetFunctionByName(plugin, "econ_item_preview");
+	if(func != INVALID_FUNCTION) {
+		hndlr.preview_fwd.AddFunction(plugin, func);
+	}*/
 
 	return 0;
 }
@@ -1572,11 +1597,6 @@ static int item_loaded(int id, int cat_id, const char[] name, const char[] desc,
 	info.shop_menu.SetTitle(info.name);
 	info.shop_menu.AddItem("", info.desc, ITEMDRAW_DISABLED);
 
-	ItemHandler hndlr;
-	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
-		info.equipable = hndlr.equipable;
-	}
-
 	int display_price = info.price;
 	if(display_price == -2) {
 		display_price = 999999999;
@@ -1605,6 +1625,9 @@ static int item_loaded(int id, int cat_id, const char[] name, const char[] desc,
 		pack_int_in_str(idx, str, 0);
 		pack_int_in_str(0, str, 4);
 		cat_menu.AddItem(str, info.name);
+
+		//pack_int_in_str(idx, str, 0);
+		//info.shop_menu.AddItem(str, "Preview");
 
 		pack_int_in_str(idx, str, 0);
 		pack_int_in_str(info.price, str, 4);
@@ -1687,19 +1710,8 @@ static void cache_player_currency(DBResultSet set, int usrid)
 	player_currency[client] = amount;
 }
 
-static void cache_player_inventory(DBResultSet set, int usrid)
+static void player_item_loaded(int client, int idx, int id, bool equipped)
 {
-	int client = GetClientOfUserId(usrid);
-	if(client == 0) {
-		return;
-	}
-
-	int id = set.FetchInt(0);
-	int item_id = set.FetchInt(1);
-	bool equipped = view_as<bool>(set.FetchInt(2));
-
-	int idx = item_id_to_cache_idx(item_id);
-
 	PlayerItemInfo plrinfo;
 	plrinfo.idx = idx;
 	plrinfo.id = id;
@@ -1727,6 +1739,23 @@ static void cache_player_inventory(DBResultSet set, int usrid)
 	}
 
 	add_item_to_player_inv_menu(client, id, idx);
+}
+
+static void cache_player_inventory(DBResultSet set, int usrid)
+{
+	int client = GetClientOfUserId(usrid);
+	if(client == 0) {
+		return;
+	}
+
+	int item_id = set.FetchInt(1);
+	int idx = item_id_to_cache_idx(item_id);
+
+	int id = set.FetchInt(0);
+
+	bool equipped = view_as<bool>(set.FetchInt(2));
+
+	player_item_loaded(client, idx, id, equipped);
 }
 
 static bool player_has_item(int client, int idx)
@@ -1862,8 +1891,12 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 				inv_menu.SetTitle(info.name);
 				inv_menu.AddItem("", info.desc, ITEMDRAW_DISABLED);
 
+				bool equipable = false;
+
 				ItemHandler hndlr;
 				if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
+					equipable = hndlr.equipable;
+
 					current_menu_type = 2;
 					current_menu = inv_menu;
 
@@ -1876,7 +1909,7 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 					current_menu = null;
 				}
 
-				if(info.equipable) {
+				if(equipable) {
 					pack_int_in_str(idx, str, 0);
 					pack_int_in_str(id, str, 4);
 					inv_menu.AddItem(str, "Equip");
@@ -1994,6 +2027,24 @@ static void on_player_close_shop(int client, bool inv = false)
 	}
 }
 
+static bool can_player_buy(int client, int idx, int price)
+{
+	if(player_has_item(client, idx) ||
+		(player_purchase_queue[client].FindValue(idx) != -1)) {
+		return false;
+	}
+
+	if(price < 0) {
+		return false;
+	}
+
+	if(player_currency[client] < price) {
+		return false;
+	}
+
+	return true;
+}
+
 static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, int param2)
 {
 	switch(action) {
@@ -2002,12 +2053,16 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 			menu.GetItem(param2, str, sizeof(str));
 
 			int idx = unpack_int_in_str(str, 0);
+			int price = items.Get(idx, ItemInfo::price);
 
-			add_item_to_player_inv(param1, idx);
+			if(!can_player_buy(param1, idx, price)) {
+				menu.Display(param1, MENU_TIME_FOREVER);
+				return 0;
+			}
 
 			EmitGameSoundToClient(param1, "MVM.PlayerUpgraded");
 
-			int price = items.Get(idx, ItemInfo::price);
+			add_item_to_player_inv(param1, idx);
 			modify_player_currency(param1, -price);
 
 			menu.Display(param1, MENU_TIME_FOREVER);
@@ -2031,27 +2086,20 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 
 			int buy_pos = (count-1);
 			int price_pos = (buy_pos-1);
+			//int preview_pos = (price_pos-1);
 
 			if(param2 == price_pos || param2 == 0) {
 				return ITEMDRAW_DISABLED;
-			} else if(param2 == buy_pos) {
+			} /*else if(param2 == preview_pos) {
+				return ITEMDRAW_DEFAULT;
+			}*/ else if(param2 == buy_pos) {
 				char str[10];
 				menu.GetItem(param2, str, sizeof(str));
 
 				int idx = unpack_int_in_str(str, 0);
-				if(player_has_item(param1, idx) ||
-					(player_purchase_queue[param1].FindValue(idx) != -1)) {
-					return ITEMDRAW_DISABLED;
-				}
-
 				int price = unpack_int_in_str(str, 4);
-				if((price >= 0) && (player_currency[param1] < price)) {
-					return ITEMDRAW_DISABLED;
-				} else if((price == -1) || (price == -2)) {
-					return ITEMDRAW_DISABLED;
-				}
 
-				return ITEMDRAW_DEFAULT;
+				return (can_player_buy(param1, idx, price) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
 			} else if(param2 > 0 && param2 < price_pos) {
 				return ITEMDRAW_DISABLED;
 			}

@@ -3,7 +3,6 @@
 #include <tf2items>
 #include <dhooks>
 #include <animstate>
-//#include <datamaps>
 #include <animhelpers>
 
 #define TF2_MAXPLAYERS 33
@@ -146,23 +145,6 @@ public void OnPluginStart()
 	TF2Items_SetQuality(dummy_item_view, 0);
 	TF2Items_SetLevel(dummy_item_view, 0);
 	TF2Items_SetNumAttributes(dummy_item_view, 0);
-
-#if 0
-	CustomSendtable player_dt = CustomSendtable.from_classname("player", "CTFPlayer");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_flPoseParameter");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_flPlaybackRate");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_nSequence");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_nBody");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_angRotation");
-	player_dt.unexclude_prop("DT_TFPlayer", "overlay_vars");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_nModelIndex");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_vecOrigin");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_flCycle");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_flAnimTime");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_flexWeight");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_blinktoggle");
-	player_dt.unexclude_prop("DT_TFPlayer", "m_viewtarget");
-#endif
 }
 
 static int native_animstate_play_sequence(Handle plugin, int params)

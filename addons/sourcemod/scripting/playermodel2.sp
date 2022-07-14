@@ -211,6 +211,8 @@ static PlayerConfigInfo player_config[TF2_MAXPLAYERS+1];
 
 static PlayerConfigInfo player_econ_configs[TF2_MAXPLAYERS+1][TF_CLASS_COUNT_ALL];
 
+static GlobalForward fwd_changed;
+
 static int player_model_entity[TF2_MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 static int player_viewmodel_entities[TF2_MAXPLAYERS+1][2];
 
@@ -280,9 +282,36 @@ static void get_model_for_class(TFClassType class, char[] model, int length)
 	}
 }
 
+static int native_pm2_get_model(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	int len = GetNativeCell(3);
+
+	TFClassType player_class = get_player_class(client);
+
+	bool config_valid = (player_config[client].model[0] != '\0');
+	if(!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
+		config_valid = false;
+	}
+
+	if(player_thirdparty_model[client].model[0] != '\0') {
+		SetNativeString(2, player_thirdparty_model[client].model, len);
+	} else if(config_valid) {
+		SetNativeString(2, player_config[client].model, len);
+	} else if(player_econ_configs[client][player_class].model[0] != '\0') {
+		SetNativeString(2, player_econ_configs[client][player_class].model, len);
+	} else {
+		SetNativeString(2, "", len);
+	}
+
+	return 0;
+}
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("playermodel2");
+	CreateNative("pm2_get_model", native_pm2_get_model);
 	return APLRes_Success;
 }
 
@@ -1083,6 +1112,8 @@ public void OnPluginStart()
 	CBasePlayer_GetSceneSoundToken_hook = DynamicHook.FromConf(gamedata, "CBasePlayer::GetSceneSoundToken");
 
 	delete gamedata;
+
+	fwd_changed = new GlobalForward("pm2_model_changed", ET_Ignore, Param_Cell);
 
 	HookEvent("player_death", player_death);
 	HookEvent("player_spawn", player_spawn);
@@ -2464,7 +2495,18 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 			player_taunt_vars[client].attempting_to_taunt = true;
 		}
 		case TFCond_Disguised:
-		{ remove_playermodel(client); }
+		{
+			if(get_player_model_entity(client) == -1 &&
+				player_custom_model[client][0] == '\0') {
+				return;
+			}
+
+			remove_playermodel(client);
+
+			Call_StartForward(fwd_changed);
+			Call_PushCell(client);
+			Call_Finish();
+		}
 	}
 }
 
@@ -3515,11 +3557,9 @@ static void recalculate_player_bodygroups(int client)
 
 static void remove_playermodel(int client)
 {
-	if(player_custom_model[client][0] != '\0') {
-		set_player_custom_model(client, "");
-		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
-		recalculate_player_bodygroups(client);
-	}
+	set_player_custom_model(client, "");
+	SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
+	recalculate_player_bodygroups(client);
 
 	//SetEntProp(client, Prop_Send, "m_bForcedSkin", 0);
 	//SetEntProp(client, Prop_Send, "m_nForcedSkin", 0);
@@ -3719,8 +3759,16 @@ static void handle_playermodel(int client)
 #endif
 
 	if(player_model[0] == '\0' && animation_model[0] == '\0') {
+		if(get_player_model_entity(client) == -1 &&
+			player_custom_model[client][0] == '\0') {
+			return;
+		}
+
 		remove_playermodel(client);
-		return;
+
+		Call_StartForward(fwd_changed);
+		Call_PushCell(client);
+		Call_Finish();
 	} else if(bonemerge) {
 		if(animation_model[0] == '\0') {
 			get_model_for_class(player_class, animation_model, PLATFORM_MAX_PATH);
@@ -3788,6 +3836,10 @@ static void handle_playermodel(int client)
 
 			SetEntityModel(entity, player_model);
 			strcopy(player_entity_model[client], PLATFORM_MAX_PATH, player_model);
+
+			Call_StartForward(fwd_changed);
+			Call_PushCell(client);
+			Call_Finish();
 		}
 	} else {
 		if(player_model[0] == '\0') {
@@ -3802,5 +3854,9 @@ static void handle_playermodel(int client)
 		delete_player_model_entity(client);
 		set_player_custom_model(client, player_model);
 		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
+
+		Call_StartForward(fwd_changed);
+		Call_PushCell(client);
+		Call_Finish();
 	}
 }
