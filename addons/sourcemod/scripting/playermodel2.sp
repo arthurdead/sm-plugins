@@ -1173,6 +1173,8 @@ public void OnPluginStart()
 
 		on_player_spawned(i);
 	}
+
+	proxysend_loaded = LibraryExists("proxysend");
 }
 
 static bool is_player_state_valid(int client)
@@ -2045,6 +2047,9 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 			proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
 		}
 
+		if(player_tpose[client]) {
+			SetEntProp(client, Prop_Send, "m_bDrawViewmodel", 1);
+		}
 		player_tpose[client] = false;
 		player_loser[client] = false;
 		player_swim[client] = false;
@@ -2801,6 +2806,11 @@ static void handle_viewmodel(int client, int weapon)
 			SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
 			SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
 
+		#if defined DEBUG_VIEWMODEL
+			PrintToServer(PM2_CON_PREFIX ... "  weapon_class = %i", weapon_class);
+			PrintToServer(PM2_CON_PREFIX ... "  weapon_arm_model = %s, %i", model, idx);
+		#endif
+
 			TFClassType arm_class = player_class;
 
 			bool has_custom_arm_model = false;
@@ -2841,10 +2851,10 @@ static void handle_viewmodel(int client, int weapon)
 				} else {
 					get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
 				}
-			#if defined DEBUG_VIEWMODEL
-				PrintToServer(PM2_CON_PREFIX ... "  arm_model = %s", model);
-			#endif
 				idx = get_model_index(model);
+			#if defined DEBUG_VIEWMODEL
+				PrintToServer(PM2_CON_PREFIX ... "  arm_model = %s, %i", model, idx);
+			#endif
 
 				SetEntityModel(entity, model);
 				SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
@@ -2859,6 +2869,10 @@ static void handle_viewmodel(int client, int weapon)
 					SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
 
 					get_model_index_path(idx, model, PLATFORM_MAX_PATH);
+
+				#if defined DEBUG_VIEWMODEL
+					PrintToServer(PM2_CON_PREFIX ... "  weapon_model = %s, %i", model, idx);
+				#endif
 
 					SetEntityModel(entity, model);
 					SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
@@ -3424,6 +3438,9 @@ static void post_inventory_application(Event event, const char[] name, bool dont
 		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
 	}
 
+	if(player_tpose[client]) {
+		SetEntProp(client, Prop_Send, "m_bDrawViewmodel", 1);
+	}
 	player_tpose[client] = false;
 	player_loser[client] = false;
 

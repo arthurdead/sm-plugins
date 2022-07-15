@@ -317,15 +317,17 @@ static void modify_player_currency(int client, int amount)
 		player_currency[client] = 0;
 	}
 
-	char query[QUERY_STR_MAX];
-	econ_db.Format(query, QUERY_STR_MAX,
-		"replace player_currency set " ...
-		" accid=%i, amount=%i " ...
-		";"
-		,GetSteamAccountID(client),
-		player_currency[client]
-	);
-	econ_db.Query(query_error, query);
+	if(econ_db != null) {
+		char query[QUERY_STR_MAX];
+		econ_db.Format(query, QUERY_STR_MAX,
+			"replace player_currency set " ...
+			" accid=%i, amount=%i " ...
+			";"
+			,GetSteamAccountID(client),
+			player_currency[client]
+		);
+		econ_db.Query(query_error, query);
+	}
 }
 
 static void player_death(Event event, const char[] name, bool dontBroadcast)
@@ -529,7 +531,15 @@ static Action sm_givei(int client, int args)
 	char filter[64];
 	GetCmdArg(1, filter, sizeof(filter));
 
-	int idx = GetCmdArgInt(2);
+	int item_id = GetCmdArgInt(2);
+	int idx = -1;
+	if(item_id != -1) {
+		idx = item_id_to_cache_idx(item_id);
+		if(idx == -1) {
+			ReplyToCommand(client, "[SM] Invalid item id");
+			return Plugin_Handled;
+		}
+	}
 
 	char name[MAX_TARGET_LENGTH];
 	bool isml = false;
@@ -543,7 +553,7 @@ static Action sm_givei(int client, int args)
 	for(int i = 0; i < count; ++i) {
 		int target = targets[i];
 
-		if(idx == -1) {
+		if(item_id == -1) {
 			int len = items.Length;
 			for(int j = 0; j < len; ++j) {
 				if(player_has_item(target, j)) {
@@ -1986,6 +1996,8 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	if(condition == TFCond_Taunting) {
 		if(player_taunt_stage[client] == 1) {
+			player_taunt_stage[client] = 0;
+			SetEntProp(client, Prop_Send, "m_bViewingCYOAPDA", 0);
 			CancelClientMenu(client, true);
 		}
 	}
@@ -1998,6 +2010,7 @@ static void on_player_open_inv(int client)
 	if(animstate_is_allowed_to_taunt(client)) {
 		if(animstate_play_taunt_activity_3_stage(client, "ACT_MP_CYOA_PDA_INTRO","ACT_MP_CYOA_PDA_IDLE","ACT_MP_CYOA_PDA_OUTRO")) {
 			player_taunt_stage[client] = 1;
+			SetEntProp(client, Prop_Send, "m_bViewingCYOAPDA", 1);
 		}
 	}
 }
@@ -2013,6 +2026,8 @@ static void on_player_close_inv(int client)
 	playing_shop_music[client] = false;
 
 	if(player_taunt_stage[client] == 1) {
+		player_taunt_stage[client] = 0;
+		SetEntProp(client, Prop_Send, "m_bViewingCYOAPDA", 0);
 		animstate_cancel_taunt(client);
 	}
 }
