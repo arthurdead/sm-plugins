@@ -2805,6 +2805,7 @@ static void handle_viewmodel(int client, int weapon)
 			int idx = get_model_index(model);
 			SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
 			SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
+			SetEntityModel(weapon, model);
 
 		#if defined DEBUG_VIEWMODEL
 			PrintToServer(PM2_CON_PREFIX ... "  weapon_class = %i", weapon_class);
