@@ -4,10 +4,8 @@
 #include <morecolors>
 #include <tf2items>
 #include <tf_econ_data>
-#include <teammanager_gameplay>
 #include <tf2utils>
 #include <stocksoup/memory>
-#include <proxysend>
 #include <regex>
 #include <bit>
 
@@ -18,8 +16,13 @@
 //#define DEBUG_PROXYSEND
 //#define DEBUG_WEAPONSWITCH
 
+#undef REQUIRE_EXTENSIONS
+#include <proxysend>
+#define REQUIRE_EXTENSIONS
+
 #undef REQUIRE_PLUGIN
-#tryinclude <economy>
+#include <teammanager_gameplay>
+#include <economy>
 #tryinclude <tauntmanager>
 #define REQUIRE_PLUGIN
 
@@ -260,10 +263,9 @@ static StringMap econ_to_config_map;
 static int no_damage_gameplay_group = INVALID_GAMEPLAY_GROUP;
 static bool tauntmanager_loaded;
 static bool economy_loaded;
+static bool proxysend_loaded;
 
 static int modelprecache = INVALID_STRING_TABLE;
-
-static ConVar pm2_viewmodels;
 
 static void get_model_for_class(TFClassType class, char[] model, int length)
 {
@@ -290,14 +292,9 @@ static int native_pm2_get_model(Handle plugin, int params)
 
 	TFClassType player_class = get_player_class(client);
 
-	bool config_valid = (player_config[client].model[0] != '\0');
-	if(!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
-		config_valid = false;
-	}
-
 	if(player_thirdparty_model[client].model[0] != '\0') {
 		SetNativeString(2, player_thirdparty_model[client].model, len);
-	} else if(config_valid) {
+	} else if((player_config[client].model[0] != '\0') && !!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
 		SetNativeString(2, player_config[client].model, len);
 	} else if(player_econ_configs[client][player_class].model[0] != '\0') {
 		SetNativeString(2, player_econ_configs[client][player_class].model, len);
@@ -308,10 +305,18 @@ static int native_pm2_get_model(Handle plugin, int params)
 	return 0;
 }
 
+static int native_pm2_is_thirdperson(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	return is_player_in_thirdperson(client);
+}
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("playermodel2");
 	CreateNative("pm2_get_model", native_pm2_get_model);
+	CreateNative("pm2_is_thirdperson", native_pm2_is_thirdperson);
 	return APLRes_Success;
 }
 
@@ -1129,7 +1134,7 @@ public void OnPluginStart()
 	TF2Items_SetLevel(dummy_item_view, 0);
 	TF2Items_SetNumAttributes(dummy_item_view, 0);
 
-	AddNormalSoundHook(sound_hook);
+	//AddNormalSoundHook(sound_hook);
 
 	weapons_class_cache = new ArrayList(sizeof(WeaponClassCache));
 
@@ -1143,8 +1148,6 @@ public void OnPluginStart()
 	tf_always_loser.AddChangeHook(tf_always_loser_changed);
 
 	load_configs();
-
-	pm2_viewmodels = CreateConVar("pm2_viewmodels", "1");
 
 	RegAdminCmd("sm_rpm", sm_rpm, ADMFLAG_ROOT);
 	RegConsoleCmd("sm_pm", sm_pm);
@@ -1202,12 +1205,16 @@ static Action sm_swim(int client, int args)
 
 	if(player_swim[client]) {
 		RequestFrame(frame_enable_swim, client);
-		proxysend_hook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond, false);
-		proxysend_hook(client, "m_nWaterLevel", player_proxysend_water_level, false);
+		if(proxysend_loaded) {
+			proxysend_hook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond, false);
+			proxysend_hook(client, "m_nWaterLevel", player_proxysend_water_level, false);
+		}
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now swimming!");
 	} else {
-		proxysend_unhook(client, "m_nWaterLevel", player_proxysend_water_level);
-		proxysend_unhook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond);
+		if(proxysend_loaded) {
+			proxysend_unhook(client, "m_nWaterLevel", player_proxysend_water_level);
+			proxysend_unhook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond);
+		}
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer swimming.");
 	}
 
@@ -1236,14 +1243,18 @@ static Action sm_loser(int client, int args)
 
 	if(player_loser[client]) {
 		TF2_RemoveAllWeapons(client);
-		proxysend_hook_cond(client, TFCond_Dazed, player_proxysend_loser_cond, false);
-		proxysend_hook(client, "m_iStunFlags", player_proxysend_stunflags, false);
-		proxysend_hook(client, "m_iStunIndex", player_proxysend_stunindex, false);
+		if(proxysend_loaded) {
+			proxysend_hook_cond(client, TFCond_Dazed, player_proxysend_loser_cond, false);
+			proxysend_hook(client, "m_iStunFlags", player_proxysend_stunflags, false);
+			proxysend_hook(client, "m_iStunIndex", player_proxysend_stunindex, false);
+		}
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now a loser! Congratulations.");
 	} else {
-		proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
-		proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
-		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+		if(proxysend_loaded) {
+			proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
+			proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+			proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+		}
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer a loser! Congratulations.");
 	}
 
@@ -1382,6 +1393,9 @@ public Action econ_items_conflict(const char[] classname1, int item1_idx, const 
 
 	int conf_idx1 = econ_idx_to_conf_idx(item1_idx);
 	int conf_idx2 = econ_idx_to_conf_idx(item2_idx);
+	if(conf_idx1 == -1 || conf_idx2 == -1) {
+		return Plugin_Continue;
+	}
 
 	int classes1 = configs.Get(conf_idx1, ConfigInfo::classes_allowed);
 	int classes2 = configs.Get(conf_idx2, ConfigInfo::classes_allowed);
@@ -1453,7 +1467,6 @@ public void econ_modify_menu(const char[] classname, int item_idx)
 	econ_menu_add_item(classes_str);
 }
 
-#if defined __economy_inc
 public void econ_handle_item(int client, const char[] classname, int item_idx, int inv_idx, econ_item_action action)
 {
 	switch(action) {
@@ -1495,7 +1508,6 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 		}
 	}
 }
-#endif
 
 public void OnLibraryAdded(const char[] name)
 {
@@ -1504,10 +1516,10 @@ public void OnLibraryAdded(const char[] name)
 	} else if(StrEqual(name, "tauntmanager")) {
 		tauntmanager_loaded = true;
 	} else if(StrEqual(name, "economy")) {
-	#if defined __economy_inc
 		econ_register_item_class("playermodel", true);
-	#endif
 		economy_loaded = true;
+	} else if(StrEqual(name, "proxysend")) {
+		proxysend_loaded = true;
 	}
 }
 
@@ -1520,6 +1532,8 @@ public void OnLibraryRemoved(const char[] name)
 	} else if(StrEqual(name, "economy")) {
 		econ_to_config_map.Clear();
 		economy_loaded = false;
+	} else if(StrEqual(name, "proxysend")) {
+		proxysend_loaded = false;
 	}
 }
 
@@ -1631,6 +1645,8 @@ public void OnMapStart()
 			}
 		}
 	}
+
+	//TODO!!! support for precaching a whole sound folder
 }
 
 static Action sm_rpm(int client, int args)
@@ -2021,11 +2037,13 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {
 		SDKUnhook(client, SDKHook_PostThinkPost, player_think_taunt_prop);
 
-		proxysend_unhook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond);
+		if(proxysend_loaded) {
+			proxysend_unhook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond);
 
-		proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
-		proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
-		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+			proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
+			proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+			proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+		}
 
 		player_tpose[client] = false;
 		player_loser[client] = false;
@@ -2062,19 +2080,13 @@ static void frame_ragdoll_created(int entity)
 
 	TFClassType player_class = get_player_class(owner);
 
-	bool config_valid = (player_config[owner].model[0] != '\0');
-
-	if(!(player_config[owner].classes_allowed & BIT_FOR_CLASS(player_class))) {
-		config_valid = false;
-	}
-
 	char model[PLATFORM_MAX_PATH];
 	if(player_thirdparty_model[owner].model[0] != '\0') {
 		strcopy(model, PLATFORM_MAX_PATH, player_thirdparty_model[owner].model);
 		if(player_thirdparty_model[owner].class != TFClass_Unknown) {
 			SetEntProp(entity, Prop_Send, "m_iClass", player_thirdparty_model[owner].class);
 		}
-	} else if(config_valid) {
+	} else if((player_config[owner].model[0] != '\0') && !!(player_config[owner].classes_allowed & BIT_FOR_CLASS(player_class))) {
 		strcopy(model, PLATFORM_MAX_PATH, player_config[owner].model);
 		if(player_config[owner].model_class != TFClass_Unknown) {
 			SetEntProp(entity, Prop_Send, "m_iClass", player_config[owner].model_class);
@@ -2768,10 +2780,6 @@ static TFClassType get_player_class(int client)
 
 static void handle_viewmodel(int client, int weapon)
 {
-	if(!pm2_viewmodels.BoolValue) {
-		return;
-	}
-
 	if(weapon == -1) {
 		delete_player_viewmodel_entities(client);
 		return;
@@ -2798,12 +2806,14 @@ static void handle_viewmodel(int client, int weapon)
 			bool has_custom_arm_model = false;
 
 			if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
-				if(StrEqual(player_config[client].arm_model, "model_class")) {
-					if(player_config[client].model_class != TFClass_Unknown) {
-						arm_class = player_config[client].model_class;
+				if(!!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
+					if(StrEqual(player_config[client].arm_model, "model_class")) {
+						if(player_config[client].model_class != TFClass_Unknown) {
+							arm_class = player_config[client].model_class;
+						}
+					} else if(player_config[client].arm_model[0] != '\0') {
+						has_custom_arm_model = true;
 					}
-				} else if(player_config[client].arm_model[0] != '\0') {
-					has_custom_arm_model = true;
 				}
 			}
 
@@ -2815,7 +2825,6 @@ static void handle_viewmodel(int client, int weapon)
 
 			if(different_class || has_custom_arm_model) {
 				delete_player_viewmodel_entity(client, 0);
-
 				int entity = get_or_create_player_viewmodel_entity(client, 0);
 
 				SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
@@ -2874,6 +2883,8 @@ static void handle_viewmodel(int client, int weapon)
 				effects &= ~EF_NODRAW;
 				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
 			}
+		} else {
+			delete_player_viewmodel_entities(client, weapon);
 		}
 	}
 }
@@ -3132,22 +3143,10 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 				}
 			}
 			if(anything_changed) {
-				char sound_path[PLATFORM_MAX_PATH];
-				strcopy(sound_path, PLATFORM_MAX_PATH, "sound/");
-				char sample_clean[PLATFORM_MAX_PATH];
-				strcopy(sample_clean, PLATFORM_MAX_PATH, sample);
-				ReplaceString(sample_clean, PLATFORM_MAX_PATH, ")", "");
-				StrCat(sound_path, PLATFORM_MAX_PATH, sample_clean);
-			#if defined DEBUG_CONFIG
-				PrintToServer(PM2_CON_PREFIX ... "sound_path = %s", sound_path);
-			#endif
-				if(FileExists(sound_path, true)) {
-					PrecacheSound(sample);
-					if(was_client_side) {
-						clients[numClients++] = entity;
-					}
-					return Plugin_Changed;
+				if(was_client_side) {
+					clients[numClients++] = entity;
 				}
+				return Plugin_Changed;
 			} else if(player_config[entity].flags & config_flags_no_voicelines) {
 				return Plugin_Stop;
 			}
@@ -3247,8 +3246,10 @@ static int get_or_create_player_model_entity(int client)
 	SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
 	SDKHook(client, SDKHook_PostThinkPost, player_think_model);
 
-	proxysend_hook(client, "m_clrRender", player_proxysend_render_color, false);
-	proxysend_hook(client, "m_nRenderMode", player_proxysend_render_mode, false);
+	if(proxysend_loaded) {
+		proxysend_hook(client, "m_clrRender", player_proxysend_render_color, false);
+		proxysend_hook(client, "m_nRenderMode", player_proxysend_render_mode, false);
+	}
 
 	ChangeEdictState(client);
 
@@ -3279,8 +3280,10 @@ static void delete_player_model_entity(int client)
 
 	SDKUnhook(client, SDKHook_PostThinkPost, player_think_model);
 
-	proxysend_unhook(client, "m_clrRender", player_proxysend_render_color);
-	proxysend_unhook(client, "m_nRenderMode", player_proxysend_render_mode);
+	if(proxysend_loaded) {
+		proxysend_unhook(client, "m_clrRender", player_proxysend_render_color);
+		proxysend_unhook(client, "m_nRenderMode", player_proxysend_render_mode);
+	}
 
 	ChangeEdictState(client);
 
@@ -3415,9 +3418,11 @@ static void post_inventory_application(Event event, const char[] name, bool dont
 	int userid = event.GetInt("userid");
 	int client = GetClientOfUserId(userid);
 
-	proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
-	proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
-	proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+	if(proxysend_loaded) {
+		proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
+		proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+		proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+	}
 
 	player_tpose[client] = false;
 	player_loser[client] = false;
@@ -3665,11 +3670,7 @@ static void handle_playermodel(int client)
 
 	TFClassType player_class = get_player_class(client);
 
-	bool config_valid = (player_config[client].model[0] != '\0');
-
-	if(!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
-		config_valid = false;
-	}
+	bool config_valid = ((player_config[client].model[0] != '\0') && !!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class)));
 
 	bool has_any_model = (
 		player_thirdparty_model[client].model[0] != '\0' ||

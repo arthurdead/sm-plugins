@@ -5,6 +5,8 @@
 
 forward void pm2_model_changed(int client);
 
+native bool pm2_is_thirdperson(int client);
+
 native void pm2_get_model(int client, char[] model, int len);
 
 public SharedPlugin __pl_playermodel2 =

@@ -1,0 +1,26 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"CTFPlayerShared::m_bPhaseFXOn"
+			{
+				"linux" "5"
+			}
+		}
+		"Signatures"
+		{
+			"CTFPlayerShared::AddPhaseEffects"
+			{
+				"library" "server"
+				"linux" "@_ZN15CTFPlayerShared15AddPhaseEffectsEv"
+			}
+			"CTFPlayerShared::RemovePhaseEffects"
+			{
+				"library" "server"
+				"linux" "@_ZN15CTFPlayerShared18RemovePhaseEffectsEv"
+			}
+		}
+	}
+}
