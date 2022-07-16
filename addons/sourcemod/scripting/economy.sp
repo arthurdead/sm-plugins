@@ -451,6 +451,103 @@ static void object_destroyed(Event event, const char[] name, bool dontBroadcast)
 	}
 }
 
+static void query_rank(Database db, DBResultSet results, const char[] error, DataPack data)
+{
+	data.Reset();
+
+	Menu rankmenu = data.ReadCell();
+
+	int client = GetClientOfUserId(data.ReadCell());
+
+	delete data;
+
+	if(client == 0) {
+		return;
+	}
+
+	if(!results) {
+		LogError("%s", error);
+		return;
+	}
+
+	for(int i = 0; i < results.RowCount; ++i) {
+		if(!results.FetchRow()) {
+			LogError("fetch failed");
+			return;
+		}
+
+		int accid = results.FetchInt(0);
+		int amount = results.FetchInt(1);
+
+		char str[10];
+		pack_int_in_str(accid, str, 0);
+		pack_int_in_str(amount, str, 4);
+
+		rankmenu.AddItem(str, "", ITEMDRAW_DISABLED);
+	}
+
+	rankmenu.Display(client, MENU_TIME_FOREVER);
+}
+
+static int get_client_of_accid(int accid)
+{
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i) && !IsFakeClient(i)) {
+			if(GetSteamAccountID(i) == accid) {
+				return i;
+			}
+		}
+	}
+	return 0;
+}
+
+static int menuhandler_rank(Menu menu, MenuAction action, int param1, int param2)
+{
+	switch(action) {
+		case MenuAction_DisplayItem: {
+			char str[10];
+			menu.GetItem(param2, str, sizeof(str));
+
+			int accid = unpack_int_in_str(str, 0);
+			int amount = unpack_int_in_str(str, 4);
+
+			char display[MAX_NAME_LENGTH + 10];
+
+			int target = get_client_of_accid(accid);
+			if(target != 0) {
+				Format(display, sizeof(display), "%N: %i", target, player_currency[target]);
+			} else {
+				Format(display, sizeof(display), "%i: %i", accid, amount);
+			}
+
+			return RedrawMenuItem(display);
+		}
+		case MenuAction_End: {
+			delete menu;
+		}
+	}
+
+	return 0;
+}
+
+static Action sm_rankpoints(int client, int args)
+{
+	if(econ_db == null) {
+		return Plugin_Handled;
+	}
+
+	Menu rankmenu = new Menu(menuhandler_rank, MENU_ACTIONS_DEFAULT|MenuAction_DisplayItem);
+
+	char query[QUERY_STR_MAX];
+	econ_db.Format(query, QUERY_STR_MAX, "select accid,amount from player_currency where amount > 0 order by amount desc limit 100");
+	DataPack data = new DataPack();
+	data.WriteCell(rankmenu);
+	data.WriteCell(GetClientUserId(client));
+	econ_db.Query(query_rank, query, data);
+
+	return Plugin_Handled;
+}
+
 public void OnPluginStart()
 {
 	fwd_loaded = new GlobalForward("econ_loaded", ET_Ignore);
@@ -470,6 +567,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_shop", sm_shop);
 	RegConsoleCmd("sm_inventory", sm_inventory);
 	RegConsoleCmd("sm_inv", sm_inventory);
+	RegConsoleCmd("sm_rankpoints", sm_rankpoints);
 
 	RegAdminCmd("sm_mpts", sm_mpts, ADMFLAG_ROOT);
 	RegAdminCmd("sm_givei", sm_givei, ADMFLAG_ROOT);
@@ -1694,18 +1792,6 @@ static void cache_items_settings(DBResultSet set)
 	set.FetchString(2, value, ECON_MAX_ITEM_SETTING_VALUE);
 
 	item_setting_loaded(id, name, value);
-}
-
-static int GetClientOfSteamAccountID(int accid)
-{
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i) && !IsFakeClient(i)) {
-			if(GetSteamAccountID(i) == accid) {
-				return i;
-			}
-		}
-	}
-	return 0;
 }
 
 static void cache_player_currency(DBResultSet set, int usrid)

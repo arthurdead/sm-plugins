@@ -1125,7 +1125,7 @@ public void OnPluginStart()
 
 	HookEvent("post_inventory_application", post_inventory_application);
 
-	//HookEvent("player_changeclass", player_changeclass);
+	HookEvent("player_changeclass", player_changeclass);
 
 	dummy_item_view = TF2Items_CreateItem(OVERRIDE_ALL|FORCE_GENERATION);
 	TF2Items_SetClassname(dummy_item_view, "tf_wearable");
@@ -3424,6 +3424,13 @@ static void post_inventory_application_frame(int userid)
 	if(player_config[client].flags & config_flags_no_wearables) {
 		remove_all_player_wearables(client);
 	}
+
+	handle_playermodel(client);
+}
+
+static void player_changeclass(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
 
 	handle_playermodel(client);
 }

@@ -1,0 +1,378 @@
+"back_weapons"
+{
+	"rocket launcher"
+	{
+		"0"
+		{
+			"attachment" "flag"
+			"pos" "-10 5 0"
+			"ang" "-10 -125 -90"
+
+			"classname"
+			{
+				"0" "tf_weapon_rocketlauncher"
+				"1" "tf_weapon_rocketlauncher_airstrike"
+				"2" "tf_weapon_rocketlauncher_directhit"
+				"3" "tf_weapon_particle_cannon"
+			}
+		}
+		"1"
+		{
+			"attachment" "flag"
+			"pos" "-15 5 0"
+			"ang" "-10 -125 -90"
+
+			"item_index"
+			{
+				"0" "730"
+			}
+		}
+		"2"
+		{
+			"attachment" "flag"
+			"pos" "-5 10 -5"
+			"ang" "-10 -125 -90"
+
+			"item_index"
+			{
+				"0" "513"
+			}
+		}
+	}
+
+	"flame thrower"
+	{
+		"0"
+		{
+			"attachment" "flag"
+			"pos" "-10 30 -10"
+			"ang" "-10 -90 -45"
+
+			"classname"
+			{
+				"0" "tf_weapon_flamethrower"
+				"1" "tf_weapon_rocketlauncher_fireball"
+			}
+		}
+	}
+
+	"sniper rifle"
+	{
+		"0"
+		{
+			"attachment" "flag"
+			"pos" "-5 15 -5"
+			"ang" "-10 -115 -90"
+
+			"classname"
+			{
+				"0" "tf_weapon_sniperrifle"
+				"1" "tf_weapon_sniperrifle_classic"
+				"2" "tf_weapon_sniperrifle_decap"
+			}
+		}
+		"1"
+		{
+			"attachment" "flag"
+			"pos" "-10 -5 -2"
+			"ang" "-10 -115 -90"
+
+			"item_index"
+			{
+				"0" "752"
+			}
+		}
+		"2"
+		{
+			"attachment" "flag"
+			"pos" "-5 10 -5"
+			"ang" "-10 -115 -90"
+
+			"item_index"
+			{
+				"0" "402"
+			}
+		}
+		"3"
+		{
+			"attachment" "flag"
+			"pos" "-5 5 -5"
+			"ang" "-10 -115 -90"
+
+			"item_index"
+			{
+				"0" "526"
+				"1" "851"
+				"2" "230"
+			}
+		}
+		"4"
+		{
+			"attachment" "flag"
+			"pos" "0 0 -5"
+			"ang" "-10 -45 -90"
+
+			"classname"
+			{
+				"0" "tf_weapon_compound_bow"
+			}
+		}
+	}
+
+	"minigun"
+	{
+		"0"
+		{
+			"attachment" "flag"
+			"pos" "-15 -5 0"
+			"ang" "20 90 -85"
+
+			"classname"
+			{
+				"0" "tf_weapon_minigun"
+			}
+		}
+		"1"
+		{
+			"attachment" "flag"
+			"pos" "-10 -5 0"
+			"ang" "20 90 -85"
+
+			"item_index"
+			{
+				"0" "312"
+				"1" "424"
+			}
+		}
+	}
+
+	"shotgun primary"
+	{
+		"0"
+		{
+			"attachment" "flag"
+			"pos" "5 15 -5"
+			"ang" "-10 -125 -90"
+
+			"classname"
+			{
+				"0" "tf_weapon_shotgun_primary"
+				"1" "tf_weapon_shotgun_building_rescue"
+				"2" "tf_weapon_sentry_revenge"
+				"3" "tf_weapon_shotgun"
+			}
+		}
+		"1"
+		{
+			"attachment" "flag"
+			"pos" "0 10 -5"
+			"ang" "-10 -125 -90"
+
+			"item_index"
+			{
+				"0" "527"
+			}
+
+			"classname"
+			{
+				"0" "tf_weapon_drg_pomson"
+			}
+		}
+		"2"
+		{
+			"attachment" "flag"
+			"pos" "8 20 -5"
+			"ang" "-10 -125 -90"
+
+			"classname"
+			{
+				"0" "tf_weapon_shotgun_building_rescue"
+			}
+		}
+	}
+
+	"shotgun secondary"
+	{
+		"0"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 5 10"
+			"ang" "115 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_shotgun_pyro"
+				"1" "tf_weapon_shotgun"
+			}
+		}
+		"1"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 0 10"
+			"ang" "115 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_shotgun_soldier"
+				"1" "tf_weapon_shotgun"
+			}
+		}
+		"2"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 5 10"
+			"ang" "115 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_shotgun_hwg"
+				"1" "tf_weapon_shotgun"
+			}
+		}
+		"3"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 5 5"
+			"ang" "115 -70 20"
+
+			"item_index"
+			{
+				"0" "425"
+			}
+		}
+	}
+
+	"smg"
+	{
+		"0"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 5 5"
+			"ang" "150 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_smg"
+			}
+		}
+		"1"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 5 5"
+			"ang" "150 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_charged_smg"
+			}
+		}
+	}
+
+	"bison"
+	{
+		"0"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 2 0"
+			"ang" "125 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_raygun"
+			}
+		}
+	}
+
+	"flaregun"
+	{
+		"0"
+		{
+			"attachment" "back_lower"
+			"pos" "-10 5 0"
+			"ang" "125 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_flaregun"
+				"1" "tf_weapon_flaregun_revenge"
+			}
+		}
+	}
+
+	"scattergun"
+	{
+		"0"
+		{
+			"attachment" "back_lower"
+			"pos" "10 8 2"
+			"ang" "0 180 -70"
+
+			"classname"
+			{
+				"0" "tf_weapon_scattergun"
+				"1" "tf_weapon_handgun_scout_primary"
+				"2" "tf_weapon_soda_popper"
+				"3" "tf_weapon_pep_brawler_blaster"
+			}
+		}
+	}
+
+	"pistol secondary"
+	{
+		"0"
+		{
+			"attachment" "back_lower"
+			"pos" "-8 10 0"
+			"ang" "115 -70 20"
+
+			"classname"
+			{
+				"0" "tf_weapon_pistol_scout"
+				"1" "tf_weapon_handgun_scout_secondary"
+				"2" "tf_weapon_pistol"
+			}
+		}
+		"1"
+		{
+			"attachment" "back_lower"
+			"pos" "-8 12 0"
+			"ang" "115 -70 20"
+
+			"item_index"
+			{
+				"0" "294"
+			}
+		}
+	}
+
+	"pipebomb"
+	{
+		"0"
+		{
+			"attachment" "flag"
+			"pos" "10 0 0"
+			"ang" "5 180 -90"
+
+			"classname"
+			{
+				"0" "tf_weapon_grenadelauncher"
+				"1" "tf_weapon_cannon"
+			}
+		}
+	}
+
+	"stickybomb"
+	{
+		"0"
+		{
+			"attachment" "back_lower"
+			"pos" "10 -5 5"
+			"ang" "0 180 -90"
+
+			"classname"
+			{
+				"0" "tf_weapon_pipebomblauncher"
+			}
+		}
+	}
+}
