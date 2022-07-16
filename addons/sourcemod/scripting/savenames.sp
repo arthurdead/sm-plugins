@@ -18,8 +18,8 @@ public void OnPluginStart()
 	HookEvent("player_changename", player_changename);
 
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientConnected(i)) {
-			OnClientConnected(i);
+		if(IsClientAuthorized(i)) {
+			OnClientAuthorized(i, "");
 		}
 	}
 }
@@ -170,7 +170,7 @@ static void player_changename(Event event, const char[] name, bool dontBroadcast
 	update_name_ex(client, newname);
 }
 
-public void OnClientConnected(int client)
+public void OnClientAuthorized(int client, const char[] auth)
 {
 	if(IsFakeClient(client)) {
 		return;

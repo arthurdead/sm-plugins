@@ -584,6 +584,9 @@ public void OnPluginStart()
 		if(IsClientInGame(i)) {
 			OnClientPutInServer(i);
 		}
+		if(IsClientAuthorized(i)) {
+			OnClientAuthorized(i, "");
+		}
 	}
 }
 
@@ -1555,7 +1558,7 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 	delete snap;
 
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i) && !IsFakeClient(i)) {
+		if(IsClientConnected(i) && !IsFakeClient(i) && IsClientAuthorized(i)) {
 			query_player_data(i);
 		}
 	}
@@ -2319,6 +2322,10 @@ static void cache_player_data(Database db, any data, int numQueries, DBResultSet
 
 static void query_player_data(int client)
 {
+	if(econ_db == null) {
+		return;
+	}
+
 	int accid = GetSteamAccountID(client);
 	int usrid = GetClientUserId(client);
 
@@ -2356,14 +2363,17 @@ static Action timer_give_points(Handle timer, int client)
 	return Plugin_Continue;
 }
 
+public void OnClientAuthorized(int client, const char[] auth)
+{
+	if(!IsFakeClient(client)) {
+		query_player_data(client);
+	}
+}
+
 public void OnClientPutInServer(int client)
 {
 	if(!IsFakeClient(client)) {
 		player_purchase_queue[client] = new ArrayList();
-
-		if(econ_db != null) {
-			query_player_data(client);
-		}
 
 		player_point_timer[client] = CreateTimer(float(30 * 60), timer_give_points, GetClientUserId(client), TIMER_REPEAT);
 	}
