@@ -1489,7 +1489,7 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				}
 			}
 
-			if(is_player_state_valid(client)) {
+			if(IsClientInGame(client) && is_player_state_valid(client)) {
 				handle_playermodel(client);
 			}
 		}
@@ -1687,7 +1687,7 @@ static void unequip_config(int client, bool force = false)
 
 	player_config[client].clear();
 
-	if(is_player_state_valid(client)) {
+	if(IsClientInGame(client) && is_player_state_valid(client)) {
 		handle_playermodel(client);
 	}
 }
