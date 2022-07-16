@@ -76,10 +76,16 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 
 			footprint_value_map.GetValue(str, player_footprint[client]);
 
-			TF2Attrib_SetByDefIndex(client, 1005, player_footprint[client]);
+			if(IsClientInGame(client)) {
+				TF2Attrib_SetByDefIndex(client, 1005, player_footprint[client]);
+			}
 		}
 		case econ_item_apply: {
-			TF2Attrib_SetByDefIndex(client, 1005, player_footprint[client]);
+			if(player_footprint[client] != 0.0) {
+				TF2Attrib_SetByDefIndex(client, 1005, player_footprint[client]);
+			} else {
+				TF2Attrib_RemoveByDefIndex(client, 1005);
+			}
 		}
 		case econ_item_unequip: {
 			player_footprint[client] = 0.0;

@@ -21,6 +21,13 @@ static void CCC_SetColor(int client, CCC_ColorType type, int value, bool alpha) 
 static void CCC_ResetColor(int client, CCC_ColorType type) {}
 #endif
 
+#define TF2_MAXPLAYERS 33
+
+#define INVALID_COLOR -1
+
+static char player_tag[TF2_MAXPLAYERS+1][MAX_NAME_LENGTH];
+static int player_chat_colors[TF2_MAXPLAYERS+1][3];
+
 public void OnPluginStart()
 {
 	
@@ -54,52 +61,71 @@ static int get_color_value(const char[] name)
 	return value;
 }
 
+public void OnClientDisconnect(int client)
+{
+	player_tag[client][0] = '\0';
+
+	player_chat_colors[client][CCC_TagColor] = INVALID_COLOR;
+	player_chat_colors[client][CCC_NameColor] = INVALID_COLOR;
+	player_chat_colors[client][CCC_ChatColor] = INVALID_COLOR;
+}
+
 public void econ_handle_item(int client, const char[] classname, int item_idx, int inv_idx, econ_item_action action)
 {
 	if(StrEqual(classname, "chat_tag")) {
 		switch(action) {
+			case econ_item_apply: {
+				if(player_tag[client][0] != '\0') {
+					CCC_SetTag(client, player_tag[client]);
+				} else {
+					CCC_ResetTag(client);
+				}
+			}
 			case econ_item_equip: {
 				char name[ECON_MAX_ITEM_NAME];
 				econ_get_item_name(item_idx, name, ECON_MAX_ITEM_NAME);
 				StrCat(name, ECON_MAX_ITEM_NAME, " ");
 
-				CCC_SetTag(client, name);
+				strcopy(player_tag[client], MAX_NAME_LENGTH, name);
+
+				if(IsClientInGame(client)) {
+					CCC_SetTag(client, name);
+				}
 			}
 			case econ_item_unequip: {
+				player_tag[client][0] = '\0';
 				CCC_ResetTag(client);
 			}
 		}
-	} else if(StrEqual(classname, "chat_color_tag")) {
-		switch(action) {
-			case econ_item_equip: {
-				int value = get_color_item_value(item_idx);
+	} else {
+		CCC_ColorType color = view_as<CCC_ColorType>(INVALID_COLOR);
 
-				CCC_SetColor(client, CCC_TagColor, value, false);
-			}
-			case econ_item_unequip: {
-				CCC_ResetColor(client, CCC_TagColor);
-			}
+		if(StrEqual(classname, "chat_color_tag")) {
+			color = CCC_TagColor;
+		} else if(StrEqual(classname, "chat_color")) {
+			color = CCC_ChatColor;
+		} else if(StrEqual(classname, "chat_color_name")) {
+			color = CCC_NameColor;
 		}
-	} else if(StrEqual(classname, "chat_color")) {
-		switch(action) {
-			case econ_item_equip: {
-				int value = get_color_item_value(item_idx);
 
-				CCC_SetColor(client, CCC_ChatColor, value, false);
+		switch(action) {
+			case econ_item_apply: {
+				if(player_chat_colors[client][color] != INVALID_COLOR) {
+					CCC_SetColor(client, color, player_chat_colors[client][color], false);
+				} else {
+					CCC_ResetColor(client, color);
+				}
+			}
+			case econ_item_equip: {
+				player_chat_colors[client][color] = get_color_item_value(item_idx);
+
+				if(IsClientInGame(client)) {
+					CCC_SetColor(client, color, player_chat_colors[client][color], false);
+				}
 			}
 			case econ_item_unequip: {
-				CCC_ResetColor(client, CCC_ChatColor);
-			}
-		}
-	} else if(StrEqual(classname, "chat_color_name")) {
-		switch(action) {
-			case econ_item_equip: {
-				int value = get_color_item_value(item_idx);
-
-				CCC_SetColor(client, CCC_NameColor, value, false);
-			}
-			case econ_item_unequip: {
-				CCC_ResetColor(client, CCC_NameColor);
+				CCC_ResetColor(client, color);
+				player_chat_colors[client][color] = INVALID_COLOR;
 			}
 		}
 	}

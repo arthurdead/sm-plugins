@@ -1489,7 +1489,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				}
 			}
 
-			handle_playermodel(client);
+			if(is_player_state_valid(client)) {
+				handle_playermodel(client);
+			}
 		}
 		case econ_item_unequip: {
 			int conf_idx = econ_idx_to_conf_idx(item_idx);
@@ -1685,7 +1687,9 @@ static void unequip_config(int client, bool force = false)
 
 	player_config[client].clear();
 
-	handle_playermodel(client);
+	if(is_player_state_valid(client)) {
+		handle_playermodel(client);
+	}
 }
 
 static void copy_config_vars(int client, PlayerConfigInfo plrinfo, int idx, ConfigInfo info)

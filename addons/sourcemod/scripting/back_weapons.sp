@@ -144,9 +144,12 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 	switch(action) {
 		case econ_item_equip: {
 			player_has_back_weapons[client] = true;
-			if(GetClientTeam(client) > 1 &&
+
+			if(IsClientInGame(client) &&
+				GetClientTeam(client) > 1 &&
 				TF2_GetPlayerClass(client) != TFClass_Unknown &&
-				IsPlayerAlive(client)) {
+				IsPlayerAlive(client))
+			{
 				int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 				player_weapon_switch(client, weapon);
 			}
