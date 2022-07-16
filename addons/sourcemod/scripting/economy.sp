@@ -6,6 +6,7 @@
 #include <morecolors>
 #include <bit>
 #include <animstate>
+#include <savenames>
 
 //#define DEBUG
 
@@ -517,7 +518,9 @@ static int menuhandler_rank(Menu menu, MenuAction action, int param1, int param2
 			if(target != 0) {
 				Format(display, sizeof(display), "%N: %i", target, player_currency[target]);
 			} else {
-				Format(display, sizeof(display), "%i: %i", accid, amount);
+				char name[MAX_NAME_LENGTH];
+				sn_get(accid, name, MAX_NAME_LENGTH);
+				Format(display, sizeof(display), "%s: %i", name, amount);
 			}
 
 			return RedrawMenuItem(display);
