@@ -871,12 +871,13 @@ static void post_inventory_application(Event event, const char[] name, bool dont
 
 static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int userid = event.GetInt("userid");
+	int client = GetClientOfUserId(userid);
 	if(IsFakeClient(client)) {
 		return;
 	}
 
-	handle_player_inventory(client, econ_item_apply);
+	RequestFrame(post_inventory_application_frame, userid);
 }
 
 static int native_econ_register_item_class(Handle plugin, int params)

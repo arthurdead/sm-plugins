@@ -345,20 +345,29 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 	}
 }
 
-static void player_spawn(Event event, const char[] name, bool dontBroadcast)
+static void frame_post_inventory_application(int userid)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int client = GetClientOfUserId(userid);
+	if(client == 0) {
+		return;
+	}
 
 	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 	player_weapon_switch(client, weapon);
 }
 
+static void player_spawn(Event event, const char[] name, bool dontBroadcast)
+{
+	int userid = event.GetInt("userid");
+
+	RequestFrame(frame_post_inventory_application, userid);
+}
+
 static void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int userid = event.GetInt("userid");
 
-	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	player_weapon_switch(client, weapon);
+	RequestFrame(frame_post_inventory_application, userid);
 }
 
 static void player_weapon_switch(int client, int weapon)
