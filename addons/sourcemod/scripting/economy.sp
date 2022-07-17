@@ -376,23 +376,23 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 		int attacker_points = 0;
 
 		if(taunt_kill) {
-			attacker_points = 5;
+			attacker_points = 7;
 		} else if(customkill == TF_CUSTOM_HEADSHOT) {
-			attacker_points = 5;
+			attacker_points = 7;
 		} else if(customkill == TF_CUSTOM_BACKSTAB) {
-			attacker_points = 5;
+			attacker_points = 7;
 		} else {
-			attacker_points = 3;
+			attacker_points = 5;
 		}
 
 		bool domination = !!(death_flags & TF_DEATHFLAG_KILLERDOMINATION);
 		bool revenge = !!(death_flags & TF_DEATHFLAG_KILLERREVENGE);
 
 		if(domination) {
-			attacker_points += 5;
+			attacker_points += 7;
 			victim_points += -3;
 		} else if(revenge) {
-			attacker_points += 4;
+			attacker_points += 6;
 			victim_points += -2;
 		}
 
@@ -401,16 +401,16 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	if(assister != 0 && !IsFakeClient(assister)) {
-		int assister_points = 1;
+		int assister_points = 3;
 
 		bool domination = !!(death_flags & TF_DEATHFLAG_ASSISTERDOMINATION);
 		bool revenge = !!(death_flags & TF_DEATHFLAG_ASSISTERREVENGE);
 
 		if(domination) {
-			assister_points += 5;
+			assister_points += 7;
 			victim_points += -3;
 		} else if(revenge) {
-			assister_points += 4;
+			assister_points += 6;
 			victim_points += -2;
 		}
 
@@ -440,15 +440,15 @@ static void object_destroyed(Event event, const char[] name, bool dontBroadcast)
 		modify_player_currency(victim, -1);
 
 		if(objecttype == TFObject_Sentry) {
-			modify_player_currency(attacker, 3);
+			modify_player_currency(attacker, 5);
 		} else {
-			modify_player_currency(attacker, 2);
+			modify_player_currency(attacker, 4);
 		}
 	}
 
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	if(assister != 0 && !IsFakeClient(assister)) {
-		modify_player_currency(assister, 1);
+		modify_player_currency(assister, 5);
 	}
 }
 
@@ -568,11 +568,16 @@ public void OnPluginStart()
 	HookEvent("post_inventory_application", post_inventory_application);
 
 	RegConsoleCmd("sm_shop", sm_shop);
+	RegConsoleCmd("sm_store", sm_shop);
+
 	RegConsoleCmd("sm_inventory", sm_inventory);
 	RegConsoleCmd("sm_inv", sm_inventory);
+
 	RegConsoleCmd("sm_rankpoints", sm_rankpoints);
+	RegConsoleCmd("sm_pointrank", sm_rankpoints);
 
 	RegAdminCmd("sm_mpts", sm_mpts, ADMFLAG_ROOT);
+
 	RegAdminCmd("sm_givei", sm_givei, ADMFLAG_ROOT);
 	RegAdminCmd("sm_remi", sm_remi, ADMFLAG_ROOT);
 

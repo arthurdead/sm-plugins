@@ -33,6 +33,9 @@ public SharedPlugin __pl_teammanager_gameplay =
 #if !defined REQUIRE_PLUGIN
 public void __pl_teammanager_gameplay_SetNTVOptional()
 {
-	
+	MarkNativeAsOptional("TeamManager_NewGameplayGroup");
+	MarkNativeAsOptional("TeamManager_AddPlayerToGameplayGroup");
+	MarkNativeAsOptional("TeamManager_RemovePlayerFromGameplayGroup");
+	MarkNativeAsOptional("TeamManager_RemoveGameplayGroup");
 }
 #endif
