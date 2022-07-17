@@ -52,14 +52,6 @@ static int find_particle(const char[] name)
 	return FindStringIndex(ParticleEffectNames, name);
 }
 
-static bool tracefilter_ignore_weapon(int entity, int mask, int weapon)
-{
-	if(entity == weapon || entity == GetEntPropEnt(weapon, Prop_Send, "m_hOwner")) {
-		return false;
-	}
-	return true;
-}
-
 static void get_model_index_path(int idx, char[] model, int len)
 {
 	if(modelprecache == INVALID_STRING_TABLE) {
@@ -91,6 +83,14 @@ static void setup_tracer(int weapon, int particle, float start[3], float ang[3],
 	TE_WriteFloat("m_ControlPoint1.m_vecOffset[0]", end[0]);
 	TE_WriteFloat("m_ControlPoint1.m_vecOffset[1]", end[1]);
 	TE_WriteFloat("m_ControlPoint1.m_vecOffset[2]", end[2]);
+}
+
+static bool tracefilter_ignore_weapon(int entity, int mask, int weapon)
+{
+	if(entity == weapon || entity == GetEntPropEnt(weapon, Prop_Send, "m_hOwner")) {
+		return false;
+	}
+	return true;
 }
 
 static Action FireBullets(const char[] te_name, const int[] players, int numClients, float delay)
@@ -147,7 +147,7 @@ static Action FireBullets(const char[] te_name, const int[] players, int numClie
 	float ang[3];
 	GetClientEyeAngles(client, ang);
 
-	Handle trace = TR_TraceRayFilterEx(start, ang, MASK_SOLID, RayType_Infinite, tracefilter_ignore_weapon, weapon);
+	Handle trace = TR_TraceRayFilterEx(start, ang, MASK_SHOT, RayType_Infinite, tracefilter_ignore_weapon, weapon);
 
 	float end[3];
 	TR_GetEndPosition(end, trace);
@@ -216,7 +216,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 		}
 		case econ_item_unequip: {
 			if(player_tracer[client] == tracer_machina) {
-				TF2Attrib_RemoveByDefIndex(client, 305);
+				if(IsClientInGame(client)) {
+					TF2Attrib_RemoveByDefIndex(client, 305);
+				}
 			}
 			player_tracer[client] = tracer_none;
 		}

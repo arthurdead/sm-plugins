@@ -89,7 +89,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 		}
 		case econ_item_unequip: {
 			player_footprint[client] = 0.0;
-			TF2Attrib_RemoveByDefIndex(client, 1005);
+			if(IsClientInGame(client)) {
+				TF2Attrib_RemoveByDefIndex(client, 1005);
+			}
 		}
 		case econ_item_remove: {
 			TF2Attrib_RemoveByDefIndex(client, 1005);

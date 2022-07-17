@@ -265,6 +265,8 @@ static bool tauntmanager_loaded;
 static bool economy_loaded;
 static bool proxysend_loaded;
 
+static ConVar randomizer_fix_taunt;
+
 static int modelprecache = INVALID_STRING_TABLE;
 
 static void get_model_for_class(TFClassType class, char[] model, int length)
@@ -1366,6 +1368,18 @@ public void OnAllPluginsLoaded()
 {
 	tauntmanager_loaded = LibraryExists("tauntmanager");
 	economy_loaded = LibraryExists("economy");
+
+	randomizer_fix_taunt = FindConVar("randomizer_fix_taunt");
+	if(randomizer_fix_taunt != null) {
+		randomizer_fix_taunt.BoolValue = false;
+	}
+}
+
+public void OnConfigsExecuted()
+{
+	if(randomizer_fix_taunt != null) {
+		randomizer_fix_taunt.BoolValue = false;
+	}
 }
 
 static void on_econ_cat_registered(int cat_idx)
@@ -1508,7 +1522,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				}
 			}
 
-			handle_playermodel(client);
+			if(IsClientInGame(client)) {
+				handle_playermodel(client);
+			}
 		}
 	}
 }
@@ -2975,6 +2991,10 @@ static void player_weapon_switch(int client, int weapon)
 
 public void OnPluginEnd()
 {
+	if(randomizer_fix_taunt != null) {
+		randomizer_fix_taunt.BoolValue = true;
+	}
+
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
 			unequip_config(i, true);

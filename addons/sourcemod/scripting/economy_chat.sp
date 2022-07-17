@@ -94,7 +94,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 			}
 			case econ_item_unequip: {
 				player_tag[client][0] = '\0';
-				CCC_ResetTag(client);
+				if(IsClientInGame(client)) {
+					CCC_ResetTag(client);
+				}
 			}
 		}
 	} else {
@@ -124,7 +126,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				}
 			}
 			case econ_item_unequip: {
-				CCC_ResetColor(client, color);
+				if(IsClientInGame(client)) {
+					CCC_ResetColor(client, color);
+				}
 				player_chat_colors[client][color] = INVALID_COLOR;
 			}
 		}
