@@ -22,7 +22,7 @@ public SharedPlugin __pl_expression_parser =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_expression_parser_SetNTVOptional()
+public void __pl_expression_parser_SetNTVOptional()
 {
 	MarkNativeAsOptional("parse_expression");
 }

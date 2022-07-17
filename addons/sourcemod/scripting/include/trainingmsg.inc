@@ -149,7 +149,7 @@ public SharedPlugin __pl_trainingmsg =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_trainingmsg_SetNTVOptional()
+public void __pl_trainingmsg_SetNTVOptional()
 {
 	
 }

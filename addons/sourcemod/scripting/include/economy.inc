@@ -127,7 +127,7 @@ public SharedPlugin __pl_economy =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_economy_SetNTVOptional()
+public void __pl_economy_SetNTVOptional()
 {
 	MarkNativeAsOptional("econ_item_settings");
 	MarkNativeAsOptional("econ_register_item_class");

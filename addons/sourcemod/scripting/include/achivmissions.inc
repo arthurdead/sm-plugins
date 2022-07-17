@@ -208,7 +208,7 @@ public SharedPlugin __pl_achivmissions =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_achivmissions_SetNTVOptional()
+public void __pl_achivmissions_SetNTVOptional()
 {
 	
 }

@@ -86,7 +86,7 @@ public SharedPlugin __pl_animstate =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_animstate_SetNTVOptional()
+public void __pl_animstate_SetNTVOptional()
 {
 	
 }

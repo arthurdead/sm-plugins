@@ -21,7 +21,7 @@ public SharedPlugin __pl_playermodel2 =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_playermodel2_SetNTVOptional()
+public void __pl_playermodel2_SetNTVOptional()
 {
 	MarkNativeAsOptional("pm2_get_model");
 	MarkNativeAsOptional("pm2_is_thirdperson");

@@ -31,7 +31,7 @@ public SharedPlugin __pl_teammanager_gameplay =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_teammanager_gameplay_SetNTVOptional()
+public void __pl_teammanager_gameplay_SetNTVOptional()
 {
 	
 }

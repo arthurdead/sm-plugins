@@ -17,7 +17,7 @@ public SharedPlugin __pl_savenames =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_savenames_SetNTVOptional()
+public void __pl_savenames_SetNTVOptional()
 {
 	MarkNativeAsOptional("sn_get");
 }

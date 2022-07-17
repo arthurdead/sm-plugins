@@ -113,7 +113,7 @@ public SharedPlugin __pl_teammanager =
 };
 
 #if !defined REQUIRE_PLUGIN
-public __pl_teammanager_SetNTVOptional()
+public void __pl_teammanager_SetNTVOptional()
 {
 	MarkNativeAsOptional("TeamManager_GetEntityFakeTeam");
 	MarkNativeAsOptional("TeamManager_GetEntityTeam");
