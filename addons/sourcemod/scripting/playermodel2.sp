@@ -1726,7 +1726,7 @@ static void copy_config_vars(int client, PlayerConfigInfo plrinfo, int idx, Conf
 		CPrintToChat(client, PM2_CHAT_PREFIX ... "the model you equipped can not participate in normal gameplay");
 	}
 
-	if(is_player_state_valid(client)) {
+	if(IsClientInGame(client) && is_player_state_valid(client)) {
 		if(plrinfo.flags & config_flags_no_weapons) {
 			TF2_RemoveAllWeapons(client);
 		}
@@ -2772,6 +2772,7 @@ static void get_model_index_path(int idx, char[] model, int len)
 		modelprecache = FindStringTable("modelprecache");
 		if(modelprecache == INVALID_STRING_TABLE) {
 			strcopy(model, len, "models/error.mdl");
+			return;
 		}
 	}
 
