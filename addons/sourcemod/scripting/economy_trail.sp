@@ -176,19 +176,26 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 {
 	if(StrEqual(classname, "phase_trail")) {
 		switch(action) {
-			case econ_item_equip, econ_item_apply: {
+			case econ_item_equip: {
+				player_has_trail[client] = true;
+				if(IsClientInGame(client)) {
+					toggle_trail(client, false);
+					toggle_trail(client, true);
+				}
+			}
+			case econ_item_apply: {
 				toggle_trail(client, false);
 				toggle_trail(client, true);
 			}
-			case econ_item_unequip, econ_item_remove: {
+			case econ_item_remove: {
 				toggle_trail(client, false);
 			}
-		}
-
-		if(action == econ_item_equip) {
-			player_has_trail[client] = true;
-		} else if(action == econ_item_unequip) {
-			player_has_trail[client] = false;
+			case econ_item_unequip: {
+				player_has_trail[client] = false;
+				if(IsClientInGame(client)) {
+					toggle_trail(client, false);
+				}
+			}
 		}
 	}
 }

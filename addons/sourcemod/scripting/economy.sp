@@ -2039,10 +2039,6 @@ static void player_item_loaded(int client, int idx, int id, bool equipped)
 		item_handlers.GetArray(hndlr_idx, hndlr, sizeof(ItemHandler));
 
 		if(equipped || !hndlr.equipable) {
-			if(equipped) {
-				unequip_conflicts(client, idx);
-			}
-
 			Call_StartForward(hndlr.handle_fwd);
 			Call_PushCell(client);
 			Call_PushString(info.classname);
