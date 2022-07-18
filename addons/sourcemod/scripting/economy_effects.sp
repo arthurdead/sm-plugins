@@ -4,44 +4,52 @@
 #include <tf2attributes>
 #include <sdktools>
 #include <tf2utils>
-#include <animhelpers>
+#include <dhooks>
 
 #define TF2_MAXPLAYERS 33
+
+#define MAX_PARTICLE_NAME 64
 
 #define PATTACH_CUSTOMORIGIN 2
 #define PATTACH_WORLDORIGIN 5
 
-enum tracer_type
-{
-	tracer_none,
-	tracer_machina,
-	tracer_merasmus
-};
-
 static StringMap tracer_map;
 
-static tracer_type player_tracer[TF2_MAXPLAYERS+1];
+static char player_tracer_name[TF2_MAXPLAYERS+1][MAX_PARTICLE_NAME];
+static int player_tracer_particle[TF2_MAXPLAYERS+1] = {INVALID_STRING_INDEX, ...};
 
 static int ParticleEffectNames = INVALID_STRING_TABLE;
-static int modelprecache = INVALID_STRING_TABLE;
-
-static int merasmus_zap = INVALID_STRING_INDEX;
 
 public void OnPluginStart()
 {
-	tracer_map = new StringMap();
+	GameData gamedata = new GameData("economy_effects");
+	if(gamedata == null) {
+		SetFailState("Gamedata not found.");
+		return;
+	}
 
-	AddTempEntHook("Fire Bullets", FireBullets);
+	DynamicDetour detour_tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::MaybeDrawRailgunBeam");
+	if(!detour_tmp || !detour_tmp.Enable(Hook_Pre, CTFPlayer_MaybeDrawRailgunBeam_detour)) {
+		SetFailState("Failed to enable pre detour for CTFPlayer::MaybeDrawRailgunBeam");
+		delete gamedata;
+		return;
+	}
+
+	detour_tmp = DynamicDetour.FromConf(gamedata, "CTFPlayer::GetHorriblyHackedRailgunPosition");
+	if(!detour_tmp || !detour_tmp.Enable(Hook_Pre, CTFPlayer_GetHorriblyHackedRailgunPosition_detour)) {
+		SetFailState("Failed to enable pre detour for CTFPlayer::GetHorriblyHackedRailgunPosition");
+		delete gamedata;
+		return;
+	}
+
+	delete gamedata;
+
+	tracer_map = new StringMap();
 }
 
 public void OnMapStart()
 {
-	PrecacheModel("models/error.mdl");
-
 	ParticleEffectNames = FindStringTable("ParticleEffectNames");
-	modelprecache = FindStringTable("modelprecache");
-
-	merasmus_zap = FindStringIndex(ParticleEffectNames, "merasmus_zap");
 }
 
 static int find_particle(const char[] name)
@@ -50,19 +58,6 @@ static int find_particle(const char[] name)
 		ParticleEffectNames = FindStringTable("ParticleEffectNames");
 	}
 	return FindStringIndex(ParticleEffectNames, name);
-}
-
-static void get_model_index_path(int idx, char[] model, int len)
-{
-	if(modelprecache == INVALID_STRING_TABLE) {
-		modelprecache = FindStringTable("modelprecache");
-		if(modelprecache == INVALID_STRING_TABLE) {
-			strcopy(model, len, "models/error.mdl");
-			return;
-		}
-	}
-
-	ReadStringTable(modelprecache, idx, model, len);
 }
 
 static void setup_tracer(int weapon, int particle, float start[3], float ang[3], float end[3])
@@ -85,104 +80,49 @@ static void setup_tracer(int weapon, int particle, float start[3], float ang[3],
 	TE_WriteFloat("m_ControlPoint1.m_vecOffset[2]", end[2]);
 }
 
-static bool tracefilter_ignore_weapon(int entity, int mask, int weapon)
+static MRESReturn CTFPlayer_MaybeDrawRailgunBeam_detour(int pThis, DHookParam hParams)
 {
-	if(entity == weapon || entity == GetEntPropEnt(weapon, Prop_Send, "m_hOwner")) {
-		return false;
-	}
-	return true;
-}
-
-static Action FireBullets(const char[] te_name, const int[] players, int numClients, float delay)
-{
-	if(merasmus_zap == INVALID_STRING_INDEX) {
-		merasmus_zap = find_particle("merasmus_zap");
-		if(merasmus_zap == INVALID_STRING_INDEX) {
-			return Plugin_Continue;
-		}
+	if(player_tracer_particle[pThis] == INVALID_STRING_INDEX) {
+		return MRES_Ignored;
 	}
 
-	int m_iPlayer = TE_ReadNum("m_iPlayer");
-	int client = m_iPlayer+1;
+	int weapon = hParams.Get(2);
 
-	if(player_tracer[client] != tracer_merasmus) {
-		return Plugin_Continue;
-	}
+	float vStartPos[3];
+	hParams.GetVector(3, vStartPos);
 
-	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	if(weapon == -1) {
-		return Plugin_Continue;
-	}
-
-	int m_iWeaponID = TE_ReadNum("m_iWeaponID");
-	if(m_iWeaponID != TF2Util_GetWeaponID(weapon)) {
-		return Plugin_Continue;
-	}
-
-	int m_iWorldModelIndex = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
-	if(m_iWorldModelIndex == -1) {
-		return Plugin_Continue;
-	}
-
-	char old_model[PLATFORM_MAX_PATH];
-	GetEntPropString(weapon, Prop_Data, "m_ModelName", old_model, PLATFORM_MAX_PATH);
-
-	char new_model[PLATFORM_MAX_PATH];
-	get_model_index_path(m_iWorldModelIndex, new_model, PLATFORM_MAX_PATH);
-
-	SetEntityModel(weapon, new_model);
-
-	int muzzle = view_as<BaseAnimating>(weapon).LookupAttachment("muzzle");
-	if(muzzle == 0) {
-		SetEntityModel(weapon, old_model);
-		return Plugin_Continue;
-	}
-
-	float attach_ang[3];
-	float start[3];
-	view_as<BaseAnimating>(weapon).GetAttachment(muzzle, start, attach_ang);
-
-	SetEntityModel(weapon, old_model);
+	float vEndPos[3];
+	hParams.GetVector(4, vEndPos);
 
 	float ang[3];
-	GetClientEyeAngles(client, ang);
+	GetClientEyeAngles(pThis, ang);
 
-	Handle trace = TR_TraceRayFilterEx(start, ang, MASK_SHOT, RayType_Infinite, tracefilter_ignore_weapon, weapon);
+	setup_tracer(weapon, player_tracer_particle[pThis], vStartPos, ang, vEndPos);
+	TE_SendToAll();
 
-	float end[3];
-	TR_GetEndPosition(end, trace);
+	return MRES_Ignored;
+}
 
-	delete trace;
-
-	setup_tracer(weapon, merasmus_zap, start, ang, end);
-
-	int[] new_players = new int[MaxClients];
-	for(int i = 0; i < numClients; ++i) {
-		new_players[i] = players[i];
-	}
-
-	new_players[numClients++] = client;
-	TE_Send(new_players, numClients, delay);
-
-	return Plugin_Continue;
+static MRESReturn CTFPlayer_GetHorriblyHackedRailgunPosition_detour(int pThis, DHookParam hParams)
+{
+	return MRES_Ignored;
 }
 
 public void econ_cache_item(const char[] classname, int item_idx, StringMap settings)
 {
 	char value_str[ECON_MAX_ITEM_SETTING_VALUE];
-	settings.GetString("type", value_str, ECON_MAX_ITEM_SETTING_VALUE);
-
-	int value = StringToInt(value_str);
+	settings.GetString("particle", value_str, ECON_MAX_ITEM_SETTING_VALUE);
 
 	char str[5];
 	pack_int_in_str(item_idx, str);
 
-	tracer_map.SetValue(str, value);
+	tracer_map.SetString(str, value_str);
 }
 
 public void OnClientDisconnect(int client)
 {
-	player_tracer[client] = tracer_none;
+	player_tracer_name[client][0] = '\0';
+	player_tracer_particle[client] = INVALID_STRING_INDEX;
 }
 
 public Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx)
@@ -194,41 +134,50 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 {
 	switch(action) {
 		case econ_item_apply: {
-			if(player_tracer[client] == tracer_machina) {
+			if(StrEqual(player_tracer_name[client], "dxhr_sniper_rail")) {
 				TF2Attrib_SetByDefIndex(client, 305, 1.0);
 			}
 		}
 		case econ_item_remove: {
-			if(player_tracer[client] == tracer_machina) {
+			if(StrEqual(player_tracer_name[client], "dxhr_sniper_rail")) {
 				TF2Attrib_RemoveByDefIndex(client, 305);
 			}
 		}
 		case econ_item_equip: {
 			char str[5];
 			pack_int_in_str(item_idx, str);
-			tracer_map.GetValue(str, player_tracer[client]);
+			if(!tracer_map.GetString(str, player_tracer_name[client], MAX_PARTICLE_NAME)) {
+				player_tracer_name[client][0] = '\0';
+				return;
+			}
 
-			if(player_tracer[client] == tracer_machina) {
+			if(StrEqual(player_tracer_name[client], "dxhr_sniper_rail")) {
+				player_tracer_particle[client] = INVALID_STRING_INDEX;
+
 				if(IsClientInGame(client)) {
 					TF2Attrib_SetByDefIndex(client, 305, 1.0);
 				}
+			} else {
+				player_tracer_particle[client] = find_particle(player_tracer_name[client]);
 			}
 		}
 		case econ_item_unequip: {
-			if(player_tracer[client] == tracer_machina) {
+			if(StrEqual(player_tracer_name[client], "dxhr_sniper_rail")) {
 				if(IsClientInGame(client)) {
 					TF2Attrib_RemoveByDefIndex(client, 305);
 				}
 			}
-			player_tracer[client] = tracer_none;
+			player_tracer_name[client][0] = '\0';
+			player_tracer_particle[client] = INVALID_STRING_INDEX;
 		}
 	}
 }
 
 static void tracer_cat_registered(int idx)
 {
-	econ_get_or_register_item(idx, "Machina", "", "weapon_tracer", 1200, econ_single_setting_int("type", tracer_machina));
-	econ_get_or_register_item(idx, "Merasmus", "", "weapon_tracer", 1200, econ_single_setting_int("type", tracer_merasmus));
+	econ_get_or_register_item(idx, "Machina", "", "weapon_tracer", 1200, econ_single_setting_str("particle", "dxhr_sniper_rail"));
+	econ_get_or_register_item(idx, "Merasmus", "", "weapon_tracer", 1200, econ_single_setting_str("particle", "merasmus_zap"));
+	econ_get_or_register_item(idx, "Classic", "", "weapon_tracer", 1200, econ_single_setting_str("particle", "tfc_sniper_distortion_trail"));
 }
 
 static void misc_cat_registered(int idx)

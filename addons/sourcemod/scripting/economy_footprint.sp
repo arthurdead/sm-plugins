@@ -64,7 +64,7 @@ public void econ_cache_item(const char[] classname, int item_idx, StringMap sett
 
 public Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx)
 {
-	return StrEqual(classname2, "footprint") ? Plugin_Handled : Plugin_Continue;
+	return StrEqual(classname1, classname2) ? Plugin_Handled : Plugin_Continue;
 }
 
 public void econ_handle_item(int client, const char[] classname, int item_idx, int inv_idx, econ_item_action action)
@@ -74,7 +74,12 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 			char str[5];
 			pack_int_in_str(item_idx, str);
 
-			footprint_value_map.GetValue(str, player_footprint[client]);
+			float value = 0.0;
+			if(!footprint_value_map.GetValue(str, value)) {
+				return;
+			}
+
+			player_footprint[client] = value;
 
 			if(IsClientInGame(client)) {
 				TF2Attrib_SetByDefIndex(client, 1005, player_footprint[client]);

@@ -244,7 +244,6 @@ static int CEconItemView_m_iAttributeDefinitionIndex_offset = -1;
 static DynamicHook CBaseEntity_ModifyOrAppendCriteria_hook;
 static DynamicHook CBasePlayer_GetSceneSoundToken_hook;
 
-static Handle CBasePlayer_EquipWearable;
 static Handle CTFPlayer_IsAllowedToTaunt;
 static Handle CTFPlayerShared_RecalculatePlayerBodygroups;
 
@@ -983,16 +982,6 @@ public void OnPluginStart()
 		return;
 	}
 
-	StartPrepSDKCall(SDKCall_Entity);
-	PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CBasePlayer::EquipWearable");
-	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
-	CBasePlayer_EquipWearable = EndPrepSDKCall();
-	if(CBasePlayer_EquipWearable == null) {
-		SetFailState("Failed to create SDKCall for CBasePlayer::EquipWearable.");
-		delete gamedata;
-		return;
-	}
-
 	StartPrepSDKCall(SDKCall_Raw);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CTFPlayerShared::RecalculatePlayerBodygroups");
 	CTFPlayerShared_RecalculatePlayerBodygroups = EndPrepSDKCall();
@@ -1157,6 +1146,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_civilian", sm_civilian);
 	RegConsoleCmd("sm_civ", sm_civilian);
 	RegConsoleCmd("sm_tpose", sm_civilian);
+	RegConsoleCmd("sm_apose", sm_civilian);
 
 	RegConsoleCmd("sm_loser", sm_loser);
 
@@ -1679,7 +1669,9 @@ static Action sm_rpm(int client, int args)
 static void unequip_config_basic(int client)
 {
 	if(player_config[client].flags & config_flags_no_gameplay) {
-		TeamManager_RemovePlayerFromGameplayGroup(client, no_damage_gameplay_group);
+		if(no_damage_gameplay_group != INVALID_GAMEPLAY_GROUP) {
+			TeamManager_RemovePlayerFromGameplayGroup(client, no_damage_gameplay_group);
+		}
 	}
 
 	if(player_config[client].flags & config_flags_hide_wearables) {
@@ -1738,7 +1730,9 @@ static void copy_config_vars(int client, PlayerConfigInfo plrinfo, int idx, Conf
 	plrinfo.model_class = info.model_class;
 
 	if(plrinfo.flags & config_flags_no_gameplay) {
-		TeamManager_AddPlayerToGameplayGroup(client, no_damage_gameplay_group);
+		if(no_damage_gameplay_group != INVALID_GAMEPLAY_GROUP) {
+			TeamManager_AddPlayerToGameplayGroup(client, no_damage_gameplay_group);
+		}
 		CPrintToChat(client, PM2_CHAT_PREFIX ... "the model you equipped can not participate in normal gameplay");
 	}
 
@@ -2745,8 +2739,9 @@ static int get_or_create_player_viewmodel_entity(int client, int which)
 		GetClientAbsOrigin(client, pos);
 		DispatchKeyValueVector(entity, "origin", pos);
 		DispatchKeyValue(entity, "model", "models/error.mdl");
-		SDKCall(CBasePlayer_EquipWearable, client, entity);
+		TF2Util_EquipPlayerWearable(client, entity);
 		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
+		TF2Util_SetWearableAlwaysValid(entity, true);
 		SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable_vm");
 		SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
 		SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
@@ -3266,8 +3261,10 @@ static int get_or_create_player_model_entity(int client)
 	DispatchKeyValueVector(entity, "origin", pos);
 	DispatchKeyValue(entity, "model", "models/error.mdl");
 
-	SDKCall(CBasePlayer_EquipWearable, client, entity);
+	TF2Util_EquipPlayerWearable(client, entity);
 	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
+
+	TF2Util_SetWearableAlwaysValid(entity, true);
 
 	SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable");
 

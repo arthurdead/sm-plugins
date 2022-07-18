@@ -1,5 +1,4 @@
 #include <sourcemod>
-#include <expression_parser>
 #include <economy>
 #include <tf2>
 #include <tf2_stocks>
@@ -61,6 +60,9 @@ enum struct ItemHandler
 	PrivateForward conflict_fwd;
 	PrivateForward menu_fwd;
 	//PrivateForward preview_fwd;
+	Handle plugin;
+	char classname[ECON_MAX_ITEM_CLASSNAME];
+	ArrayList items;
 }
 
 static StringMap item_id_cache_idx_map;
@@ -86,13 +88,15 @@ static Handle player_point_timer[TF2_MAXPLAYERS+1];
 static bool playing_shop_music[TF2_MAXPLAYERS+1];
 static int player_taunt_stage[TF2_MAXPLAYERS+1];
 
-static StringMap item_handlers;
+static ArrayList item_handlers;
+static StringMap item_handlers_map;
 
 static int current_menu_type;
 static Menu current_menu;
 
 static GlobalForward fwd_loaded;
 static Database econ_db;
+static bool items_loaded;
 
 static void query_error(Database db, DBResultSet results, const char[] error, any data)
 {
@@ -194,31 +198,37 @@ static void remove_items_from_player_inv(int client, int idx)
 	);
 	econ_db.Query(query_error, query);
 
-	int i = 0;
-	while((i = player_inventory[client].FindValue(idx, PlayerItemInfo::idx)) != -1) {
-		player_inventory[client].Erase(i);
+	if(player_inventory[client]) {
+		int i = 0;
+		while((i = player_inventory[client].FindValue(idx, PlayerItemInfo::idx)) != -1) {
+			player_inventory[client].Erase(i);
+		}
 	}
 
-	ItemInfo info;
-	PlayerItemInfo plrinfo;
-	ItemHandler hndlr;
+	if(player_inventory_equipped[client]) {
+		ItemInfo info;
+		PlayerItemInfo plrinfo;
 
-	i = 0;
-	while((i = player_inventory_equipped[client].FindValue(idx, PlayerItemInfo::idx)) != -1) {
-		player_inventory_equipped[client].GetArray(i, plrinfo, sizeof(PlayerItemInfo));
-		items.GetArray(plrinfo.idx, info, sizeof(ItemInfo));
+		int i = 0;
+		while((i = player_inventory_equipped[client].FindValue(idx, PlayerItemInfo::idx)) != -1) {
+			player_inventory_equipped[client].GetArray(i, plrinfo, sizeof(PlayerItemInfo));
+			items.GetArray(plrinfo.idx, info, sizeof(ItemInfo));
 
-		if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
-			Call_StartForward(hndlr.handle_fwd);
-			Call_PushCell(client);
-			Call_PushString(info.classname);
-			Call_PushCell(plrinfo.idx);
-			Call_PushCell(plrinfo.id);
-			Call_PushCell(econ_item_unequip);
-			Call_Finish();
+			int hndlr_idx = -1;
+			if(item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+				PrivateForward handle_fwd = item_handlers.Get(hndlr_idx, ItemHandler::handle_fwd);
+
+				Call_StartForward(handle_fwd);
+				Call_PushCell(client);
+				Call_PushString(info.classname);
+				Call_PushCell(plrinfo.idx);
+				Call_PushCell(plrinfo.id);
+				Call_PushCell(econ_item_unequip);
+				Call_Finish();
+			}
+
+			player_inventory_equipped[client].Erase(i);
 		}
-
-		player_inventory_equipped[client].Erase(i);
 	}
 }
 
@@ -270,9 +280,9 @@ static void add_item_to_player_inv(int client, int idx, bool msg = true)
 
 	bool equipped = false;
 
-	ItemHandler hndlr;
-	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
-		equipped = hndlr.equipable;
+	int hndlr_idx = -1;
+	if(item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+		equipped = item_handlers.Get(hndlr_idx, ItemHandler::equipable);
 	}
 
 	char query[QUERY_STR_MAX];
@@ -720,7 +730,26 @@ public void OnAllPluginsLoaded()
 
 public void OnNotifyPluginUnloaded(Handle plugin)
 {
-	
+	int hndlr_idx = item_handlers.FindValue(plugin, ItemHandler::plugin);
+	if(hndlr_idx != -1) {
+		ItemHandler hndlr;
+		item_handlers.GetArray(hndlr_idx, hndlr, sizeof(ItemHandler));
+
+		int len = hndlr.items.Length;
+		for(int i = 0; i < len; ++i) {
+			int idx = hndlr.items.Get(i);
+
+			for(int j = 1; j <= MaxClients; ++j) {
+				if(IsClientInGame(j) && !IsFakeClient(j)) {
+					handle_player_items(j, idx, econ_item_remove);
+					handle_player_items(j, idx, econ_item_unequip);
+				}
+			}
+		}
+
+		item_handlers_map.Remove(hndlr.classname);
+		item_handlers.Erase(hndlr_idx);
+	}
 }
 
 static void unequip_conflicts(int client, int idx)
@@ -728,8 +757,10 @@ static void unequip_conflicts(int client, int idx)
 	ItemInfo info;
 	items.GetArray(idx, info, sizeof(ItemInfo));
 
-	ItemHandler hndlr;
-	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
+	int hndlr_idx = -1;
+	if(item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+		PrivateForward conflict_fwd = item_handlers.Get(hndlr_idx, ItemHandler::conflict_fwd);
+
 		ItemInfo other_info;
 		PlayerItemInfo plrinfo;
 
@@ -740,7 +771,7 @@ static void unequip_conflicts(int client, int idx)
 
 			items.GetArray(plrinfo.idx, other_info, sizeof(ItemInfo));
 
-			Call_StartForward(hndlr.conflict_fwd);
+			Call_StartForward(conflict_fwd);
 			Call_PushString(info.classname);
 			Call_PushCell(idx);
 			Call_PushString(other_info.classname);
@@ -782,9 +813,11 @@ static void handle_player_item(int client, int idx, int id, econ_item_action act
 	ItemInfo info;
 	items.GetArray(idx, info, sizeof(ItemInfo));
 
-	ItemHandler hndlr;
-	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
-		Call_StartForward(hndlr.handle_fwd);
+	int hndlr_idx = -1;
+	if(item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+		PrivateForward handle_fwd = item_handlers.Get(hndlr_idx, ItemHandler::handle_fwd);
+
+		Call_StartForward(handle_fwd);
 		Call_PushCell(client);
 		Call_PushString(info.classname);
 		Call_PushCell(idx);
@@ -801,20 +834,29 @@ static void handle_player_item(int client, int idx, int id, econ_item_action act
 	}
 }
 
-static void handle_player_inventory_impl(int client, ArrayList &arr, econ_item_action action)
+static void handle_player_inventory_impl(int client, ArrayList &arr, int idx, econ_item_action action)
 {
 	if(arr) {
 		ItemInfo info;
 		PlayerItemInfo plrinfo;
-		ItemHandler hndlr;
 
 		for(int j = 0; j < arr.Length;) {
 			arr.GetArray(j, plrinfo, sizeof(PlayerItemInfo));
 
+			if(idx != -1) {
+				if(plrinfo.idx != idx) {
+					++j;
+					continue;
+				}
+			}
+
 			items.GetArray(plrinfo.idx, info, sizeof(ItemInfo));
 
-			if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
-				Call_StartForward(hndlr.handle_fwd);
+			int hndlr_idx = -1;
+			if(item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+				PrivateForward handle_fwd = item_handlers.Get(hndlr_idx, ItemHandler::handle_fwd);
+
+				Call_StartForward(handle_fwd);
 				Call_PushCell(client);
 				Call_PushString(info.classname);
 				Call_PushCell(plrinfo.idx);
@@ -838,9 +880,14 @@ static void handle_player_inventory_impl(int client, ArrayList &arr, econ_item_a
 	}
 }
 
+static void handle_player_items(int client, int idx, econ_item_action action)
+{
+	handle_player_inventory_impl(client, player_inventory_equipped[client], idx, action);
+}
+
 static void handle_player_inventory(int client, econ_item_action action)
 {
-	handle_player_inventory_impl(client, player_inventory_equipped[client], action);
+	handle_player_inventory_impl(client, player_inventory_equipped[client], -1, action);
 }
 
 public void OnPluginEnd()
@@ -885,6 +932,20 @@ static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 	RequestFrame(post_inventory_application_frame, userid);
 }
 
+static void cache_player_inventory_late(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+	for(int i = 0; i < numQueries; ++i) {
+		int client = GetClientOfUserId(queryData[i]);
+		if(client == 0) {
+			continue;
+		}
+
+		init_player_vars(client);
+
+		handle_result_set(results[i], cache_player_inventory, queryData[i]);
+	}
+}
+
 static int native_econ_register_item_class(Handle plugin, int params)
 {
 	int length = 0;
@@ -892,17 +953,37 @@ static int native_econ_register_item_class(Handle plugin, int params)
 	char[] classname = new char[++length];
 	GetNativeString(1, classname, length);
 
+	if(item_handlers_map.ContainsKey(classname)) {
+		return ThrowNativeError(SP_ERROR_NATIVE, "classname %s already registered", classname);
+	}
+
 	bool equipable = GetNativeCell(2);
 
 	ItemHandler hndlr;
-	if(!item_handlers.GetArray(classname, hndlr, sizeof(ItemHandler))) {
-		hndlr.equipable = equipable;
-		hndlr.handle_fwd = new PrivateForward(ET_Ignore, Param_Cell, Param_String, Param_Cell, Param_Cell, Param_Cell);
-		hndlr.cache_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell, Param_Cell);
-		hndlr.conflict_fwd = new PrivateForward(ET_Hook, Param_String, Param_Cell, Param_String, Param_Cell);
-		hndlr.menu_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell);
-		//hndlr.preview_fwd = new PrivateForward(ET_Ignore, Param_Cell, Param_String, Param_Cell, Param_Cell);
-		item_handlers.SetArray(classname, hndlr, sizeof(ItemHandler));
+	hndlr.equipable = equipable;
+	hndlr.handle_fwd = new PrivateForward(ET_Ignore, Param_Cell, Param_String, Param_Cell, Param_Cell, Param_Cell);
+	hndlr.cache_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell, Param_Cell);
+	hndlr.conflict_fwd = new PrivateForward(ET_Hook, Param_String, Param_Cell, Param_String, Param_Cell);
+	hndlr.menu_fwd = new PrivateForward(ET_Ignore, Param_String, Param_Cell);
+	//hndlr.preview_fwd = new PrivateForward(ET_Ignore, Param_Cell, Param_String, Param_Cell, Param_Cell);
+	hndlr.plugin = plugin;
+	strcopy(hndlr.classname, ECON_MAX_ITEM_CLASSNAME, classname);
+	hndlr.items = new ArrayList();
+
+	int hndlr_idx = item_handlers.PushArray(hndlr, sizeof(ItemHandler));
+
+	item_handlers_map.SetValue(classname, hndlr_idx);
+
+	if(items_loaded) {
+		ArrayList bucket = null;
+		if(item_class_buckets.GetValue(classname, bucket)) {
+			int len = bucket.Length;
+			for(int i = 0; i < len; ++i) {
+				int idx = bucket.Get(i);
+
+				hndlr.items.Push(idx);
+			}
+		}
 	}
 
 	Function func = GetFunctionByName(plugin, "econ_handle_item");
@@ -929,6 +1010,112 @@ static int native_econ_register_item_class(Handle plugin, int params)
 	if(func != INVALID_FUNCTION) {
 		hndlr.preview_fwd.AddFunction(plugin, func);
 	}*/
+
+	if(items_loaded) {
+		func = GetFunctionByName(plugin, "econ_loaded");
+		if(func != INVALID_FUNCTION) {
+			Call_StartFunction(plugin, func);
+			Call_Finish();
+		}
+
+		ArrayList bucket = null;
+		if(item_class_buckets.GetValue(classname, bucket)) {
+			func = GetFunctionByName(plugin, "econ_cache_item");
+			if(func != INVALID_FUNCTION) {
+				int len = bucket.Length;
+				for(int i = 0; i < len; ++i) {
+					int idx = bucket.Get(i);
+
+					StringMap settings = items.Get(idx, ItemInfo::settings);
+
+					Call_StartFunction(plugin, func);
+					Call_PushString(classname);
+					Call_PushCell(idx);
+					Call_PushCell(settings);
+					Call_Finish();
+				}
+			}
+
+			char query[QUERY_STR_MAX];
+
+			PlayerItemInfo plrinfo;
+
+			ArrayList loaded_ids = new ArrayList();
+			Transaction tr = new Transaction();
+
+			for(int i = 1; i <= MaxClients; ++i) {
+				if(!IsClientConnected(i) ||
+					IsFakeClient(i) ||
+					!IsClientAuthorized(i)) {
+					continue;
+				}
+
+				if(player_inventory_equipped[i]) {
+					int len = player_inventory_equipped[i].Length;
+					for(int j = 0; j < len; ++j) {
+						player_inventory_equipped[i].GetArray(j, plrinfo, sizeof(PlayerItemInfo));
+
+						if(bucket.FindValue(plrinfo.idx) == -1) {
+							continue;
+						}
+
+						loaded_ids.Push(plrinfo.id);
+					}
+				}
+
+				int accid = GetSteamAccountID(i);
+
+				int query_len = econ_db.Format(query, QUERY_STR_MAX,
+					"select id,item,equipped from player_inventory " ...
+					" where " ...
+					" accid=%i and item in ("
+					,accid
+				);
+
+				char str[10];
+
+				int len = bucket.Length;
+				for(int j = 0; j < len; ++j) {
+					int idx = bucket.Get(j);
+					int item_id = items.Get(idx, ItemInfo::id);
+
+					IntToString(item_id, str, sizeof(str));
+
+					query_len += StrCat(query, QUERY_STR_MAX, str);
+					query_len += StrCat(query, QUERY_STR_MAX, ",");
+				}
+
+				query[query_len-1] = ')';
+
+				if(loaded_ids.Length > 0) {
+					query_len += StrCat(query, QUERY_STR_MAX, " and id not in (");
+
+					len = loaded_ids.Length;
+					for(int j = 0; j < len; ++j) {
+						int id = loaded_ids.Get(j);
+
+						IntToString(id, str, sizeof(str));
+
+						query_len += StrCat(query, QUERY_STR_MAX, str);
+						query_len += StrCat(query, QUERY_STR_MAX, ",");
+					}
+
+					loaded_ids.Clear();
+
+					query[query_len-1] = ')';
+				}
+
+				query[query_len] = ';';
+				query[++query_len] = '\0';
+
+				tr.AddQuery(query, GetClientUserId(i));
+			}
+
+			econ_db.Execute(tr, cache_player_inventory_late, transaction_error);
+
+			delete loaded_ids;
+		}
+	}
 
 	return 0;
 }
@@ -1153,8 +1340,13 @@ static void query_item_added(Database db, DBResultSet results, const char[] erro
 		econ_db.Execute(tr, INVALID_FUNCTION, transaction_error);
 	}
 
-	ItemHandler hndlr;
-	if(item_handlers.GetArray(classname, hndlr, sizeof(ItemHandler))) {
+	int hndlr_idx = -1;
+	if(item_handlers_map.GetValue(classname, hndlr_idx)) {
+		ItemHandler hndlr;
+		item_handlers.GetArray(hndlr_idx, hndlr, sizeof(ItemHandler));
+
+		hndlr.items.Push(idx);
+
 		Call_StartForward(hndlr.cache_fwd);
 		Call_PushString(classname);
 		Call_PushCell(idx);
@@ -1384,7 +1576,9 @@ static int native_econ_get_item_name(Handle plugin, int params)
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("economy");
-	item_handlers = new StringMap();
+	item_handlers = new ArrayList(sizeof(ItemHandler));
+	item_handlers_map = new StringMap();
+	item_class_buckets = new StringMap();
 	CreateNative("econ_register_item_class", native_econ_register_item_class);
 	CreateNative("econ_item_settings", native_econ_item_settings);
 	CreateNative("econ_find_category", native_econ_find_category);
@@ -1498,7 +1692,6 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 {
 	item_id_cache_idx_map = new StringMap();
 	items = new ArrayList(sizeof(ItemInfo));
-	item_class_buckets = new StringMap();
 	category_id_cache_idx_map = new StringMap();
 	categories = new ArrayList(sizeof(ItemCategoryInfo));
 
@@ -1532,15 +1725,20 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 	for(int i = 0; i < len; ++i) {
 		snap.GetKey(i, classname, ECON_MAX_ITEM_CLASSNAME);
 
+		int hndlr_idx = -1;
 		ArrayList bucket = null;
 		if(item_class_buckets.GetValue(classname, bucket) &&
-			item_handlers.GetArray(classname, hndlr, sizeof(ItemHandler))) {
+			item_handlers_map.GetValue(classname, hndlr_idx)) {
+			item_handlers.GetArray(hndlr_idx, hndlr, sizeof(ItemHandler));
+
 			int len2 = bucket.Length;
 			for(int j = 0; j < len2; ++j) {
 				int idx = bucket.Get(j);
 
 				StringMap settings = items.Get(idx, ItemInfo::settings);
 				Menu menu = items.Get(idx, ItemInfo::shop_menu);
+
+				hndlr.items.Push(idx);
 
 				Call_StartForward(hndlr.cache_fwd);
 				Call_PushString(classname);
@@ -1568,6 +1766,8 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 			query_player_data(i);
 		}
 	}
+
+	items_loaded = true;
 
 	Call_StartForward(fwd_loaded);
 	Call_Finish();
@@ -1833,9 +2033,16 @@ static void player_item_loaded(int client, int idx, int id, bool equipped)
 	ItemInfo info;
 	items.GetArray(idx, info, sizeof(ItemInfo));
 
-	ItemHandler hndlr;
-	if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
+	int hndlr_idx = -1;
+	if(item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+		ItemHandler hndlr;
+		item_handlers.GetArray(hndlr_idx, hndlr, sizeof(ItemHandler));
+
 		if(equipped || !hndlr.equipable) {
+			if(equipped) {
+				unequip_conflicts(client, idx);
+			}
+
 			Call_StartForward(hndlr.handle_fwd);
 			Call_PushCell(client);
 			Call_PushString(info.classname);
@@ -2001,8 +2208,11 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 
 				bool equipable = false;
 
-				ItemHandler hndlr;
-				if(item_handlers.GetArray(info.classname, hndlr, sizeof(ItemHandler))) {
+				int hndlr_idx = -1;
+				if(item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+					ItemHandler hndlr;
+					item_handlers.GetArray(hndlr_idx, hndlr, sizeof(ItemHandler));
+
 					equipable = hndlr.equipable;
 
 					current_menu_type = 2;
@@ -2304,6 +2514,25 @@ static int menuhandler_shop(Menu menu, MenuAction action, int param1, int param2
 	return 0;
 }
 
+static void init_player_vars(int client)
+{
+	if(!player_inventory[client]) {
+		player_inventory[client] = new ArrayList(sizeof(PlayerItemInfo));
+	}
+	if(!player_inventory_equipped[client]) {
+		player_inventory_equipped[client] = new ArrayList(sizeof(PlayerItemInfo));
+	}
+
+	if(!player_inventory_categories[client]) {
+		player_inventory_categories[client] = new StringMap();
+	}
+
+	if(!player_inventory_menu[client]) {
+		player_inventory_menu[client] = new Menu(menuhandler_inv, MENU_ACTIONS_DEFAULT|MenuAction_Display);
+		player_inventory_menu[client].SetTitle("Inventory");
+	}
+}
+
 static void cache_player_data(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
 {
 	int client = GetClientOfUserId(data);
@@ -2311,19 +2540,10 @@ static void cache_player_data(Database db, any data, int numQueries, DBResultSet
 		return;
 	}
 
-	player_inventory[client] = new ArrayList(sizeof(PlayerItemInfo));
-	player_inventory_equipped[client] = new ArrayList(sizeof(PlayerItemInfo));
-
-	player_inventory_categories[client] = new StringMap();
+	init_player_vars(client);
 
 	handle_result_set(results[numQueries-2], cache_player_currency, queryData[numQueries-2]);
-
-	int plrinv_query = (numQueries-1);
-
-	player_inventory_menu[client] = new Menu(menuhandler_inv, MENU_ACTIONS_DEFAULT|MenuAction_Display);
-	player_inventory_menu[client].SetTitle("Inventory");
-
-	handle_result_set(results[plrinv_query], cache_player_inventory, queryData[plrinv_query]);
+	handle_result_set(results[numQueries-1], cache_player_inventory, queryData[numQueries-1]);
 }
 
 static void query_player_data(int client)
@@ -2364,7 +2584,7 @@ static Action timer_give_points(Handle timer, int client)
 		return Plugin_Stop;
 	}
 
-	modify_player_currency(client, 50);
+	modify_player_currency(client, 10);
 
 	return Plugin_Continue;
 }
@@ -2381,7 +2601,7 @@ public void OnClientPutInServer(int client)
 	if(!IsFakeClient(client)) {
 		player_purchase_queue[client] = new ArrayList();
 
-		player_point_timer[client] = CreateTimer(float(30 * 60), timer_give_points, GetClientUserId(client), TIMER_REPEAT);
+		player_point_timer[client] = CreateTimer(float(5 * 60), timer_give_points, GetClientUserId(client), TIMER_REPEAT);
 	}
 }
 

@@ -1,0 +1,66 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CTFPlayer::MaybeDrawRailgunBeam"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer20MaybeDrawRailgunBeamEP16IRecipientFilterP13CTFWeaponBaseRK6VectorS6_"
+			}
+			"CTFPlayer::GetHorriblyHackedRailgunPosition"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer32GetHorriblyHackedRailgunPositionERK6VectorPS0_"
+			}
+		}
+		"Functions"
+		{
+			"CTFPlayer::MaybeDrawRailgunBeam"
+			{
+				"signature" "CTFPlayer::MaybeDrawRailgunBeam"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"arguments"
+				{
+					"pFilter"
+					{
+						"type" "objectptr"
+					}
+					"pWeapon"
+					{
+						"type" "cbaseentity"
+					}
+					"vStartPos"
+					{
+						"type" "vectorptr"
+					}
+					"vEndPos"
+					{
+						"type" "vectorptr"
+					}
+				}
+			}
+			"CTFPlayer::GetHorriblyHackedRailgunPosition"
+			{
+				"signature" "CTFPlayer::GetHorriblyHackedRailgunPosition"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"arguments"
+				{
+					"vStart"
+					{
+						"type" "vectorptr"
+					}
+					"out_pvStartPos"
+					{
+						"type" "vectorptr"
+					}
+				}
+			}
+		}
+	}
+}

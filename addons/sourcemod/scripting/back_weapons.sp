@@ -218,6 +218,7 @@ static int get_or_create_player_weapon_entity(int client, int which)
 		DispatchKeyValueVector(entity, "origin", pos);
 		DispatchKeyValue(entity, "model", "models/error.mdl");
 		TF2Util_EquipPlayerWearable(client, entity);
+		TF2Util_SetWearableAlwaysValid(entity, true);
 		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
 		SetEntPropString(entity, Prop_Data, "m_iClassname", "weapon_wearable");
 		SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
