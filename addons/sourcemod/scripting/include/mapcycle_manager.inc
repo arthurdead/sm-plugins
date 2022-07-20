@@ -3,13 +3,13 @@
 #endif
 #define __mapcycle_manager_inc
 
-enum MCM_ChangeFrom
+enum mcm_changed_from
 {
-	MCM_ChangedInitial,
-	MCM_ChangedPlayerCount
+	mcm_changed_initial,
+	mcm_changed_player_count
 };
 
-forward void MCM_MapcycleChanged(ArrayList maps, MCM_ChangeFrom from);
+forward void mcm_changed(ArrayList maps, mcm_changed_from from);
 
 public SharedPlugin __pl_mapcycle_manager =
 {

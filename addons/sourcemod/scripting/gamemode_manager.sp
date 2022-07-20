@@ -5,7 +5,10 @@
 #include <aliasrandom>
 #include <SteamWorks>
 #include <sdktools>
-#include <mapchooser>
+#include <mapchooser_extended>
+#include <gamemode_manager>
+
+#define TF2_MAXPLAYERS 33
 
 //#define DEBUG
 
@@ -23,11 +26,20 @@ enum struct StateChangeInfo
 	ArrayList commands;
 }
 
+enum struct GamemodePluginInfo
+{
+	char path[PLATFORM_MAX_PATH];
+	Handle plugin;
+	Function handle_fwd;
+	Function map_fwd;
+}
+
 enum struct GamemodeInfo
 {
 	char name[GAMEMODE_NAME_MAX];
 	float weight;
 	float time;
+	GamemodePluginInfo gamemode_plugin;
 	ArrayList plugins;
 	ArrayList plugins_disable;
 	bool maps_is_whitelist;
@@ -46,12 +58,30 @@ static ArrayList gamemode_history;
 static int current_gamemode = -1;
 static int next_gamemode = -1;
 static int default_gamemode = -1;
+static int start_gamemode = -1;
 
+static ConVar gmm_start_gamemode;
 static ConVar gmm_default_gamemode;
+static ConVar gmm_multimod;
+
+static ConVar rtg_needed;
+static ConVar rtg_minplayers;
+static ConVar rtg_initialdelay;
+static ConVar rtg_interval;
+
+static bool can_rtg;
+static bool rtg_allowed;
+static int votes;
+static int voters;
+static bool voted[TF2_MAXPLAYERS+1];
+static int rtg_time;
+static int votes_needed;
 
 static char original_mapcyclefile_value[PLATFORM_MAX_PATH];
 static ConVar mapcyclefile;
 static char current_map[PLATFORM_MAX_PATH];
+
+static bool mapcycle_manager_loaded;
 
 static bool reset_next_map;
 
@@ -151,32 +181,38 @@ static void kv_handle_state_changed(KeyValues kv, const char[] name, char cmd_st
 	}
 }
 
+static void add_plugin_to_gamemode(ArrayList plugins, const char[] path, const char[] plugins_folder_path)
+{
+	char disabled_plugin_path[PLATFORM_MAX_PATH];
+
+	int i = strlen(path)-1;
+	while(i > 0 && path[--i] != '/') {}
+
+	int j = 0;
+	for(; j < i; ++j) {
+		disabled_plugin_path[j] = path[j];
+	}
+	disabled_plugin_path[j] = '\0';
+
+	Format(disabled_plugin_path, PLATFORM_MAX_PATH, "%s/disabled/%s", plugins_folder_path, disabled_plugin_path);
+
+	CreateDirectory(disabled_plugin_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
+
+	plugins.PushString(path);
+}
+
 static void kv_handle_plugins(KeyValues kv, ArrayList &arr, const char[] name, const char[] plugins_folder_path)
 {
 	if(kv.JumpToKey(name)) {
 		if(kv.GotoFirstSubKey(false)) {
 			arr = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
-			char disabled_plugin_path[PLATFORM_MAX_PATH];
 			char any_file_path[PLATFORM_MAX_PATH];
 
 			do {
 				kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH);
 
-				int i = strlen(any_file_path)-1;
-				while(i > 0 && any_file_path[--i] != '/') {}
-
-				int j = 0;
-				for(; j < i; ++j) {
-					disabled_plugin_path[j] = any_file_path[j];
-				}
-				disabled_plugin_path[j] = '\0';
-
-				Format(disabled_plugin_path, PLATFORM_MAX_PATH, "%s/disabled/%s", plugins_folder_path, disabled_plugin_path);
-
-				CreateDirectory(disabled_plugin_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
-
-				arr.PushString(any_file_path);
+				add_plugin_to_gamemode(arr, any_file_path, plugins_folder_path);
 			} while(kv.GotoNextKey(false));
 
 			kv.GoBack();
@@ -219,74 +255,88 @@ static void load_gamemodes()
 				kv_handle_plugins(kv, info.plugins, "plugins", plugins_folder_path);
 				kv_handle_plugins(kv, info.plugins_disable, "plugins_disable", plugins_folder_path);
 
-				int maps = -1;
-				bool valid = true;
-				info.maps_is_whitelist = false;
+				info.gamemode_plugin.handle_fwd = INVALID_FUNCTION;
+				info.gamemode_plugin.map_fwd = INVALID_FUNCTION;
 
-				if(kv.JumpToKey("maps_whitelist")) {
-					if(kv.JumpToKey("maps_blacklist")) {
-						LogError(GMM_CON_PREFIX ... " gamemode %s has both maps_whitelist and maps_blacklist", info.name);
-						valid = false;
-						kv.GoBack();
+				kv.GetString("gamemode_plugin", info.gamemode_plugin.path, PLATFORM_MAX_PATH);
+				if(info.gamemode_plugin.path[0] != '\0') {
+					if(!info.plugins) {
+						info.plugins = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 					}
-					info.maps_is_whitelist = true;
-					maps = 0;
+
+					add_plugin_to_gamemode(info.plugins, info.gamemode_plugin.path, plugins_folder_path);
 				}
 
-				if(kv.JumpToKey("maps_blacklist")) {
+				if(!mapcycle_manager_loaded) {
+					int maps = -1;
+					bool valid = true;
+					info.maps_is_whitelist = false;
+
 					if(kv.JumpToKey("maps_whitelist")) {
-						LogError(GMM_CON_PREFIX ... " gamemode %s has both maps_blacklist and maps_whitelist", info.name);
-						valid = false;
-						kv.GoBack();
+						if(kv.JumpToKey("maps_blacklist")) {
+							LogError(GMM_CON_PREFIX ... " gamemode '%s' has both maps_whitelist and maps_blacklist", info.name);
+							valid = false;
+							kv.GoBack();
+						}
+						info.maps_is_whitelist = true;
+						maps = 0;
 					}
-					maps = 1;
-				}
 
-				if(!valid) {
-					delete info.plugins;
-					delete info.plugins_disable;
-					continue;
-				}
+					if(kv.JumpToKey("maps_blacklist")) {
+						if(kv.JumpToKey("maps_whitelist")) {
+							LogError(GMM_CON_PREFIX ... " gamemode '%s' has both maps_blacklist and maps_whitelist", info.name);
+							valid = false;
+							kv.GoBack();
+						}
+						maps = 1;
+					}
 
-				if(maps != -1) {
-					if(kv.GotoFirstSubKey(false)) {
-						info.maps_regex = new ArrayList();
+					if(!valid) {
+						delete info.plugins;
+						delete info.plugins_disable;
+						continue;
+					}
 
-						do {
-							kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH);
+					if(maps != -1) {
+						if(kv.GotoFirstSubKey(false)) {
+							info.maps_regex = new ArrayList();
 
-							RegexError regex_code;
-							Regex regex = new Regex(any_file_path, PCRE_UTF8, regex_str, sizeof(regex_str), regex_code);
-							if(regex_code != REGEX_ERROR_NONE) {
-								delete regex;
-								LogError(GMM_CON_PREFIX ... " gamemode %s has invalid map regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_str, regex_code);
-								valid = false;
-								break;
-							}
+							do {
+								kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH);
 
-							info.maps_regex.Push(regex);
-						} while(kv.GotoNextKey(false));
+								RegexError regex_code;
+								Regex regex = new Regex(any_file_path, PCRE_UTF8, regex_str, sizeof(regex_str), regex_code);
+								if(regex_code != REGEX_ERROR_NONE) {
+									delete regex;
+									LogError(GMM_CON_PREFIX ... " gamemode \"%s\" has invalid map regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_str, regex_code);
+									valid = false;
+									break;
+								}
+
+								info.maps_regex.Push(regex);
+							} while(kv.GotoNextKey(false));
+
+							kv.GoBack();
+						} else {
+							info.maps_regex = null;
+						}
 
 						kv.GoBack();
 					} else {
 						info.maps_regex = null;
 					}
 
-					kv.GoBack();
-				} else {
-					info.maps_regex = null;
-				}
-
-				if(!valid) {
-					if(info.maps_regex != null) {
-						int len = info.maps_regex.Length;
-						for(int i = 0; i < len; ++i) {
-							Regex regex = info.maps_regex.Get(i);
-							delete regex;
+					if(!valid) {
+						if(info.maps_regex != null) {
+							int len = info.maps_regex.Length;
+							for(int i = 0; i < len; ++i) {
+								Regex regex = info.maps_regex.Get(i);
+								delete regex;
+							}
 						}
+						delete info.maps_regex;
+						continue;
 					}
-					delete info.maps_regex;
-					continue;
 				}
 
 				info.weight = kv.GetFloat("weight", 50.0);
@@ -295,7 +345,9 @@ static void load_gamemodes()
 				kv_handle_state_changed(kv, "enabled", cmd_str, info.enabled);
 				kv_handle_state_changed(kv, "disabled", cmd_str, info.disabled);
 
-				info.mapcycle = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+				if(!mapcycle_manager_loaded) {
+					info.mapcycle = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+				}
 
 				int idx = gamemodes.PushArray(info, sizeof(GamemodeInfo));
 
@@ -305,90 +357,92 @@ static void load_gamemodes()
 			kv.GoBack();
 		}
 
-		DirectoryListing maps_dir = OpenDirectory("maps", true);
-		FileType filetype;
-		while(maps_dir.GetNext(any_file_path, PLATFORM_MAX_PATH, filetype)) {
-			if(filetype != FileType_File) {
-				continue;
-			}
-
-			int bsp = StrContains(any_file_path, ".bsp");
-			if(bsp == -1) {
-				continue;
-			}
-
-			if((strlen(any_file_path)-bsp) != 4) {
-				continue;
-			}
-
-			any_file_path[bsp] = '\0';
-
-			if(StrEqual(any_file_path, "background01") ||
-				StrEqual(any_file_path, "itemtest") ||
-				StrEqual(any_file_path, "cp_cloak") ||
-				StrContains(any_file_path, "tr_") == 0) {
-				continue;
-			}
-
-			ArrayList modes;
-			if(!gamemode_map_map.GetValue(any_file_path, modes)) {
-				modes = new ArrayList();
-				gamemode_map_map.SetValue(any_file_path, modes);
-			}
-
-			bool unmatched = true;
-
-			int modes_len = gamemodes.Length;
-			for(int i = 0; i < modes_len; ++i) {
-				gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
-
-				if(info.maps_regex == null) {
+		if(!mapcycle_manager_loaded) {
+			DirectoryListing maps_dir = OpenDirectory("maps", true);
+			FileType filetype;
+			while(maps_dir.GetNext(any_file_path, PLATFORM_MAX_PATH, filetype)) {
+				if(filetype != FileType_File) {
 					continue;
 				}
 
-				int maps_regex_len = info.maps_regex.Length;
-				for(int j = 0; j < maps_regex_len; ++j) {
-					Regex regex = info.maps_regex.Get(j);
-
-					if(info.maps_is_whitelist && regex.Match(any_file_path) < 1) {
-						continue;
-					} else if(!info.maps_is_whitelist && regex.Match(any_file_path) > 0) {
-						continue;
-					}
-
-					if(modes.FindValue(i) == -1) {
-						modes.Push(i);
-						info.mapcycle.PushString(any_file_path);
-						if(info.maps_is_whitelist) {
-							unmatched = false;
-						}
-					}
+				int bsp = StrContains(any_file_path, ".bsp");
+				if(bsp == -1) {
+					continue;
 				}
-			}
 
-			if(unmatched) {
+				if((strlen(any_file_path)-bsp) != 4) {
+					continue;
+				}
+
+				any_file_path[bsp] = '\0';
+
+				if(StrEqual(any_file_path, "background01") ||
+					StrEqual(any_file_path, "itemtest") ||
+					StrEqual(any_file_path, "cp_cloak") ||
+					StrContains(any_file_path, "tr_") == 0) {
+					continue;
+				}
+
+				ArrayList modes;
+				if(!gamemode_map_map.GetValue(any_file_path, modes)) {
+					modes = new ArrayList();
+					gamemode_map_map.SetValue(any_file_path, modes);
+				}
+
+				bool unmatched = true;
+
+				int modes_len = gamemodes.Length;
 				for(int i = 0; i < modes_len; ++i) {
 					gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
 
-					if(info.maps_regex != null) {
+					if(info.maps_regex == null) {
 						continue;
 					}
 
-					if(modes.FindValue(i) == -1) {
-						modes.Push(i);
-						info.mapcycle.PushString(any_file_path);
+					int maps_regex_len = info.maps_regex.Length;
+					for(int j = 0; j < maps_regex_len; ++j) {
+						Regex regex = info.maps_regex.Get(j);
+
+						if(info.maps_is_whitelist && regex.Match(any_file_path) < 1) {
+							continue;
+						} else if(!info.maps_is_whitelist && regex.Match(any_file_path) > 0) {
+							continue;
+						}
+
+						if(modes.FindValue(i) == -1) {
+							modes.Push(i);
+							info.mapcycle.PushString(any_file_path);
+							if(info.maps_is_whitelist) {
+								unmatched = false;
+							}
+						}
 					}
 				}
-			}
 
-			if(modes.Length == 0) {
-				delete modes;
-				gamemode_map_map.Remove(any_file_path);
+				if(unmatched) {
+					for(int i = 0; i < modes_len; ++i) {
+						gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+
+						if(info.maps_regex != null) {
+							continue;
+						}
+
+						if(modes.FindValue(i) == -1) {
+							modes.Push(i);
+							info.mapcycle.PushString(any_file_path);
+						}
+					}
+				}
+
+				if(modes.Length == 0) {
+					delete modes;
+					gamemode_map_map.Remove(any_file_path);
+				}
 			}
+			delete maps_dir;
 		}
-		delete maps_dir;
 
-	#if defined DEBUG
+	#if defined DEBUG && 0
 		for(int i = 0; i < gamemodes.Length; ++i) {
 			gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
 
@@ -404,27 +458,29 @@ static void load_gamemodes()
 		}
 	#endif
 
-		BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "data/gmm");
-		CreateDirectory(any_file_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
+		if(!mapcycle_manager_loaded) {
+			BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "data/gmm");
+			CreateDirectory(any_file_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
 
-		BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "data/gmm/mapcycles");
-		CreateDirectory(any_file_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
+			BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "data/gmm/mapcycles");
+			CreateDirectory(any_file_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
 
-		int modes_len = gamemodes.Length;
-		for(int i = 0; i < modes_len; ++i) {
-			gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+			int modes_len = gamemodes.Length;
+			for(int i = 0; i < modes_len; ++i) {
+				gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
 
-			build_mapcycle_filepath(any_file_path, info.name);
-			File cycle_file = OpenFile(any_file_path, "w+");
+				build_mapcycle_filepath(any_file_path, info.name);
+				File cycle_file = OpenFile(any_file_path, "w+");
 
-			int mapcycle_len = info.mapcycle.Length;
-			for(int j = 0; j < mapcycle_len; ++j) {
-				info.mapcycle.GetString(j, any_file_path, PLATFORM_MAX_PATH);
-				StrCat(any_file_path, PLATFORM_MAX_PATH, "\n");
-				cycle_file.WriteString(any_file_path, true);
+				int mapcycle_len = info.mapcycle.Length;
+				for(int j = 0; j < mapcycle_len; ++j) {
+					info.mapcycle.GetString(j, any_file_path, PLATFORM_MAX_PATH);
+					StrCat(any_file_path, PLATFORM_MAX_PATH, "\n");
+					cycle_file.WriteString(any_file_path, true);
+				}
+
+				delete cycle_file;
 			}
-
-			delete cycle_file;
 		}
 	}
 }
@@ -434,6 +490,25 @@ public void OnNotifyPluginUnloaded(Handle plugin)
 	if(ff2_plugin != null && plugin == ff2_plugin) {
 		//toggle_ff2_folder(false);
 		ff2_plugin = null;
+		return;
+	}
+
+	if(gamemodes != null) {
+		GamemodeInfo info;
+
+		int len = gamemodes.Length;
+		for(int i = 0; i < len; ++i) {
+			gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+
+			if(info.gamemode_plugin.plugin == plugin) {
+				gamemode_plugin_unloaded(i, info);
+
+				if(current_gamemode == i) {
+					unload_current_gamemode();
+					load_gamemode_for_map(current_map, i);
+				}
+			}
+		}
 	}
 }
 
@@ -508,6 +583,7 @@ static void toggle_ff2_folder(bool value)
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+	RegPluginLibrary("gamemode_manager");
 	late_loaded = late;
 	toggle_ff2_folder(false);
 	return APLRes_Success;
@@ -519,38 +595,299 @@ public void OnPluginStart()
 
 	gamemode_history = new ArrayList();
 
+	rtg_needed = CreateConVar("rtg_needed", "0.60", "Percentage of players needed to rockthevote (Def 60%)", 0, true, 0.05, true, 1.0);
+	rtg_minplayers = CreateConVar("rtg_minplayers", "0", "Number of players required before RTG will be enabled.", 0, true, 0.0, true, float(TF2_MAXPLAYERS));
+	rtg_initialdelay = CreateConVar("rtg_initialdelay", "30.0", "Time (in seconds) before first RTG can be held", 0, true, 0.00);
+	rtg_interval = CreateConVar("rtg_interval", "240.0", "Time (in seconds) after a failed RTG before another can be held", 0, true, 0.00);
+
+	gmm_start_gamemode = CreateConVar("gmm_start_gamemode", "");
+	gmm_default_gamemode = CreateConVar("gmm_default_gamemode", "");
+
+	gmm_multimod = CreateConVar("gmm_multimod", "0");
+
+	mapcyclefile = FindConVar("mapcyclefile");
+
+	RegAdminCmd("sm_rgmm", sm_rgmm, ADMFLAG_ROOT);
+	RegAdminCmd("sm_fgm", sm_fgm, ADMFLAG_ROOT);
+
+	RegConsoleCmd("sm_rtg", sm_rtg);
+	RegAdminCmd("sm_forcertg", sm_fgmv, ADMFLAG_ROOT);
+
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientConnected(i)) {
+			OnClientConnected(i);
+		}
+	}
+}
+
+static void gamemode_plugin_unloaded(int idx, GamemodeInfo info)
+{
+	info.gamemode_plugin.plugin = null;
+
+	info.gamemode_plugin.handle_fwd = INVALID_FUNCTION;
+	info.gamemode_plugin.map_fwd = INVALID_FUNCTION;
+
+	gamemodes.SetArray(idx, info, sizeof(GamemodeInfo));
+
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "%s plugin unloaded", info.name);
+#endif
+}
+
+static void gamemode_plugin_loaded(int idx, GamemodeInfo info)
+{
+	if(info.gamemode_plugin.handle_fwd == INVALID_FUNCTION) {
+		info.gamemode_plugin.handle_fwd = GetFunctionByName(info.gamemode_plugin.plugin, "gmm_handle_gamemode");
+	}
+
+	if(info.gamemode_plugin.map_fwd == INVALID_FUNCTION) {
+		info.gamemode_plugin.map_fwd = GetFunctionByName(info.gamemode_plugin.plugin, "gmm_map_valid_for_gamemode");
+	}
+
+	gamemodes.SetArray(idx, info, sizeof(GamemodeInfo));
+
+#if defined DEBUG
+	PrintToServer(GMM_CON_PREFIX ... "added %s functions", info.name);
+#endif
+}
+
+static int get_filename_pos(const char[] path)
+{
+	int i = strlen(path)
+	for(; i; --i) {
+		if(path[i] == '/' || path[i] == '\\') {
+			++i;
+			break;
+		}
+	}
+	return i;
+}
+
+stock Handle FindPluginByFilename(const char[] filename)
+{
+	int targetpos = get_filename_pos(filename);
+
+	char buffer[256];
+
+	Handle iter = GetPluginIterator();
+	Handle pl;
+
+	while (MorePlugins(iter))
+	{
+		pl = ReadPlugin(iter);
+
+		GetPluginFilename(pl, buffer, sizeof(buffer));
+
+		int sourcepos = get_filename_pos(buffer);
+
+		if (strcmp(buffer[sourcepos], filename[targetpos], false) == 0)
+		{
+			CloseHandle(iter);
+			return pl;
+		}
+	}
+
+	CloseHandle(iter);
+
+	return INVALID_HANDLE;
+}
+
+static void frame_gamemode_plugin_loaded(DataPack data)
+{
+	data.Reset();
+
+	int idx = data.ReadCell();
+
+	GamemodeInfo info;
+	data.ReadCellArray(info, sizeof(GamemodeInfo));
+
+	char path[PLATFORM_MAX_PATH];
+	data.ReadString(path, PLATFORM_MAX_PATH);
+
+	Function on_loaded = data.ReadFunction();
+
+	DataPack on_loaded_data = data.ReadCell();
+
+	delete data;
+
+	info.gamemode_plugin.plugin = FindPluginByFile(path);
+	if(info.gamemode_plugin.plugin == null) {
+		LogError("Gamemode \"%s\" plugin \"%s\" was not found.", info.name, path);
+	}
+
+	if(info.gamemode_plugin.plugin != null) {
+		gamemode_plugin_loaded(idx, info);
+	}
+
+	gamemodes.SetArray(idx, info, sizeof(GamemodeInfo));
+
+	if(on_loaded != INVALID_FUNCTION) {
+		Call_StartFunction(null, on_loaded);
+		Call_PushCell(on_loaded_data);
+		Call_Finish();
+	}
+}
+
+static void load_gamemode_plugin(int idx, GamemodeInfo info, const char[] path, Function on_loaded = INVALID_FUNCTION, DataPack on_loaded_data = null)
+{
+	InsertServerCommand("sm plugins load \"%s\"", path);
+	ServerExecute();
+
+	DataPack data = new DataPack();
+	data.WriteCell(idx);
+	data.WriteCellArray(info, sizeof(GamemodeInfo));
+	data.WriteString(path);
+	data.WriteFunction(on_loaded);
+	data.WriteCell(on_loaded_data);
+	RequestFrame(frame_gamemode_plugin_loaded, data);
+}
+
+static void find_gamemode_plugin(int idx, GamemodeInfo info, const char[] path, bool load, Function on_loaded = INVALID_FUNCTION, DataPack on_loaded_data = null)
+{
+	info.gamemode_plugin.plugin = FindPluginByFile(path);
+	if(info.gamemode_plugin.plugin == null) {
+		if(load) {
+			load_gamemode_plugin(idx, info, path, on_loaded, on_loaded_data);
+			return;
+		}
+	}
+
+	if(info.gamemode_plugin.plugin != null) {
+		gamemode_plugin_loaded(idx, info);
+	}
+
+	gamemodes.SetArray(idx, info, sizeof(GamemodeInfo));
+
+	if(on_loaded != INVALID_FUNCTION) {
+		Call_StartFunction(null, on_loaded);
+		Call_PushCell(on_loaded_data);
+		Call_Finish();
+	}
+}
+
+static Action call_gamemode_map_filter(int idx, GamemodeInfo info, const char[] map)
+{
+	if(info.gamemode_plugin.plugin == null) {
+		find_gamemode_plugin(idx, info, info.gamemode_plugin.path, true);
+	}
+
+	if(info.gamemode_plugin.plugin == null) {
+		LogError("Gamemode \"%s\" plugin \"%s\" is not loaded.", info.name, info.gamemode_plugin.path);
+	} else if(info.gamemode_plugin.map_fwd != INVALID_FUNCTION) {
+		Call_StartFunction(info.gamemode_plugin.plugin, info.gamemode_plugin.map_fwd);
+		Call_PushString(info.name);
+		Call_PushString(map);
+		Action ret = Plugin_Continue;
+		Call_Finish(ret);
+		if(ret == Plugin_Changed) {
+			return Plugin_Changed;
+		} else if(ret > Plugin_Changed) {
+			return Plugin_Handled;
+		}
+	}
+
+	return Plugin_Continue;
+}
+
+static void call_gamemode_handle(int idx, GamemodeInfo info, gmm_gamemode_action action)
+{
+	if(info.gamemode_plugin.plugin == null) {
+		find_gamemode_plugin(idx, info, info.gamemode_plugin.path, (action == gmm_gamemode_start));
+	}
+
+	if(info.gamemode_plugin.plugin == null) {
+		if(action != gmm_gamemode_end) {
+			LogError("Gamemode \"%s\" plugin \"%s\" is not loaded", info.name, info.gamemode_plugin.path);
+		}
+	} else if(info.gamemode_plugin.handle_fwd == INVALID_FUNCTION) {
+		LogError("Gamemode \"%s\" plugin \"%s\" has no handle function", info.name, info.gamemode_plugin.path);
+	} else {
+		Call_StartFunction(info.gamemode_plugin.plugin, info.gamemode_plugin.handle_fwd);
+		Call_PushString(info.name);
+		Call_PushCell(action);
+		Call_Finish();
+	}
+}
+
+public void OnAllPluginsLoaded()
+{
 	load_gamemodes();
 
 #if defined DEBUG
 	PrintToServer(GMM_CON_PREFIX ... "plugin loaded unloading all gamemodes");
 #endif
 
+	GamemodeInfo info;
+
 	int len = gamemodes.Length;
 	for(int i = 0; i < len; ++i) {
 		unload_gamemode(i);
+
+		gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+
+		if(info.gamemode_plugin.path[0] != '\0') {
+			if(info.gamemode_plugin.plugin == null) {
+				find_gamemode_plugin(i, info, info.gamemode_plugin.path, true);
+			}
+		}
+	}
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+	if(StrEqual(name, "mapcycle_manager")) {
+		mapcycle_manager_loaded = true;
+	}
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+	if(StrEqual(name, "mapcycle_manager")) {
+		mapcycle_manager_loaded = false;
+	}
+}
+
+static Action sm_rtg(int client, int args)
+{
+	if(!client || !can_rtg) {
+		return Plugin_Handled;
 	}
 
-	gmm_default_gamemode = CreateConVar("gmm_default_gamemode", "random");
+	attempt_rtg(client);
 
-	mapcyclefile = FindConVar("mapcyclefile");
+	return Plugin_Handled;
+}
 
-	RegAdminCmd("sm_rgmm", sm_rgmm, ADMFLAG_ROOT);
-	RegAdminCmd("sm_fgm", sm_fgm, ADMFLAG_ROOT);
-	RegAdminCmd("sm_fgmv", sm_fgmv, ADMFLAG_ROOT);
+static void attempt_rtg(int client)
+{
+	if(!rtg_allowed) {
+		CPrintToChat(client, GMM_CHAT_PREFIX ... "Rock the Gamemode is not allowed yet.");
+		return;
+	}
 
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i)) {
-			OnClientPutInServer(i);
-		}
+	if(GetClientCount(true) < rtg_minplayers.IntValue) {
+		CPrintToChat(client, GMM_CHAT_PREFIX ... "The minimal number of players required has not been met.");
+		return;
+	}
+
+	if(voted[client]) {
+		CPrintToChat(client, GMM_CHAT_PREFIX ... "You have already voted to Rock the Gamemode. (%i votes, %i required)", votes, votes_needed);
+		return;
+	}
+
+	++votes;
+	voted[client] = true;
+
+	CPrintToChatAll(GMM_CHAT_PREFIX ... "%N wants to rock the vote. (%i votes, %i required)", client, votes, votes_needed);
+
+	if(votes >= votes_needed) {
+		start_gamemode_vote();
 	}
 }
 
 static Action sm_fgmv(int client, int args)
 {
-	if(change_gamemode_timer != null) {
-		KillTimer(change_gamemode_timer);
-	}
-	change_gamemode_timer = CreateTimer(0.1, timer_change_gamemode);
+	start_gamemode_vote();
 	return Plugin_Handled;
 }
 
@@ -570,12 +907,13 @@ static Action sm_fgm(int client, int args)
 
 			if(StrEqual(name, "random")) {
 				mode = get_random_gamemode_idx();
+				if(mode == -1) {
+					CReplyToCommand(client, GMM_CHAT_PREFIX ... "couldn't get random gamemode");
+					return Plugin_Handled;
+				}
 			} else {
-				int idx = -1;
-				if(gamemode_idx_map.GetValue(name, idx)) {
-					mode = idx;
-				} else {
-					CReplyToCommand(client, GMM_CHAT_PREFIX ... "invalid gamemode name %s", name);
+				if(!gamemode_idx_map.GetValue(name, mode)) {
+					CReplyToCommand(client, GMM_CHAT_PREFIX ... "invalid gamemode name \"%s\"", name);
 					return Plugin_Handled;
 				}
 			}
@@ -620,7 +958,7 @@ static void change_to_map(const char[] map)
 {
 	float time = 2.0;
 
-	CPrintToChatAll(GMM_CHAT_PREFIX ... "Changing to map %s", map);
+	CPrintToChatAll(GMM_CHAT_PREFIX ... "Changing to map \"%s\".", map);
 
 	CreateTimer(time * 0.8, timer_load_next_gamemode, 0, TIMER_FLAG_NO_MAPCHANGE);
 
@@ -633,13 +971,18 @@ static void change_to_map(const char[] map)
 
 static void change_to_random_gamemode_map(int mode)
 {
-	GamemodeInfo info;
-	gamemodes.GetArray(mode, info, sizeof(GamemodeInfo));
+	ArrayList mapcycle = gamemodes.Get(mode, GamemodeInfo::mapcycle);
 
-	int map_idx = GetRandomInt(0, info.mapcycle.Length-1);
+	if(mapcycle == null) {
+		load_gamemode(mode);
+		next_gamemode = -1;
+		return;
+	}
+
+	int map_idx = GetRandomInt(0, mapcycle.Length-1);
 
 	char map[PLATFORM_MAX_PATH];
-	info.mapcycle.GetString(map_idx, map, PLATFORM_MAX_PATH);
+	mapcycle.GetString(map_idx, map, PLATFORM_MAX_PATH);
 
 	change_to_map(map);
 }
@@ -660,22 +1003,36 @@ static int votehandler_gamemode(NativeVote menu, MenuAction action, int param1, 
 			char int_str[INT_STR_MAX];
 			menu.GetItem(param1, int_str, INT_STR_MAX);
 			int idx = StringToInt(int_str);
+			if(idx == -1) {
+				if(default_gamemode != -1) {
+					idx = default_gamemode;
+				}
+			}
+			if(idx != -1) {
+				GamemodeInfo info;
+				gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
 
-			GamemodeInfo info;
-			gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
+				menu.DisplayPassEx(NativeVotesPass_ChgMission, "%s", info.name);
+				CPrintToChatAll(GMM_CHAT_PREFIX ... "\"%s\" won the gamemode vote.", info.name);
 
-			menu.DisplayPassEx(NativeVotesPass_ChgMission, "%s", info.name);
-			CPrintToChatAll(GMM_CHAT_PREFIX ... "%s won the gamemode vote", info.name);
+				next_gamemode = idx;
 
-			next_gamemode = idx;
+				if(info.mapcycle != null) {
+					if(info.mapcycle.Length == 1) {
+						char next_map[PLATFORM_MAX_PATH];
+						info.mapcycle.GetString(0, next_map, PLATFORM_MAX_PATH);
 
-			if(info.mapcycle.Length == 1) {
-				char next_map[PLATFORM_MAX_PATH];
-				info.mapcycle.GetString(0, next_map, PLATFORM_MAX_PATH);
-
-				change_to_map(next_map);
+						change_to_map(next_map);
+					} else {
+						InitiateMapChooserVote(MapChange_RoundEnd, info.mapcycle);
+					}
+				} else {
+					CreateTimer(2.0, timer_load_next_gamemode, 0, TIMER_FLAG_NO_MAPCHANGE);
+				}
 			} else {
-				InitiateMapChooserVote(MapChange_RoundEnd, info.mapcycle);
+				menu.DisplayPassEx(NativeVotesPass_ChgMission, "Team Fortress");
+				CPrintToChatAll(GMM_CHAT_PREFIX ... "Unloading current gamemode.");
+				unload_current_gamemode();
 			}
 		}
 		case MenuAction_VoteCancel: {
@@ -685,7 +1042,18 @@ static int votehandler_gamemode(NativeVote menu, MenuAction action, int param1, 
 				case VoteCancel_NoVotes:
 				{ menu.DisplayFail(NativeVotesFail_NotEnoughVotes); }
 			}
-			change_gamemode_timer = CreateTimer(1.0, timer_change_gamemode);
+			if(gmm_multimod.BoolValue) {
+				CPrintToChatAll(GMM_CHAT_PREFIX ... "Gamemode vote failed starting the vote again.");
+
+				change_gamemode_timer = CreateTimer(1.0, timer_change_gamemode, true);
+			} else {
+				if(current_gamemode != -1) {
+					GamemodeInfo info;
+					gamemodes.GetArray(current_gamemode, info, sizeof(GamemodeInfo));
+
+					CPrintToChatAll(GMM_CHAT_PREFIX ... "Gamemode vote failed keeping current gamemode: \"%s\".", info.name);
+				}
+			}
 		}
 		case MenuAction_End: {
 			delete menu;
@@ -708,10 +1076,32 @@ static void start_gamemode_vote()
 	int modes_len = gamemodes.Length;
 	for(int i = 0; i < modes_len; ++i) {
 		gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+
 		if(gamemode_history.FindValue(i) != -1 ||
 			i == current_gamemode) {
+		#if defined DEBUG
+			PrintToServer(GMM_CON_PREFIX ... "skipped %s either in history or current", info.name);
+		#endif
 			continue;
 		}
+
+		if(!is_gamemode_valid(info)) {
+		#if defined DEBUG
+			PrintToServer(GMM_CON_PREFIX ... "skipped %s not valid", info.name);
+		#endif
+			continue;
+		}
+
+		if(info.gamemode_plugin.path[0] != '\0') {
+			Action ret = call_gamemode_map_filter(i, info, current_map);
+			if(ret == Plugin_Handled) {
+			#if defined DEBUG
+				PrintToServer(GMM_CON_PREFIX ... "skipped %s map not valid", info.name);
+			#endif
+				continue;
+			}
+		}
+
 		weights.Push(info.weight);
 		to_choose.Push(i);
 	}
@@ -720,9 +1110,16 @@ static void start_gamemode_vote()
 
 	char int_str[INT_STR_MAX];
 
+	bool add_default_vote = (!gmm_multimod.BoolValue && (current_gamemode != default_gamemode));
+
+	int max_votes = 5;
+	if(add_default_vote) {
+		--max_votes;
+	}
+
 	int to_choose_len = to_choose.Length;
-	int max = to_choose_len > 5 ? 5 : to_choose_len;
-	for(int i = 0; i < max; ++i) {
+	int num_votes = to_choose_len > max_votes ? max_votes : to_choose_len;
+	for(int i = 0; i < num_votes; ++i) {
 		int idx = GetAliasRandom(aliases);
 
 		int mode = to_choose.Get(idx);
@@ -743,10 +1140,27 @@ static void start_gamemode_vote()
 	delete weights;
 	delete to_choose;
 
+	if(add_default_vote) {
+		vote_menu.AddItem("-1", "Default Gamemode");
+	}
+
 	vote_menu.DisplayVoteToAll(20);
+
+	reset_rtg();
+	rtg_allowed = false;
+	rtg_time = GetTime() + rtg_interval.IntValue;
+	CreateTimer(rtg_interval.FloatValue, timer_delayrtg, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-public void OnClientPutInServer(int client)
+static void reset_rtg()
+{
+	votes = 0;
+	for(int i = 1; i <= MaxClients; ++i) {
+		voted[i] = false;
+	}
+}
+
+public void OnClientConnected(int client)
 {
 	if(IsFakeClient(client) ||
 		IsClientReplay(client) ||
@@ -754,7 +1168,10 @@ public void OnClientPutInServer(int client)
 		return;
 	}
 
-	
+	voted[client] = false;
+
+	++voters;
+	votes_needed = RoundToCeil(float(voters) * rtg_needed.FloatValue);
 }
 
 public void OnClientDisconnect(int client)
@@ -765,38 +1182,41 @@ public void OnClientDisconnect(int client)
 		return;
 	}
 
-	bool any_human = false;
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(i == client) {
-			continue;
-		}
-
-		if(IsClientInGame(i) && !(
-			IsFakeClient(i) ||
-			IsClientReplay(i) ||
-			IsClientSourceTV(i)
-		)) {
-			any_human = true;
-		}
+	if(voted[client]) {
+		voted[client] = false;
+		--votes;
 	}
 
-	
+	--voters;
+	votes_needed = RoundToCeil(float(voters) * rtg_needed.FloatValue);
+
+	if(!can_rtg) {
+		return;
+	}
+
+	if(votes > 0 && 
+		voters > 0 && 
+		votes >= votes_needed && 
+		rtg_allowed)
+	{
+		start_gamemode_vote();
+	}
 }
 
 public void OnClientSayCommand_Post(int client, const char[] command, const char[] sArgs)
 {
-	if(IsChatTrigger()) {
+	if(!client || !can_rtg || IsChatTrigger()) {
 		return;
 	}
 
-	if(StrEqual(sArgs, "rtg")) {
+	if(StrEqual(sArgs, "rtg") || StrEqual(sArgs, "rockthegame")) {
 		ReplySource oldsrc = SetCmdReplySource(SM_REPLY_TO_CHAT);
-		
+		attempt_rtg(client);
 		SetCmdReplySource(oldsrc);
 	}
 }
 
-static void handle_gamemode_plugins(GamemodeInfo info, bool unload)
+static void handle_gamemode_plugins(int idx, GamemodeInfo info, bool unload, bool force_plugin_unload = false)
 {
 	char pluginsfolder[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, pluginsfolder, PLATFORM_MAX_PATH, "plugins");
@@ -815,9 +1235,15 @@ static void handle_gamemode_plugins(GamemodeInfo info, bool unload)
 
 				if(FileExists(plugin_enabled_path)) {
 					InsertServerCommand("sm plugins unload \"%s\"", plugin_filename);
+				} else {
+					//LogError("Gamemode \"%s\" plugin \"%s\" was not loaded.", info.name, plugin_filename);
 				}
 				RenameFile(plugin_disabled_path, plugin_enabled_path);
 			}
+		}
+	} else {
+		if(info.gamemode_plugin.path[0] != '\0') {
+			call_gamemode_handle(idx, info, gmm_gamemode_end);
 		}
 	}
 
@@ -849,28 +1275,49 @@ static void handle_gamemode_plugins(GamemodeInfo info, bool unload)
 			Format(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
 			Format(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
 
-			bool is_ff2 = (StrContains(plugin_filename, "freak_fortress_2") != -1);
-			if(is_ff2) {
-				toggle_ff2_folder(!unload);
-				if(unload) {
-					ff2_plugin = null;
-				}
-			}
+			bool is_ff2 = StrEqual(plugin_filename[get_filename_pos(plugin_filename)], "freak_fortress_2");
+			bool is_gamemode_plugin = StrEqual(plugin_filename, info.gamemode_plugin.path);
 
 			if(unload) {
-				if(FileExists(plugin_enabled_path)) {
-					InsertServerCommand("sm plugins unload \"%s\"", plugin_filename);
+				if(!is_gamemode_plugin || force_plugin_unload) {
+					if(is_ff2) {
+						toggle_ff2_folder(false);
+					}
+
+					if(FileExists(plugin_enabled_path)) {
+						InsertServerCommand("sm plugins unload \"%s\"", plugin_filename);
+					} else {
+						//LogError("Gamemode \"%s\" plugin \"%s\" was not loaded.", info.name, plugin_filename);
+					}
+					RenameFile(plugin_disabled_path, plugin_enabled_path);
+
+					if(is_gamemode_plugin) {
+						gamemode_plugin_unloaded(idx, info);
+					} else if(is_ff2) {
+						ff2_plugin = null;
+					}
 				}
-				RenameFile(plugin_disabled_path, plugin_enabled_path);
 			} else {
+				if(is_ff2) {
+					toggle_ff2_folder(true);
+				}
+
 				RenameFile(plugin_enabled_path, plugin_disabled_path);
 				if(FileExists(plugin_enabled_path)) {
 					InsertServerCommand("sm plugins load \"%s\"", plugin_filename);
+				} else {
+					LogError("Gamemode \"%s\" plugin \"%s\" does not exist.", info.name, plugin_filename);
 				}
-			}
 
-			if(is_ff2 && !unload) {
-				ff2_plugin = FindPluginByFile("freak_fortress_2.smx");
+				if(is_ff2) {
+					if(ff2_plugin == null) {
+						ServerExecute();
+
+						DataPack data = new DataPack();
+						data.WriteString(plugin_filename);
+						RequestFrame(frame_ff2_loaded, data);
+					}
+				}
 			}
 
 			if(reverse) {
@@ -893,12 +1340,52 @@ static void handle_gamemode_plugins(GamemodeInfo info, bool unload)
 				RenameFile(plugin_enabled_path, plugin_disabled_path);
 				if(FileExists(plugin_enabled_path)) {
 					InsertServerCommand("sm plugins load \"%s\"", plugin_filename);
+				} else {
+					LogError("Gamemode \"%s\" plugin \"%s\" does not exist.", info.name, plugin_filename);
 				}
 			}
 		}
 	}
 
 	ServerExecute();
+
+	if(!unload) {
+		if(info.gamemode_plugin.path[0] != '\0') {
+			DataPack data = new DataPack();
+			data.WriteCell(idx);
+			data.WriteCellArray(info, sizeof(GamemodeInfo));
+			data.WriteCell(gmm_gamemode_start);
+			RequestFrame(frame_call_gamemode_handle, data);
+		}
+	}
+}
+
+static void frame_ff2_loaded(DataPack data)
+{
+	data.Reset();
+
+	char plugin_filename[PLATFORM_MAX_PATH];
+	data.ReadString(plugin_filename, PLATFORM_MAX_PATH);
+
+	delete data;
+
+	ff2_plugin = FindPluginByFile(plugin_filename);
+}
+
+static void frame_call_gamemode_handle(DataPack data)
+{
+	data.Reset();
+
+	int idx = data.ReadCell();
+
+	GamemodeInfo info;
+	data.ReadCellArray(info, sizeof(GamemodeInfo));
+
+	gmm_gamemode_action action = data.ReadCell();
+
+	delete data;
+
+	call_gamemode_handle(idx, info, action);
 }
 
 static void handle_gamemode_state(StateChangeInfo info)
@@ -937,7 +1424,7 @@ static void add_to_gamemode_history(int idx)
 	}
 }
 
-static void unload_gamemode(int idx)
+static void unload_gamemode(int idx, bool force_plugin_unload = false)
 {
 	GamemodeInfo info;
 	gamemodes.GetArray(idx, info, sizeof(GamemodeInfo));
@@ -947,18 +1434,20 @@ static void unload_gamemode(int idx)
 #endif
 
 	handle_gamemode_state(info.disabled);
-	handle_gamemode_plugins(info, true);
+	handle_gamemode_plugins(idx, info, true, force_plugin_unload);
 
 	SteamWorks_SetGameDescription("Team Fortress");
 }
 
-static void unload_current_gamemode()
+static void unload_current_gamemode(bool force_plugin_unload = false)
 {
 	if(current_gamemode == -1) {
 		return;
 	}
 
-	mapcyclefile.SetString(original_mapcyclefile_value);
+	if(!mapcycle_manager_loaded) {
+		mapcyclefile.SetString(original_mapcyclefile_value);
+	}
 
 	if(change_gamemode_timer != null) {
 		KillTimer(change_gamemode_timer);
@@ -969,17 +1458,24 @@ static void unload_current_gamemode()
 	PrintToServer(GMM_CON_PREFIX ... "unloading current gamemode");
 #endif
 
-	unload_gamemode(current_gamemode);
+	unload_gamemode(current_gamemode, force_plugin_unload);
 	current_gamemode = -1;
 }
 
-static Action timer_change_gamemode(Handle timer, any data)
+static Action timer_change_gamemode(Handle timer, bool data)
 {
-	if(NativeVotes_IsVoteInProgress()) {
-		NativeVotes_Cancel();
+	if(current_gamemode != -1 && !data) {
+		GamemodeInfo info;
+		gamemodes.GetArray(current_gamemode, info, sizeof(GamemodeInfo));
+
+		CPrintToChatAll(GMM_CHAT_PREFIX ... "Gamemode \"%s\" time ended.", info.name);
 	}
 
-	start_gamemode_vote();
+	if(gmm_multimod.BoolValue) {
+		start_gamemode_vote();
+	} else {
+		load_gamemode_for_map(current_map, current_gamemode);
+	}
 
 	change_gamemode_timer = null;
 	return Plugin_Continue;
@@ -1010,13 +1506,15 @@ static void load_gamemode(int idx)
 
 	SteamWorks_SetGameDescription(info.name);
 
-	handle_gamemode_plugins(info, false);
+	handle_gamemode_plugins(idx, info, false);
 	handle_gamemode_state(info.enabled);
 
-	char cycle_path[PLATFORM_MAX_PATH];
-	build_mapcycle_filepath(cycle_path, info.name);
+	if(!mapcycle_manager_loaded) {
+		char cycle_path[PLATFORM_MAX_PATH];
+		build_mapcycle_filepath(cycle_path, info.name);
 
-	mapcyclefile.SetString(cycle_path);
+		mapcyclefile.SetString(cycle_path);
+	}
 
 	change_gamemode_timer = CreateTimer(info.time * 60, timer_change_gamemode);
 }
@@ -1026,23 +1524,29 @@ public void OnPluginEnd()
 #if defined DEBUG
 	PrintToServer(GMM_CON_PREFIX ... "plugin unloaded unloading current gamemode");
 #endif
-	unload_current_gamemode();
+	unload_current_gamemode(true);
 }
 
 static int get_random_gamemode_idx()
 {
-	GamemodeInfo info;
-
 	ArrayList weights = new ArrayList();
 	ArrayList to_choose = new ArrayList();
 
+	GamemodeInfo info;
+
 	int len = gamemodes.Length;
 	for(int i = 0; i < len; ++i) {
-		gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
 		if(gamemode_history.FindValue(i) != -1 ||
 			i == current_gamemode) {
 			continue;
 		}
+
+		gamemodes.GetArray(i, info, sizeof(GamemodeInfo));
+
+		if(!is_gamemode_valid(info)) {
+			continue;
+		}
+
 		weights.Push(info.weight);
 		to_choose.Push(i);
 	}
@@ -1050,7 +1554,13 @@ static int get_random_gamemode_idx()
 	ArrayList aliases = CreateAliasRandom(weights);
 
 	int idx = GetAliasRandom(aliases);
-	int mode = to_choose.Get(idx);
+
+	int mode = -1;
+	if(idx != -1) {
+		mode = to_choose.Get(idx);
+	} else {
+		LogError("Couldn't get a random gamemode.");
+	}
 
 	delete aliases;
 	delete weights;
@@ -1059,13 +1569,30 @@ static int get_random_gamemode_idx()
 	return mode;
 }
 
+static bool is_gamemode_valid(GamemodeInfo info)
+{
+	return true;
+}
+
 static bool is_gamemode_valid_for_map(int mode, const char[] map)
 {
-	ArrayList modes;
-	if(gamemode_map_map.GetValue(map, modes)) {
-		return (modes.FindValue(mode) != -1);
+	GamemodeInfo info;
+	gamemodes.GetArray(mode, info, sizeof(GamemodeInfo));
+
+	if(!is_gamemode_valid(info)) {
+		return false;
 	}
-	return false;
+
+	if(info.gamemode_plugin.path[0] != '\0') {
+		Action ret = call_gamemode_map_filter(mode, info, map);
+		if(ret == Plugin_Changed) {
+			return true;
+		} else if(ret == Plugin_Handled) {
+			return false;
+		}
+	}
+
+	return (info.mapcycle == null || (info.mapcycle != null && info.mapcycle.FindString(map) != -1));
 }
 
 public void OnConfigsExecuted()
@@ -1081,33 +1608,55 @@ public void OnConfigsExecuted()
 		mapcyclefile.GetString(original_mapcyclefile_value, PLATFORM_MAX_PATH);
 	}
 
-	if(default_gamemode == -1) {
-		char gamemode_name[GAMEMODE_NAME_MAX];
-		gmm_default_gamemode.GetString(gamemode_name, GAMEMODE_NAME_MAX);
+	char gamemode_name[GAMEMODE_NAME_MAX];
+	gmm_default_gamemode.GetString(gamemode_name, GAMEMODE_NAME_MAX);
+
+	if(gamemode_name[0] != '\0') {
+		int idx = -1;
+		if(!gamemode_idx_map.GetValue(gamemode_name, idx)) {
+			LogError(GMM_CON_PREFIX ... "invalid default gamemode '%s'", gamemode_name);
+		}
+		default_gamemode = idx;
+	}
+
+	if(start_gamemode == -1) {
+		if(gamemode_name[0] == '\0') {
+			gmm_start_gamemode.GetString(gamemode_name, GAMEMODE_NAME_MAX);
+		}
 
 		if(gamemode_name[0] != '\0') {
+			int mode = -1;
 			if(StrEqual(gamemode_name, "random")) {
-				default_gamemode = get_random_gamemode_idx();
+				mode = get_random_gamemode_idx();
 			} else {
-				int idx = -1;
-				if(gamemode_idx_map.GetValue(gamemode_name, idx)) {
-					default_gamemode = idx;
-				} else {
-					LogError(GMM_CON_PREFIX ... "invalid default gamemode %s", gamemode_name);
+				if(!gamemode_idx_map.GetValue(gamemode_name, mode)) {
+					LogError(GMM_CON_PREFIX ... "invalid start gamemode '%s'", gamemode_name);
 				}
 			}
+			start_gamemode = mode;
 
-			if(default_gamemode != -1) {
+			if(start_gamemode != -1) {
 				if(!late_loaded) {
-					if(!is_gamemode_valid_for_map(default_gamemode, current_map)) {
-						next_gamemode = default_gamemode;
-						change_to_random_gamemode_map(default_gamemode);
+					if(!is_gamemode_valid_for_map(start_gamemode, current_map)) {
+						next_gamemode = start_gamemode;
+						change_to_random_gamemode_map(start_gamemode);
 					} else {
-						if(current_gamemode != default_gamemode) {
-							load_gamemode(default_gamemode);
+						if(current_gamemode != start_gamemode) {
+							load_gamemode(start_gamemode);
 						}
 					}
 				}
+			}
+		}
+	}
+
+	if(default_gamemode != -1) {
+		if(current_gamemode == -1 && next_gamemode == -1) {
+			if(!is_gamemode_valid_for_map(default_gamemode, current_map)) {
+				next_gamemode = default_gamemode;
+				change_to_random_gamemode_map(default_gamemode);
+			} else {
+				load_gamemode(default_gamemode);
 			}
 		}
 	}
@@ -1116,40 +1665,100 @@ public void OnConfigsExecuted()
 		GamemodeInfo info;
 		gamemodes.GetArray(current_gamemode, info, sizeof(GamemodeInfo));
 
-		char cycle_path[PLATFORM_MAX_PATH];
-		build_mapcycle_filepath(cycle_path, info.name);
+		if(!mapcycle_manager_loaded) {
+			char cycle_path[PLATFORM_MAX_PATH];
+			build_mapcycle_filepath(cycle_path, info.name);
 
-		mapcyclefile.SetString(cycle_path);
+			mapcyclefile.SetString(cycle_path);
+		}
 	}
+
+	can_rtg = true;
+	rtg_allowed = false;
+	rtg_time = GetTime() + rtg_initialdelay.IntValue;
+	CreateTimer(rtg_initialdelay.FloatValue, timer_delayrtg, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-static void load_gamemode_for_map(const char[] map)
+static Action timer_delayrtg(Handle timer, any data)
+{
+	rtg_allowed = true;
+	return Plugin_Continue;
+}
+
+static bool get_random_gamemode_for_map(const char[] map, int &idx, int except = -1)
+{
+	ArrayList modes;
+	if(gamemode_map_map.GetValue(map, modes)) {
+		ArrayList modes_clone = new ArrayList();
+
+		GamemodeInfo info;
+
+		int len = modes.Length;
+		for(int i = 0; i < len; ++i) {
+			int mode = modes.Get(i);
+
+			if(mode == except || mode == current_gamemode) {
+				continue;
+			}
+
+			gamemodes.GetArray(mode, info, sizeof(GamemodeInfo));
+
+			if(!is_gamemode_valid(info)) {
+				continue;
+			}
+
+			modes_clone.Push(mode);
+		}
+
+		len = modes_clone.Length;
+		if(len == 0) {
+			idx = -1;
+		} else {
+			idx = modes_clone.Get(GetRandomInt(0, len-1));
+		}
+
+		delete modes_clone;
+
+		return (idx != -1);
+	}
+	return false;
+}
+
+static void load_gamemode_for_map(const char[] map, int except = -1)
 {
 #if defined DEBUG
 	PrintToServer(GMM_CON_PREFIX ... "loading gamemode for map %s", map);
 #endif
 
 	if(current_gamemode != -1) {
-		ArrayList modes;
-		if(gamemode_map_map.GetValue(map, modes)) {
-			if(modes.FindValue(current_gamemode) == -1) {
-				int idx = modes.Get(GetRandomInt(0, modes.Length-1));
+		if((current_gamemode == except) || !is_gamemode_valid_for_map(current_gamemode, map)) {
+			int idx = -1;
+			if(get_random_gamemode_for_map(map, idx, except)) {
 				load_gamemode(idx);
+			} else if(default_gamemode != -1 && is_gamemode_valid_for_map(default_gamemode, map)) {
+				load_gamemode(default_gamemode);
+			} else {
+				unload_current_gamemode();
 			}
-		} else {
-			unload_current_gamemode();
 		}
 	} else {
-		ArrayList modes;
-		if(gamemode_map_map.GetValue(map, modes)) {
-			int idx = modes.Get(GetRandomInt(0, modes.Length-1));
+		int idx = -1;
+		if(get_random_gamemode_for_map(map, idx, except)) {
 			load_gamemode(idx);
+		} else if(default_gamemode != -1 && is_gamemode_valid_for_map(default_gamemode, map)) {
+			load_gamemode(default_gamemode);
 		}
 	}
 }
 
 public void OnMapEnd()
 {
+	can_rtg = false;
+	rtg_allowed = false;
+	voters = 0;
+	votes = 0;
+	votes_needed = 0;
+
 	if(next_gamemode != -1) {
 	#if defined DEBUG
 		PrintToServer(GMM_CON_PREFIX ... "loading next gamemode");
@@ -1170,6 +1779,10 @@ public void OnMapEnd()
 
 public void OnMapStart()
 {
+	voters = 0;
+	votes = 0;
+	votes_needed = 0;
+
 #if defined DEBUG
 	PrintToServer(GMM_CON_PREFIX ... "loading gamemode for current map");
 #endif

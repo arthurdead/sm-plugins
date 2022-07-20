@@ -5,6 +5,7 @@
 #include <tf2utils>
 #include <bit>
 #include <economy>
+#include <playermodel2>
 
 //#define DEBUG
 
@@ -369,6 +370,14 @@ static void post_inventory_application(Event event, const char[] name, bool dont
 	int userid = event.GetInt("userid");
 
 	RequestFrame(frame_post_inventory_application, userid);
+}
+
+public void pm2_model_changed(int client)
+{
+	delete_player_weapon_entities(client);
+
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	player_weapon_switch(client, weapon);
 }
 
 static void player_weapon_switch(int client, int weapon)

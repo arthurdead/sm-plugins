@@ -82,11 +82,11 @@ static ConVar mp_timelimit;
 
 static Handle mapchooser_plugin;
 static Function mapchooser_configsexecuted = INVALID_FUNCTION;
-static Function mapchooser_mcm_reload = INVALID_FUNCTION;
+static Function mapchooser_mcm_changed = INVALID_FUNCTION;
 
 static Handle nominations_plugin;
 static Function nominations_configsexecuted = INVALID_FUNCTION;
-static Function nominations_mcm_reload = INVALID_FUNCTION;
+static Function nominations_mcm_changed = INVALID_FUNCTION;
 
 static holiday_flag current_holiday_flags = holiday_flag_none;
 static char current_map[PLATFORM_MAX_PATH];
@@ -322,10 +322,10 @@ static void add_to_mapcycle(ConfigMapInfo info, int idx)
 	current_mapcycle_maps.PushString(map_name);
 }
 
-static void recompute_mapcycle_write_file(MCM_ChangeFrom from, const char[] path, int begin, int &offset, ArrayList mapcycle)
+static void recompute_mapcycle_write_file(mcm_changed_from from, const char[] path, int begin, int &offset, ArrayList mapcycle)
 {
 	int size = 0;
-	if(from == MCM_ChangedPlayerCount) {
+	if(from == mcm_changed_player_count) {
 		size = FileSize(path);
 	#if defined DEBUG
 		PrintToServer(MCM_CON_PREFIX ... "  file size = %i", size);
@@ -334,7 +334,7 @@ static void recompute_mapcycle_write_file(MCM_ChangeFrom from, const char[] path
 
 	File cycle_file;
 
-	if(from == MCM_ChangedInitial) {
+	if(from == mcm_changed_initial) {
 		cycle_file = OpenFile(path, "w+");
 	} else {
 		cycle_file = OpenFile(path, "r+");
@@ -364,7 +364,7 @@ static void recompute_mapcycle_write_file(MCM_ChangeFrom from, const char[] path
 	PrintToServer(MCM_CON_PREFIX ... "  maps:");
 #endif
 
-	for(int i = ((from == MCM_ChangedPlayerCount) ? begin : 0); i < mapcycle.Length; ++i) {
+	for(int i = ((from == mcm_changed_player_count) ? begin : 0); i < mapcycle.Length; ++i) {
 		int idx = mapcycle.Get(i);
 
 		config_maps.GetArray(idx, info, sizeof(ConfigMapInfo));
@@ -377,7 +377,7 @@ static void recompute_mapcycle_write_file(MCM_ChangeFrom from, const char[] path
 	#endif
 		cycle_file.WriteInt8('\n');
 
-		if(from == MCM_ChangedInitial && i == (begin-1)) {
+		if(from == mcm_changed_initial && i == (begin-1)) {
 			cycle_file.Flush();
 			offset = cycle_file.Position;
 		}
@@ -412,11 +412,11 @@ static void recompute_mapcycle_clean_playerchange(int begin, ArrayList mapcycle,
 	}
 }
 
-static void recompute_mapcycle(MCM_ChangeFrom from)
+static void recompute_mapcycle(mcm_changed_from from)
 {
 	ConfigMapInfo info;
 
-	if(from == MCM_ChangedInitial) {
+	if(from == mcm_changed_initial) {
 		int len = config_maps_without_playerchange.Length;
 		for(int i = 0; i < len; ++i) {
 			int idx = config_maps_without_playerchange.Get(i);
@@ -467,17 +467,17 @@ static void recompute_mapcycle(MCM_ChangeFrom from)
 		add_to_mapcycle(info, idx);
 	}
 
-	if(mapchooser_mcm_reload == INVALID_FUNCTION) {
+	if(mapchooser_mcm_changed == INVALID_FUNCTION) {
 		recompute_mapcycle_write_file(from, mapcyclefile_path, mapcycle_playerchange_begin, mapcycle_playerchange_offset, current_mapcycle);
 	}
 
-	if(nominations_mcm_reload == INVALID_FUNCTION) {
+	if(nominations_mcm_changed == INVALID_FUNCTION) {
 		recompute_mapcycle_write_file(from, mapcyclefile_nochance_path, mapcycle_nochance_playerchange_begin, mapcycle_nochance_playerchange_offset, current_mapcycle_nochance);
 	}
 
 	if(mapchooser_plugin != null) {
-		if(mapchooser_mcm_reload != INVALID_FUNCTION) {
-			Call_StartFunction(mapchooser_plugin, mapchooser_mcm_reload);
+		if(mapchooser_mcm_changed != INVALID_FUNCTION) {
+			Call_StartFunction(mapchooser_plugin, mapchooser_mcm_changed);
 			Call_PushCell(current_mapcycle_maps);
 			Call_PushCell(from);
 			Call_Finish();
@@ -489,8 +489,8 @@ static void recompute_mapcycle(MCM_ChangeFrom from)
 	}
 
 	if(nominations_plugin != null) {
-		if(nominations_mcm_reload != INVALID_FUNCTION) {
-			Call_StartFunction(nominations_plugin, nominations_mcm_reload);
+		if(nominations_mcm_changed != INVALID_FUNCTION) {
+			Call_StartFunction(nominations_plugin, nominations_mcm_changed);
 			Call_PushCell(current_mapcycle_nochance_maps);
 			Call_PushCell(from);
 			Call_Finish();
@@ -586,14 +586,14 @@ static void mapchooser_unloaded()
 {
 	mapchooser_plugin = null;
 	mapchooser_configsexecuted = INVALID_FUNCTION;
-	mapchooser_mcm_reload = INVALID_FUNCTION;
+	mapchooser_mcm_changed = INVALID_FUNCTION;
 }
 
 static void nominations_unloaded()
 {
 	nominations_plugin = null;
 	nominations_configsexecuted = INVALID_FUNCTION;
-	nominations_mcm_reload = INVALID_FUNCTION;
+	nominations_mcm_changed = INVALID_FUNCTION;
 }
 
 static void find_nominations()
@@ -637,12 +637,12 @@ static void find_nominations()
 	}
 	if(nominations_plugin != null) {
 		nominations_configsexecuted = GetFunctionByName(nominations_plugin, "OnConfigsExecuted");
-		nominations_mcm_reload = GetFunctionByName(nominations_plugin, "MCM_MapcycleChanged");
+		nominations_mcm_changed = GetFunctionByName(nominations_plugin, "mcm_changed");
 	}
 #if defined DEBUG
 	PrintToServer(MCM_CON_PREFIX ... "nominations plugin: %i", nominations_plugin != null ? 1 : 0);
 	PrintToServer(MCM_CON_PREFIX ... "nominations OnConfigsExecuted: %i", nominations_configsexecuted != INVALID_FUNCTION ? 1 : 0);
-	PrintToServer(MCM_CON_PREFIX ... "nominations MCM_MapcycleChanged: %i", nominations_mcm_reload != INVALID_FUNCTION ? 1 : 0);
+	PrintToServer(MCM_CON_PREFIX ... "nominations mcm_changed: %i", nominations_mcm_changed != INVALID_FUNCTION ? 1 : 0);
 #endif
 }
 
@@ -687,12 +687,12 @@ static void find_mapchooser()
 	}
 	if(mapchooser_plugin != null) {
 		mapchooser_configsexecuted = GetFunctionByName(mapchooser_plugin, "OnConfigsExecuted");
-		mapchooser_mcm_reload = GetFunctionByName(mapchooser_plugin, "MCM_MapcycleChanged");
+		mapchooser_mcm_changed = GetFunctionByName(mapchooser_plugin, "mcm_changed");
 	}
 #if defined DEBUG
 	PrintToServer(MCM_CON_PREFIX ... "mapchooser plugin: %i", mapchooser_plugin != null ? 1 : 0);
 	PrintToServer(MCM_CON_PREFIX ... "mapchooser OnConfigsExecuted: %i", mapchooser_configsexecuted != INVALID_FUNCTION ? 1 : 0);
-	PrintToServer(MCM_CON_PREFIX ... "mapchooser MCM_MapcycleChanged: %i", mapchooser_mcm_reload != INVALID_FUNCTION ? 1 : 0);
+	PrintToServer(MCM_CON_PREFIX ... "mapchooser mcm_changed: %i", mapchooser_mcm_changed != INVALID_FUNCTION ? 1 : 0);
 #endif
 }
 
@@ -756,9 +756,9 @@ public void OnConfigsExecuted()
 		}
 	}
 
-	recompute_mapcycle(MCM_ChangedInitial);
+	recompute_mapcycle(mcm_changed_initial);
 
-	if(mapchooser_mcm_reload == INVALID_FUNCTION || nominations_mcm_reload == INVALID_FUNCTION) {
+	if(mapchooser_mcm_changed == INVALID_FUNCTION || nominations_mcm_changed == INVALID_FUNCTION) {
 		mapcyclefile.SetString(mapcyclefile_path);
 	}
 
@@ -818,7 +818,7 @@ public void OnClientPutInServer(int client)
 	++num_players;
 
 	if(!ignore_playerchance) {
-		recompute_mapcycle(MCM_ChangedPlayerCount);
+		recompute_mapcycle(mcm_changed_player_count);
 	}
 }
 
@@ -835,7 +835,7 @@ public void OnClientDisconnect(int client)
 	--num_players;
 
 	if(!ignore_playerchance) {
-		recompute_mapcycle(MCM_ChangedPlayerCount);
+		recompute_mapcycle(mcm_changed_player_count);
 	}
 }
 

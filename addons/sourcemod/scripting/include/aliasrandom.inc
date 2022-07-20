@@ -78,13 +78,13 @@ stock ArrayList CreateAliasRandom(ArrayList weights)
 	int smalllen = smalls.Length;
 	int biglen = bigs.Length;
 
-	if(smalllen > 0 && biglen > 0) {
-		aliases = new ArrayList(2, len);
-		for(int i = 0; i < len; ++i) {
-			aliases.Set(i, 1.0, 0);
-			aliases.Set(i, -1, 1);
-		}
+	aliases = new ArrayList(2, len);
+	for(int i = 0; i < len; ++i) {
+		aliases.Set(i, 1.0, 0);
+		aliases.Set(i, -1, 1);
+	}
 
+	if(smalllen > 0 && biglen > 0) {
 		int small_idx = smalls.Get(0, 0);
 		float small_weight = smalls.Get(0, 1);
 
@@ -135,6 +135,9 @@ stock int GetAliasRandom(ArrayList aliases)
 		return -1;
 	}
 	int len = aliases.Length;
+	if(len == 0) {
+		return -1;
+	}
 	float r = GetRandomFloat(0.0, 1.0) * len;
 	int i = RoundToFloor(r);
 	int alias = aliases.Get(i, 1);

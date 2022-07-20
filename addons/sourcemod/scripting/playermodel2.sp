@@ -119,6 +119,7 @@ enum struct ConfigInfo
 	int classes_allowed;
 	ArrayList variations;
 
+	ArrayList sound_precache_folders;
 	ArrayList sound_precaches;
 
 	ArrayList sound_replacements;
@@ -350,6 +351,7 @@ static void unload_configs()
 			delete sound_info.source_regex;
 		}
 		delete config_info.sound_replacements;
+		delete config_info.sound_precache_folders;
 		delete config_info.sound_precaches;
 		delete config_info.sound_variables;
 	}
@@ -652,7 +654,7 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 	if(kv.JumpToKey("precache")) {
 		if(kv.JumpToKey("sounds")) {
 			if(!info.sound_precaches) {
-				info.sound_precaches = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+				info.sound_precaches = new ArrayList(sizeof(SoundInfo));
 			}
 
 			if(kv.GotoFirstSubKey(false)) {
@@ -663,6 +665,20 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 					kv.GetString(NULL_STRING, sound_value, PLATFORM_MAX_PATH, "");
 					sound_info.is_script = StrEqual(sound_value, "script");
 					info.sound_precaches.PushArray(sound_info, sizeof(SoundInfo));
+				} while(kv.GotoNextKey(false));
+				kv.GoBack();
+			}
+			kv.GoBack();
+		}
+		if(kv.JumpToKey("sound_folders")) {
+			if(!info.sound_precache_folders) {
+				info.sound_precache_folders = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+			}
+
+			if(kv.GotoFirstSubKey(false)) {
+				do {
+					kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH);
+					info.sound_precache_folders.PushString(any_file_path);
 				} while(kv.GotoNextKey(false));
 				kv.GoBack();
 			}
@@ -754,6 +770,7 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 	return true;
 }
 
+//TODO!!!! URGENT GET RID OF THIS SYSTEM
 void clone_config_basic(ConfigInfo info, ConfigInfo other)
 {
 	strcopy(info.arm_model, MODEL_NAME_MAX, other.arm_model);
@@ -762,6 +779,12 @@ void clone_config_basic(ConfigInfo info, ConfigInfo other)
 		info.sound_precaches = other.sound_precaches.Clone();
 	} else {
 		info.sound_precaches = null;
+	}
+
+	if(other.sound_precache_folders != null) {
+		info.sound_precache_folders = other.sound_precache_folders.Clone();
+	} else {
+		info.sound_precache_folders = null;
 	}
 
 	if(other.sound_replacements != null) {
@@ -902,6 +925,7 @@ static void free_group_config_info(ConfigInfo group_config_info)
 		}
 	}
 	delete group_config_info.sound_replacements;
+	delete group_config_info.sound_precache_folders;
 	delete group_config_info.sound_precaches;
 	delete group_config_info.sound_variables;
 }
@@ -1125,7 +1149,7 @@ public void OnPluginStart()
 	TF2Items_SetLevel(dummy_item_view, 0);
 	TF2Items_SetNumAttributes(dummy_item_view, 0);
 
-	//AddNormalSoundHook(sound_hook);
+	AddNormalSoundHook(sound_hook);
 
 	weapons_class_cache = new ArrayList(sizeof(WeaponClassCache));
 
@@ -1594,6 +1618,10 @@ public void OnMapStart()
 	SoundReplacementInfo sound_replace_info;
 	SoundInfo sound_info;
 
+	ArrayList folders_already_precached = new ArrayList();
+
+	char any_file_path[PLATFORM_MAX_PATH];
+
 	int configs_len = configs.Length;
 	for(int i = 0; i < configs_len; ++i) {
 		configs.GetArray(i, info, sizeof(ConfigInfo));
@@ -1616,10 +1644,14 @@ public void OnMapStart()
 						PrintToServer(PM2_CON_PREFIX ... "precached sound script %s from replace", sound_info.path);
 					#endif
 					} else {
-						PrecacheSound(sound_info.path);
-					#if defined DEBUG_CONFIG
-						PrintToServer(PM2_CON_PREFIX ... "precached sound %s from replace", sound_info.path);
-					#endif
+						if(StrContains(sound_info.path, "$") == -1) {
+							PrecacheSound(sound_info.path);
+							Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+							AddFileToDownloadsTable(any_file_path);
+						#if defined DEBUG_CONFIG
+							PrintToServer(PM2_CON_PREFIX ... "precached sound %s from replace", sound_info.path);
+						#endif
+						}
 					}
 				}
 			}
@@ -1636,10 +1668,55 @@ public void OnMapStart()
 				#endif
 				} else {
 					PrecacheSound(sound_info.path);
+					Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+					AddFileToDownloadsTable(any_file_path);
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "precached sound %s from precache", sound_info.path);
 				#endif
 				}
+			}
+		}
+
+		if(info.sound_precache_folders != null) {
+			char sound_folder_path[PLATFORM_MAX_PATH];
+			char sound_file_path[PLATFORM_MAX_PATH];
+
+			int sounds_len = info.sound_precache_folders.Length;
+			for(int j = 0; j < sounds_len; ++j) {
+				info.sound_precache_folders.GetString(j, sound_folder_path, PLATFORM_MAX_PATH);
+
+				if(folders_already_precached.FindString(sound_folder_path) != -1) {
+					continue;
+				}
+
+				folders_already_precached.PushString(sound_folder_path);
+
+				Format(sound_folder_path, PLATFORM_MAX_PATH, "sound/%s", sound_folder_path);
+
+			#if defined DEBUG_CONFIG
+				PrintToServer(PM2_CON_PREFIX ... "precaching sound folder %s", sound_folder_path);
+			#endif
+				
+				DirectoryListing maps_dir = OpenDirectory(sound_folder_path, true);
+				if(maps_dir != null) {
+					FileType filetype;
+					while(maps_dir.GetNext(sound_file_path, PLATFORM_MAX_PATH, filetype)) {
+						if(filetype != FileType_File) {
+							continue;
+						}
+
+						Format(sound_file_path, PLATFORM_MAX_PATH, "%s/%s", sound_folder_path[6], sound_file_path);
+
+					#if defined DEBUG_CONFIG && 1
+						PrintToServer(PM2_CON_PREFIX ... "precached sound %s from precache", sound_file_path);
+					#endif
+
+						PrecacheSound(sound_file_path);
+						Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
+						AddFileToDownloadsTable(any_file_path);
+					}
+				}
+				delete maps_dir;
 			}
 		}
 
@@ -1656,7 +1733,7 @@ public void OnMapStart()
 		}
 	}
 
-	//TODO!!! support for precaching a whole sound folder
+	delete folders_already_precached;
 }
 
 static Action sm_rpm(int client, int args)
@@ -3073,7 +3150,7 @@ public void OnClientPutInServer(int client)
 	}
 
 	CBaseEntity_ModifyOrAppendCriteria_hook.HookEntity(Hook_Post, client, CBaseEntity_ModifyOrAppendCriteria_detour_post);
-	//CBasePlayer_GetSceneSoundToken_hook.HookEntity(Hook_Pre, client, CBasePlayer_GetSceneSoundToken_detour);
+	CBasePlayer_GetSceneSoundToken_hook.HookEntity(Hook_Pre, client, CBasePlayer_GetSceneSoundToken_detour);
 }
 
 //TODO!!! handle client-side sounds
@@ -3085,106 +3162,202 @@ static bool is_sound_client_side(const char[] sample)
 	return false;
 }
 
+static void replace_string_by_idx(char[] source, const char[] dst, int start, int end)
+{
+	int dst_len = strlen(dst);
+
+	for(int i = 0; i < dst_len; ++i) {
+		source[start+i] = dst[i];
+	}
+
+	int remainder = strlen(source[end]);
+	for(int i = 0; i < remainder; ++i) {
+		source[start+dst_len+i] = source[end+i];
+	}
+
+	source[start+dst_len+remainder] = '\0';
+}
+
+static void parse_sound_functions(char[] sample)
+{
+	int idx = StrContains(sample, "$");
+	int begin = idx;
+	if(idx != -1) {
+		++idx;
+		if(strcmp(sample[idx], "rnd") == 1) {
+			idx += 3;
+			int add_zero = 0;
+			while(sample[idx] == '0') {
+				++add_zero;
+				++idx;
+			}
+			if(sample[idx++] != '(') {
+				LogError("Malformed sound rnd function in sample \"%s\"", sample);
+				return;
+			}
+
+			int n1_end = StrContains(sample[idx], ",");
+			if(n1_end == -1) {
+				LogError("Malformed sound rnd function in sample \"%s\"", sample);
+				return;
+			}
+
+			int n1_start = idx;
+			int n1_str_len = n1_end;
+			char[] n1_str = new char[++n1_str_len];
+			strcopy(n1_str, n1_str_len, sample[n1_start]);
+
+			idx += n1_end;
+
+			if(sample[idx++] != ',') {
+				LogError("Malformed sound rnd function in sample \"%s\"", sample);
+				return;
+			}
+
+			int n2_start = idx;
+			int n2_end = StrContains(sample[idx], ")");
+			if(n2_end == -1) {
+				LogError("Malformed sound rnd function in sample \"%s\"", sample);
+				return;
+			}
+			idx += n2_end+1;
+
+			int n2_str_len = n2_end;
+			char[] n2_str = new char[++n2_str_len];
+			strcopy(n2_str, n2_str_len, sample[n2_start]);
+
+			int n1 = StringToInt(n1_str);
+			int n2 = StringToInt(n2_str);
+
+			int num = GetRandomInt(n1, n2);
+
+			char n_str[10];
+			int n_str_len = IntToString(num, n_str, sizeof(n_str));
+
+			while(n_str_len <= add_zero) {
+				n_str_len = Format(n_str, sizeof(n_str), "0%s", n_str);
+			}
+
+			replace_string_by_idx(sample, n_str, begin, idx);
+		} else {
+			LogError("Unknown sound function in sample \"%s\"", sample);
+			return;
+		}
+	}
+}
+
+static Action handle_config_sound(int entity, PlayerConfigInfo info, int &numClients, int[] clients, char[] sample, char[] soundEntry, int &channel, float &volume, int &level, int &pitch)
+{
+	bool was_client_side = is_sound_client_side(sample);
+#if defined DEBUG_CONFIG
+	PrintToServer(PM2_CON_PREFIX ... "was_client_side = %i", was_client_side);
+#endif
+
+	bool anything_changed = false;
+
+	if(info.sound_variables != null) {
+		char sound_var_value[MAX_SOUND_VAR_VALUE];
+
+		char player_class_name[CLASS_NAME_MAX + MAX_SOUND_VAR_VALUE];
+
+		if(info.sound_variables.GetString("player_class", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+			TFClassType player_class = get_player_class(entity);
+			get_class_name(player_class, player_class_name, sizeof(player_class_name));
+			if(StrEqual(sound_var_value, "model_class")) {
+				TFClassType model_class = info.model_class;
+				if(model_class != TFClass_Unknown) {
+					char model_class_name[CLASS_NAME_MAX];
+					get_class_name(model_class, model_class_name, CLASS_NAME_MAX);
+					ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
+					anything_changed = true;
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
+				#endif
+					strcopy(player_class_name, sizeof(player_class_name), model_class_name);
+				}
+			}
+		}
+
+		if(info.sound_variables.GetString("player_class_append", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+			char player_class_name_new[CLASS_NAME_MAX + MAX_SOUND_VAR_VALUE];
+			strcopy(player_class_name_new, sizeof(player_class_name_new), player_class_name);
+			StrCat(player_class_name_new, sizeof(player_class_name_new), sound_var_value);
+			ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, player_class_name_new);
+			anything_changed = true;
+		#if defined DEBUG_CONFIG
+			PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, player_class_name_new);
+		#endif
+			strcopy(player_class_name, sizeof(player_class_name), player_class_name_new);
+		}
+
+		if(info.sound_variables.GetString("vo", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+			ReplaceString(sample, PLATFORM_MAX_PATH, "vo/", sound_var_value);
+			anything_changed = true;
+		#if defined DEBUG_CONFIG
+			PrintToServer(PM2_CON_PREFIX ... "replaced sound variable vo/ with %s", sound_var_value);
+		#endif
+		}
+	}
+	if(info.sound_replacements != null) {
+		int sounds_len = info.sound_replacements.Length;
+		SoundReplacementInfo sound_replace_info;
+		SoundInfo sound_info;
+		for(int i = 0; i < sounds_len; ++i) {
+			info.sound_replacements.GetArray(i, sound_replace_info, sizeof(SoundReplacementInfo));
+			int matched = 0;
+			if(sound_replace_info.source_is_script) {
+				if(soundEntry[0] != '\0' && sound_replace_info.source_regex.Match(soundEntry) > 0) {
+					matched = 1;
+				}
+			} else if(sound_replace_info.source_regex.Match(sample) > 0) {
+				matched = 2;
+			}
+			if(matched > 0) {
+				int destination_idx = GetRandomInt(0, sound_replace_info.destinations.Length-1);
+				sound_replace_info.destinations.GetArray(destination_idx, sound_info, sizeof(SoundInfo));
+				if(sound_info.is_script) {
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound script %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
+				#endif
+					if(GetGameSoundParams(sound_info.path, channel, level, volume, pitch, sample, PLATFORM_MAX_PATH, entity)) {
+						strcopy(soundEntry, PLATFORM_MAX_PATH, sound_info.path);
+						anything_changed = true;
+						break;
+					}
+				} else {
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
+				#endif
+					strcopy(sample, PLATFORM_MAX_PATH, sound_info.path);
+					parse_sound_functions(sample);
+					anything_changed = true;
+					break;
+				}
+			}
+		}
+	}
+	if(anything_changed) {
+		if(was_client_side) {
+			clients[numClients++] = entity;
+		}
+		return Plugin_Changed;
+	} else if(info.flags & config_flags_no_voicelines) {
+		return Plugin_Stop;
+	}
+	return Plugin_Continue;
+}
+
 static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
 	if(entity >= 1 && entity <= MaxClients) {
 	#if defined DEBUG_CONFIG
 		PrintToServer(PM2_CON_PREFIX ... "sound_hook %i %s, %s", entity, sample, soundEntry);
 	#endif
+		TFClassType player_class = get_player_class(entity);
 		if(player_config[entity].idx != -1) {
-			bool was_client_side = is_sound_client_side(sample);
-		#if defined DEBUG_CONFIG
-			PrintToServer(PM2_CON_PREFIX ... "was_client_side = %i", was_client_side);
-		#endif
-
-			bool anything_changed = false;
-
-			if(player_config[entity].sound_variables != null) {
-				char sound_var_value[MAX_SOUND_VAR_VALUE];
-
-				char player_class_name[CLASS_NAME_MAX + MAX_SOUND_VAR_VALUE];
-
-				if(player_config[entity].sound_variables.GetString("player_class", sound_var_value, MAX_SOUND_VAR_VALUE)) {
-					TFClassType player_class = get_player_class(entity);
-					get_class_name(player_class, player_class_name, sizeof(player_class_name));
-					if(StrEqual(sound_var_value, "model_class")) {
-						TFClassType model_class = player_config[entity].model_class;
-						if(model_class != TFClass_Unknown) {
-							char model_class_name[CLASS_NAME_MAX];
-							get_class_name(model_class, model_class_name, CLASS_NAME_MAX);
-							ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
-							anything_changed = true;
-						#if defined DEBUG_CONFIG
-							PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
-						#endif
-							strcopy(player_class_name, sizeof(player_class_name), model_class_name);
-						}
-					}
-				}
-
-				if(player_config[entity].sound_variables.GetString("player_class_append", sound_var_value, MAX_SOUND_VAR_VALUE)) {
-					char player_class_name_new[CLASS_NAME_MAX + MAX_SOUND_VAR_VALUE];
-					strcopy(player_class_name_new, sizeof(player_class_name_new), player_class_name);
-					StrCat(player_class_name_new, sizeof(player_class_name_new), sound_var_value);
-					ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, player_class_name_new);
-					anything_changed = true;
-				#if defined DEBUG_CONFIG
-					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, player_class_name_new);
-				#endif
-					strcopy(player_class_name, sizeof(player_class_name), player_class_name_new);
-				}
-
-				if(player_config[entity].sound_variables.GetString("vo", sound_var_value, MAX_SOUND_VAR_VALUE)) {
-					ReplaceString(sample, PLATFORM_MAX_PATH, "vo/", sound_var_value);
-					anything_changed = true;
-				#if defined DEBUG_CONFIG
-					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable vo/ with %s", sound_var_value);
-				#endif
-				}
-			}
-			if(player_config[entity].sound_replacements != null) {
-				int sounds_len = player_config[entity].sound_replacements.Length;
-				SoundReplacementInfo sound_replace_info;
-				SoundInfo sound_info;
-				for(int i = 0; i < sounds_len; ++i) {
-					player_config[entity].sound_replacements.GetArray(i, sound_replace_info, sizeof(SoundReplacementInfo));
-					int matched = 0;
-					if(sound_replace_info.source_is_script) {
-						if(soundEntry[0] != '\0' && sound_replace_info.source_regex.Match(soundEntry) > 0) {
-							matched = 1;
-						}
-					} else if(sound_replace_info.source_regex.Match(sample) > 0) {
-						matched = 2;
-					}
-					if(matched > 0) {
-						int destination_idx = GetRandomInt(0, sound_replace_info.destinations.Length-1);
-						sound_replace_info.destinations.GetArray(destination_idx, sound_info, sizeof(SoundInfo));
-						if(sound_info.is_script) {
-						#if defined DEBUG_CONFIG
-							PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound script %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
-						#endif
-							if(GetGameSoundParams(sound_info.path, channel, level, volume, pitch, sample, PLATFORM_MAX_PATH, entity)) {
-								strcopy(soundEntry, PLATFORM_MAX_PATH, sound_info.path);
-								anything_changed = true;
-							}
-						} else {
-						#if defined DEBUG_CONFIG
-							PrintToServer(PM2_CON_PREFIX ... "replaced %s %s with sound %s", matched == 2 ? "sound" : "sound script", matched == 2 ? sample : soundEntry, sound_info.path);
-						#endif
-							strcopy(sample, PLATFORM_MAX_PATH, sound_info.path);
-							anything_changed = true;
-						}
-					}
-				}
-			}
-			if(anything_changed) {
-				if(was_client_side) {
-					clients[numClients++] = entity;
-				}
-				return Plugin_Changed;
-			} else if(player_config[entity].flags & config_flags_no_voicelines) {
-				return Plugin_Stop;
-			}
+			return handle_config_sound(entity, player_config[entity], numClients, clients, sample, soundEntry, channel, volume, level, pitch);
+		} else if(player_econ_configs[entity][player_class].model[0] != '\0') {
+			return handle_config_sound(entity, player_econ_configs[entity][player_class], numClients, clients, sample, soundEntry, channel, volume, level, pitch);
 		}
 	}
 
