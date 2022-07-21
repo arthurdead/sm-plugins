@@ -81,7 +81,7 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 
 			player_footprint[client] = value;
 
-			if(IsClientInGame(client)) {
+			if(econ_player_state_valid(client)) {
 				TF2Attrib_SetByDefIndex(client, 1005, player_footprint[client]);
 			}
 		}

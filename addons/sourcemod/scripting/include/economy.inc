@@ -3,6 +3,9 @@
 #endif
 #define __economy_inc
 
+#include <tf2>
+#include <tf2_stocks>
+
 #define ECON_MAX_ITEM_CATEGORY_NAME 64
 
 #define ECON_MAX_ITEM_NAME 64
@@ -113,6 +116,18 @@ stock void econ_get_or_register_category(const char[] name, int parent, econ_cat
 			Call_Finish();
 		}
 	}
+}
+
+stock bool econ_player_state_valid(int client)
+{
+	if(!IsClientInGame(client) ||
+		!IsPlayerAlive(client) ||
+		GetClientTeam(client) < 2 ||
+		TF2_GetPlayerClass(client) == TFClass_Unknown) {
+		return false;
+	}
+
+	return true;
 }
 
 public SharedPlugin __pl_economy =

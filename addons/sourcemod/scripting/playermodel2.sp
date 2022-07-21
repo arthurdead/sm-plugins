@@ -1536,7 +1536,7 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				}
 			}
 
-			if(IsClientInGame(client)) {
+			if(IsClientInGame(client) && is_player_state_valid(client)) {
 				handle_playermodel(client);
 			}
 		}
@@ -3350,6 +3350,9 @@ static Action handle_config_sound(int entity, PlayerConfigInfo info, int &numCli
 static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[PLATFORM_MAX_PATH], int &entity, int &channel, float &volume, int &level, int &pitch, int &flags, char soundEntry[PLATFORM_MAX_PATH], int &seed)
 {
 	if(entity >= 1 && entity <= MaxClients) {
+		if(!IsClientInGame(entity)) {
+			return Plugin_Continue;
+		}
 	#if defined DEBUG_CONFIG
 		PrintToServer(PM2_CON_PREFIX ... "sound_hook %i %s, %s", entity, sample, soundEntry);
 	#endif

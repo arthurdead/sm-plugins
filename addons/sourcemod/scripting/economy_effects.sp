@@ -154,7 +154,7 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 			if(StrEqual(player_tracer_name[client], "dxhr_sniper_rail")) {
 				player_tracer_particle[client] = INVALID_STRING_INDEX;
 
-				if(IsClientInGame(client)) {
+				if(econ_player_state_valid(client)) {
 					TF2Attrib_SetByDefIndex(client, 305, 1.0);
 				}
 			} else {

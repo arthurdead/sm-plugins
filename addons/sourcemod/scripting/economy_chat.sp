@@ -108,6 +108,8 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 			color = CCC_ChatColor;
 		} else if(StrEqual(classname, "chat_color_name")) {
 			color = CCC_NameColor;
+		} else {
+			return;
 		}
 
 		switch(action) {

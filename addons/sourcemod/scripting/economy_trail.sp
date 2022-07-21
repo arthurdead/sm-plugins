@@ -178,7 +178,7 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 		switch(action) {
 			case econ_item_equip: {
 				player_has_trail[client] = true;
-				if(IsClientInGame(client)) {
+				if(econ_player_state_valid(client)) {
 					toggle_trail(client, false);
 					toggle_trail(client, true);
 				}
