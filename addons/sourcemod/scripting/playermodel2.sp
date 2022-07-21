@@ -3812,7 +3812,7 @@ static int get_player_model_entity(int client)
 
 static bool player_taunts_in_firstperson(int client)
 {
-	if(cl_first_person_uses_world_model[client] || tf_taunt_first_person[client]) {
+	if(tf_taunt_first_person[client]) {
 		return true;
 	}
 	return false;
@@ -3828,8 +3828,8 @@ static bool is_player_in_thirdperson(int client)
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenThriller) ||
 			TF2_IsPlayerInCondition(client, TFCond_Bonked) ||
 			!!(GetEntProp(client, Prop_Send, "m_iStunFlags") & TF_STUNFLAG_THIRDPERSON) ||
-			GetEntProp(client, Prop_Send, "m_bIsReadyToHighFive") == 1 ||
-			GetEntProp(client, Prop_Send, "m_nForceTauntCam") == 1 ||
+			GetEntProp(client, Prop_Send, "m_bIsReadyToHighFive") > 0 ||
+			GetEntProp(client, Prop_Send, "m_nForceTauntCam") > 0 ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenKart) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenBombHead) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenGiant) ||
