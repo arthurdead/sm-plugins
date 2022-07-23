@@ -75,6 +75,9 @@ stock void unpack_4_ints(int buf, int &i1, int &i2, int &i3, int &i4)
 
 stock void pack_int_in_str(int val, char[] str, int off=0)
 {
+	if(val < 0) {
+		LogError("[BIT] negative numbers are not supported in pack_int_in_str");
+	}
 	str[off+0] = ((val & 255)+1);
 	str[off+1] = (((val >> 8) & 255)+1);
 	str[off+2] = (((val >> 16) & 255)+1);

@@ -773,9 +773,11 @@ public void OnConfigsExecuted()
 				config_maps.GetArray(idx, info, sizeof(ConfigMapInfo));
 				char map_name[PLATFORM_MAX_PATH];
 				get_config_map_path(info, map_name, PLATFORM_MAX_PATH);
-				SetNextMap(map_name);
-				ForceChangeLevel(map_name, "MCM");
-				return;
+				if(!StrEqual(map_name, current_map)) {
+					SetNextMap(map_name);
+					ForceChangeLevel(map_name, "MCM");
+					return;
+				}
 			}
 		}
 	}

@@ -81,80 +81,106 @@ enum model_method
 	model_method_bonemerge
 };
 
-enum struct ConfigGroupInfo
+enum struct SoundInfo
 {
-	char name[MODEL_NAME_MAX];
-	char override[OVERRIDE_MAX];
-	char steamid[STEAMID_MAX];
-	ArrayList configs;
+	char path[PLATFORM_MAX_PATH];
+	bool is_script;
+
+	bool from_group;
+}
+
+enum struct SoundReplacementInfo
+{
+	Regex source_regex;
+	bool source_is_script;
+
+	ArrayList destinations;
+
+	bool from_group;
+}
+
+enum struct ConfigEconInfo
+{
+	char description[ECON_MAX_ITEM_DESCRIPTION];
+	int price;
+}
+
+enum struct ModelInfo
+{
+	char model[PLATFORM_MAX_PATH];
+	TFClassType model_class;
+	int skin;
+	int bodygroups;
+	char arm_model[PLATFORM_MAX_PATH];
+
+	bool model_from_group;
+	bool arm_from_group;
 }
 
 enum struct ConfigVariationInfo
 {
 	char name[MODEL_NAME_MAX];
 
-	char model[PLATFORM_MAX_PATH];
-	TFClassType model_class;
 	config_flags flags;
-	int skin;
-	int bodygroups;
-}
 
-enum struct SoundInfo
-{
-	char path[PLATFORM_MAX_PATH];
-	bool is_script;
-}
-
-enum struct SoundReplacementInfo
-{
-	bool source_is_script;
-	Regex source_regex;
-	ArrayList destinations;
+	StringMap models;
 }
 
 enum struct ConfigInfo
 {
-	char name[MODEL_NAME_MAX];
-	int classes_allowed;
-	ArrayList variations;
+	config_flags flags;
 
 	ArrayList sound_precache_folders;
 	ArrayList sound_precaches;
+	ArrayList model_precaches;
 
 	ArrayList sound_replacements;
 	StringMap sound_variables;
 
-	char arm_model[PLATFORM_MAX_PATH];
-	char model[PLATFORM_MAX_PATH];
-	TFClassType model_class;
-	config_flags flags;
-	int skin;
-	int bodygroups;
+	char name[MODEL_NAME_MAX];
 
-	char econ_description[ECON_MAX_ITEM_DESCRIPTION];
-	int econ_price;
+	int classes_allowed;
+
+	StringMap models;
+
+	ArrayList variations;
+
+	ConfigEconInfo econ;
+}
+
+enum struct ConfigGroupInfo
+{
+	char name[MODEL_NAME_MAX];
+
+	char override[OVERRIDE_MAX];
+	char steamid[STEAMID_MAX];
+
+	bool hidden;
+
+	ConfigInfo baseline_config;
+	ArrayList configs;
 }
 
 enum struct PlayerConfigInfo
 {
 	int idx;
+	int variation_idx;
+
+	config_flags flags;
 
 	ArrayList sound_replacements;
 	StringMap sound_variables;
 
-	int classes_allowed;
 	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
 	TFClassType model_class;
-	config_flags flags;
 	int skin;
 	int bodygroups;
 
 	void clear()
 	{
 		this.idx = -1;
-		this.classes_allowed = 0;
+		this.variation_idx = -1;
 		this.sound_replacements = null;
 		this.sound_variables = null;
 		this.flags = config_flags_none;
@@ -169,6 +195,7 @@ enum struct PlayerConfigInfo
 enum struct WeaponClassCache
 {
 	int item;
+
 	ArrayList classes;
 	int bitmask;
 }
@@ -211,9 +238,17 @@ static TFClassType player_weapon_animation_class[TF2_MAXPLAYERS+1];
 
 static ThirdpartyModelInfo player_thirdparty_model[TF2_MAXPLAYERS+1];
 static ThirdpartyModelInfo player_custom_taunt_model[TF2_MAXPLAYERS+1];
-static PlayerConfigInfo player_config[TF2_MAXPLAYERS+1];
 
-static PlayerConfigInfo player_econ_configs[TF2_MAXPLAYERS+1][TF_CLASS_COUNT_ALL];
+enum player_config_type
+{
+	player_config_thirdparty,
+	player_config_custom,
+	player_config_econ
+};
+
+#define PLAYER_CONFIG_MAX 3
+
+static PlayerConfigInfo player_configs[TF2_MAXPLAYERS+1][TF_CLASS_COUNT_ALL][PLAYER_CONFIG_MAX];
 
 static GlobalForward fwd_changed;
 
@@ -257,7 +292,12 @@ static ArrayList groups;
 static ArrayList configs;
 static StringMap config_idx_map;
 
-static ConfigGroupInfo econ_group;
+static int thirdparty_group_idx = -1;
+
+static int main_group_idx = -1;
+static StringMap chat_triggers;
+
+static int econ_group_idx = -1;
 static StringMap econ_to_config_map;
 
 static int no_damage_gameplay_group = INVALID_GAMEPLAY_GROUP;
@@ -292,18 +332,24 @@ static int native_pm2_get_model(Handle plugin, int params)
 
 	int len = GetNativeCell(3);
 
-	TFClassType player_class = get_player_class(client);
-
 	if(player_thirdparty_model[client].model[0] != '\0') {
 		SetNativeString(2, player_thirdparty_model[client].model, len);
-	} else if((player_config[client].model[0] != '\0') && !!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
-		SetNativeString(2, player_config[client].model, len);
-	} else if(player_econ_configs[client][player_class].model[0] != '\0') {
-		SetNativeString(2, player_econ_configs[client][player_class].model, len);
+		return 0;
 	} else {
-		SetNativeString(2, "", len);
+		TFClassType player_class = get_player_class(client);
+
+		for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+			if(player_configs[client][player_class][i].model[0] != '\0') {
+				char tmp[PLATFORM_MAX_PATH];
+				strcopy(tmp, PLATFORM_MAX_PATH, player_configs[client][player_class][i].model);
+				replace_model_variables(client, player_configs[client][player_class][i].model_class, tmp, PLATFORM_MAX_PATH);
+				SetNativeString(2, tmp, len);
+				return 0;
+			}
+		}
 	}
 
+	SetNativeString(2, "", len);
 	return 0;
 }
 
@@ -326,23 +372,43 @@ static void unload_configs()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
-			unequip_config(i, true);
+			unequip_config(i);
 		}
 	}
+
+	SoundReplacementInfo sound_info;
 
 	ConfigGroupInfo group_info;
 	int len = groups.Length;
 	for(int i = 0; i < len; ++i) {
 		groups.GetArray(i, group_info, sizeof(ConfigGroupInfo));
 		delete group_info.configs;
+		
+		int replacements_len = group_info.baseline_config.sound_replacements.Length;
+		for(int k = 0; k < replacements_len; ++k) {
+			group_info.baseline_config.sound_replacements.GetArray(k, sound_info, sizeof(SoundReplacementInfo));
+			delete sound_info.destinations;
+			delete sound_info.source_regex;
+		}
+		delete group_info.baseline_config.sound_replacements;
+		delete group_info.baseline_config.sound_precache_folders;
+		delete group_info.baseline_config.sound_precaches;
+		delete group_info.baseline_config.model_precaches;
+		delete group_info.baseline_config.sound_variables;
 	}
 
-	SoundReplacementInfo sound_info;
+	ConfigVariationInfo variation;
 
 	ConfigInfo config_info;
 	len = configs.Length;
 	for(int i = 0; i < len; ++i) {
 		configs.GetArray(i, config_info, sizeof(ConfigInfo));
+		delete config_info.models;
+		int var_len = config_info.variations.Length;
+		for(int k = 0; k < var_len; ++k) {
+			config_info.variations.GetArray(k, variation, sizeof(ConfigVariationInfo));
+			delete variation.models;
+		}
 		delete config_info.variations;
 		int replacements_len = config_info.sound_replacements.Length;
 		for(int k = 0; k < replacements_len; ++k) {
@@ -353,17 +419,23 @@ static void unload_configs()
 		delete config_info.sound_replacements;
 		delete config_info.sound_precache_folders;
 		delete config_info.sound_precaches;
+		delete config_info.model_precaches;
 		delete config_info.sound_variables;
 	}
 	delete configs;
+	delete chat_triggers;
 	delete config_idx_map;
 	delete econ_to_config_map;
+
+	econ_group_idx = -1;
+	thirdparty_group_idx = -1;
 }
 
-static bool parse_classes_str(int &classes, const char[] str, const char[] modelname)
+static bool parse_classes_str(int &classes, const char[] str, const char[] modelname, TFClassType &only_class)
 {
 	if(StrEqual(str, "all") || StrEqual(str, "any")) {
 		classes = MASK_ALL_CLASSES;
+		only_class = TFClass_Unknown;
 		return true;
 	}
 
@@ -373,26 +445,39 @@ static bool parse_classes_str(int &classes, const char[] str, const char[] model
 	for(int i = 0; i < num; ++i) {
 		if(StrEqual(classnames[i], "scout")) {
 			classes |= BIT_FOR_CLASS(TFClass_Scout);
+			only_class = TFClass_Scout;
 		} else if(StrEqual(classnames[i], "sniper")) {
 			classes |= BIT_FOR_CLASS(TFClass_Sniper);
+			only_class = TFClass_Sniper;
 		} else if(StrEqual(classnames[i], "soldier")) {
 			classes |= BIT_FOR_CLASS(TFClass_Soldier);
+			only_class = TFClass_Soldier;
 		} else if(StrEqual(classnames[i], "demoman")) {
 			classes |= BIT_FOR_CLASS(TFClass_DemoMan);
+			only_class = TFClass_DemoMan;
 		} else if(StrEqual(classnames[i], "medic")) {
 			classes |= BIT_FOR_CLASS(TFClass_Medic);
+			only_class = TFClass_Medic;
 		} else if(StrEqual(classnames[i], "heavy")) {
 			classes |= BIT_FOR_CLASS(TFClass_Heavy);
+			only_class = TFClass_Heavy;
 		} else if(StrEqual(classnames[i], "pyro")) {
 			classes |= BIT_FOR_CLASS(TFClass_Pyro);
+			only_class = TFClass_Pyro;
 		} else if(StrEqual(classnames[i], "spy")) {
 			classes |= BIT_FOR_CLASS(TFClass_Spy);
+			only_class = TFClass_Spy;
 		} else if(StrEqual(classnames[i], "engineer")) {
 			classes |= BIT_FOR_CLASS(TFClass_Engineer);
+			only_class = TFClass_Engineer;
 		} else {
 			LogError(PM2_CON_PREFIX ... "model %s has unknown class %s", modelname, classnames[i]);
 			return false;
 		}
+	}
+
+	if(num != 1) {
+		only_class = TFClass_Unknown;
 	}
 
 	return true;
@@ -636,7 +721,7 @@ static int parse_bodygroups_str(const char[] str)
 	return bodygroups;
 }
 
-static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags flags)
+static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags flags, bool is_group)
 {
 	bool valid = true;
 
@@ -647,11 +732,44 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 	kv.GetString("flags", flags_str, sizeof(flags_str), "");
 	info.flags = parse_flags_str(flags_str, flags);
 
-	kv.GetString("arm_model", info.arm_model, PLATFORM_MAX_PATH, info.arm_model);
+	if(!info.models) {
+		info.models = new StringMap();
+	}
+
+	ModelInfo model_info;
+
+	info.models.GetArray("", model_info, sizeof(ModelInfo));
+
+	kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
+	if(model_info.model[0] != '\0' && is_group) {
+		model_info.model_from_group = true;
+	}
+
+	kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
+	if(model_info.arm_model[0] != '\0' && is_group) {
+		model_info.arm_from_group = true;
+	}
+
+	info.models.SetArray("", model_info, sizeof(ModelInfo));
 
 	SoundInfo sound_info;
+	sound_info.from_group = is_group;
 
 	if(kv.JumpToKey("precache")) {
+		if(kv.JumpToKey("models")) {
+			if(!info.model_precaches) {
+				info.model_precaches = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+			}
+
+			if(kv.GotoFirstSubKey(false)) {
+				do {
+					kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH, "");
+					info.model_precaches.PushString(any_file_path);
+				} while(kv.GotoNextKey(false));
+				kv.GoBack();
+			}
+			kv.GoBack();
+		}
 		if(kv.JumpToKey("sounds")) {
 			if(!info.sound_precaches) {
 				info.sound_precaches = new ArrayList(sizeof(SoundInfo));
@@ -689,6 +807,7 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 
 	if(kv.JumpToKey("sound_replacements")) {
 		SoundReplacementInfo sound_replace_info;
+		sound_replace_info.from_group = is_group;
 
 		if(kv.JumpToKey("sample")) {
 			if(!info.sound_replacements) {
@@ -705,7 +824,11 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 					sound_replace_info.source_regex = new Regex(any_file_path, PCRE_UTF8, regex_error_str, sizeof(regex_error_str), regex_code);
 					if(regex_code != REGEX_ERROR_NONE) {
 						delete sound_replace_info.source_regex;
-						LogError(PM2_CON_PREFIX ... " config %s has invalid sound replace regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_error_str, regex_code);
+						if(!is_group) {
+							LogError(PM2_CON_PREFIX ... " config %s has invalid sound replace regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_error_str, regex_code);
+						} else {
+							LogError(PM2_CON_PREFIX ... " group %s has invalid sound replace regex \"%s\": \"%s\" (%i)", info.name, any_file_path, regex_error_str, regex_code);
+						}
 						valid = false;
 						break;
 					}
@@ -770,21 +893,12 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 	return true;
 }
 
-//TODO!!!! URGENT GET RID OF THIS SYSTEM
-void clone_config_basic(ConfigInfo info, ConfigInfo other)
+void clone_config_baseline(ConfigInfo info, ConfigInfo other)
 {
-	strcopy(info.arm_model, MODEL_NAME_MAX, other.arm_model);
-
-	if(other.sound_precaches != null) {
-		info.sound_precaches = other.sound_precaches.Clone();
+	if(other.models != null) {
+		info.models = other.models.Clone();
 	} else {
-		info.sound_precaches = null;
-	}
-
-	if(other.sound_precache_folders != null) {
-		info.sound_precache_folders = other.sound_precache_folders.Clone();
-	} else {
-		info.sound_precache_folders = null;
+		info.models = null;
 	}
 
 	if(other.sound_replacements != null) {
@@ -812,7 +926,7 @@ void clone_config_basic(ConfigInfo info, ConfigInfo other)
 	}
 }
 
-static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_config_info, bool econ = false)
+static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_baseline, bool econ = false)
 {
 	KeyValues kv = new KeyValues("playermodel2_config");
 	kv.ImportFromFile(path);
@@ -820,54 +934,89 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 	if(kv.GotoFirstSubKey()) {
 		group.configs = new ArrayList();
 
-		ConfigInfo info;
-		ConfigVariationInfo variation;
-
 		char flags_str[FLAGS_MAX * FLAGS_NUM];
 		char classes_str[CLASS_NAME_MAX * TF_CLASS_COUNT_ALL];
 		char int_str[INT_STR_MAX];
 		char classname[CLASS_NAME_MAX];
 		char bodygroups_str[BODYGROUP_NUM * BODYGROUP_MAX];
 
+		char chat_trigger[64];
+
 		do {
-			bool valid = true;
+			ConfigInfo info;
+			ConfigVariationInfo variation;
+			ModelInfo model_info;
 
 			kv.GetSectionName(info.name, MODEL_NAME_MAX);
 
-			clone_config_basic(info, group_config_info);
+			clone_config_baseline(info, group_baseline);
 
-			if(!parse_config_kv_basic(kv, info, group_config_info.flags)) {
+			if(!parse_config_kv_basic(kv, info, group_baseline.flags, false)) {
 				continue;
 			}
 
 			if(econ) {
-				info.econ_price = kv.GetNum("price");
+				info.econ.price = kv.GetNum("price");
 
-				kv.GetString("description", info.econ_description, ECON_MAX_ITEM_DESCRIPTION, "");
+				kv.GetString("description", info.econ.description, ECON_MAX_ITEM_DESCRIPTION, "");
 			}
 
 			kv.GetString("classes_whitelist", classes_str, sizeof(classes_str), "all");
 
 			info.classes_allowed = 0;
 
+			TFClassType only_class = TFClass_Unknown;
+
 			if(classes_str[0] != '\0') {
-				if(!parse_classes_str(info.classes_allowed, classes_str, info.name)) {
+				if(!parse_classes_str(info.classes_allowed, classes_str, info.name, only_class)) {
 					continue;
 				}
 			}
 
-			kv.GetString("model", info.model, PLATFORM_MAX_PATH, "");
+			info.models.GetArray("", model_info, sizeof(ModelInfo));
 
 			kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
-			info.bodygroups = parse_bodygroups_str(bodygroups_str);
+			model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
 
 			kv.GetString("skin", int_str, INT_STR_MAX, "-1");
-			info.skin = StringToInt(int_str);
+			model_info.skin = StringToInt(int_str);
 
 			kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
-			info.model_class = TF2_GetClass(classname);
-			if(info.model_class == TFClass_Unknown) {
-				info.flags |= config_flags_never_bonemerge;
+			model_info.model_class = TF2_GetClass(classname);
+
+			if(model_info.model_class == TFClass_Unknown && only_class != TFClass_Unknown) {
+				model_info.model_class = only_class;
+			}
+
+			info.models.SetArray("", model_info, sizeof(ModelInfo));
+
+			if(kv.JumpToKey("per_class_model")) {
+				if(kv.GotoFirstSubKey()) {
+					do {
+						kv.GetSectionName(classname, CLASS_NAME_MAX);
+						TFClassType class = TF2_GetClass(classname);
+						if(class == TFClass_Unknown) {
+							continue;
+						}
+
+						kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, "");
+
+						kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
+						model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
+
+						kv.GetString("skin", int_str, INT_STR_MAX, "-1");
+						model_info.skin = StringToInt(int_str);
+
+						kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+						model_info.model_class = TF2_GetClass(classname);
+
+						char str[5];
+						pack_int_in_str(view_as<int>(class), str);
+						info.models.SetArray(str, model_info, sizeof(ModelInfo));
+					} while(kv.GotoNextKey());
+					kv.GoBack();
+				}
+				kv.GoBack();
 			}
 
 			info.variations = null;
@@ -879,19 +1028,55 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 					do {
 						kv.GetSectionName(variation.name, MODEL_NAME_MAX);
 
-						kv.GetString("model", variation.model, PLATFORM_MAX_PATH, "");
-
-						kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
-						variation.model_class = TF2_GetClass(classname);
-
 						kv.GetString("flags", flags_str, sizeof(flags_str), "");
 						variation.flags = parse_flags_str(flags_str, info.flags);
 
+						variation.models = new StringMap();
+
+						info.models.GetArray("", model_info, sizeof(ModelInfo));
+
+						kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
+						kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
+
+						kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+						model_info.model_class = TF2_GetClass(classname);
+
 						kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
-						variation.bodygroups = parse_bodygroups_str(bodygroups_str);
+						model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
 
 						kv.GetString("skin", int_str, INT_STR_MAX, "-1");
-						variation.skin = StringToInt(int_str);
+						model_info.skin = StringToInt(int_str);
+
+						variation.models.SetArray("", model_info, sizeof(ModelInfo));
+
+						if(kv.JumpToKey("per_class_model")) {
+							if(kv.GotoFirstSubKey()) {
+								do {
+									kv.GetSectionName(classname, CLASS_NAME_MAX);
+									TFClassType class = TF2_GetClass(classname);
+									if(class == TFClass_Unknown) {
+										continue;
+									}
+
+									kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, "");
+
+									kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
+									model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
+
+									kv.GetString("skin", int_str, INT_STR_MAX, "-1");
+									model_info.skin = StringToInt(int_str);
+
+									kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+									model_info.model_class = TF2_GetClass(classname);
+
+									char str[5];
+									pack_int_in_str(view_as<int>(class), str);
+									variation.models.SetArray(str, model_info, sizeof(ModelInfo));
+								} while(kv.GotoNextKey());
+								kv.GoBack();
+							}
+							kv.GoBack();
+						}
 
 						info.variations.PushArray(variation, sizeof(ConfigVariationInfo));
 					} while(kv.GotoNextKey());
@@ -901,6 +1086,17 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 			}
 
 			int idx = configs.PushArray(info, sizeof(ConfigInfo));
+
+			if(kv.JumpToKey("chat_triggers")) {
+				if(kv.GotoFirstSubKey(false)) {
+					do {
+						kv.GetString(NULL_STRING, chat_trigger, sizeof(chat_trigger));
+						chat_triggers.SetValue(chat_trigger, idx);
+					} while(kv.GotoNextKey(false));
+					kv.GoBack();
+				}
+				kv.GoBack();
+			}
 
 			config_idx_map.SetValue(info.name, idx);
 
@@ -913,26 +1109,10 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 	delete kv;
 }
 
-static void free_group_config_info(ConfigInfo group_config_info)
-{
-	if(group_config_info.sound_replacements != null) {
-		int replacements_len = group_config_info.sound_replacements.Length;
-		SoundReplacementInfo sound_info;
-		for(int k = 0; k < replacements_len; ++k) {
-			group_config_info.sound_replacements.GetArray(k, sound_info, sizeof(SoundReplacementInfo));
-			delete sound_info.destinations;
-			delete sound_info.source_regex;
-		}
-	}
-	delete group_config_info.sound_replacements;
-	delete group_config_info.sound_precache_folders;
-	delete group_config_info.sound_precaches;
-	delete group_config_info.sound_variables;
-}
-
 static void load_configs()
 {
 	configs = new ArrayList(sizeof(ConfigInfo));
+	chat_triggers = new StringMap();
 	config_idx_map = new StringMap();
 	econ_to_config_map = new StringMap();
 
@@ -948,8 +1128,6 @@ static void load_configs()
 		if(kv.GotoFirstSubKey()) {
 			ConfigGroupInfo info;
 
-			ConfigInfo group_config_info;
-
 			do {
 				kv.GetSectionName(info.name, MODEL_NAME_MAX);
 				kv.GetString("override", info.override, OVERRIDE_MAX);
@@ -958,14 +1136,21 @@ static void load_configs()
 				kv.GetString("file", any_file_path, PLATFORM_MAX_PATH, "");
 				if(any_file_path[0] == '\0') {
 					BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/%s.txt", info.name);
+				} else {
+					BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/%s", any_file_path);
 				}
+
+				info.baseline_config.flags = config_flags_none;
+				info.baseline_config.sound_precaches = null;
+				info.baseline_config.sound_precache_folders = null;
+				info.baseline_config.sound_replacements = null;
+				info.baseline_config.sound_variables = null;
+
 				if(FileExists(any_file_path)) {
-					parse_config_kv_basic(kv, group_config_info, config_flags_none);
+					parse_config_kv_basic(kv, info.baseline_config, config_flags_none, true);
 
-					parse_config_kv(any_file_path, info, group_config_info);
+					parse_config_kv(any_file_path, info, info.baseline_config);
 				}
-
-				free_group_config_info(group_config_info);
 
 				groups.PushArray(info, sizeof(ConfigGroupInfo));
 			} while(kv.GotoNextKey());
@@ -978,9 +1163,26 @@ static void load_configs()
 
 	BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/econ.txt");
 	if(FileExists(any_file_path)) {
-		ConfigInfo group_config_info;
-		parse_config_kv(any_file_path, econ_group, group_config_info, true);
-		free_group_config_info(group_config_info);
+		ConfigGroupInfo info;
+		info.hidden = true;
+		parse_config_kv(any_file_path, info, info.baseline_config, true);
+		econ_group_idx = groups.PushArray(info, sizeof(ConfigGroupInfo));
+	}
+
+	BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/thirdparty.txt");
+	if(FileExists(any_file_path)) {
+		ConfigGroupInfo info;
+		info.hidden = true;
+		parse_config_kv(any_file_path, info, info.baseline_config, true);
+		thirdparty_group_idx = groups.PushArray(info, sizeof(ConfigGroupInfo));
+	}
+
+	BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/main.txt");
+	if(FileExists(any_file_path)) {
+		ConfigGroupInfo info;
+		info.hidden = true;
+		parse_config_kv(any_file_path, info, info.baseline_config, true);
+		main_group_idx = groups.PushArray(info, sizeof(ConfigGroupInfo));
 	}
 }
 
@@ -994,9 +1196,10 @@ public void OnPluginStart()
 	for(int i = 0; i < TF2_MAXPLAYERS+1; ++i) {
 		player_thirdparty_model[i].clear();
 		player_custom_taunt_model[i].clear();
-		player_config[i].clear();
 		for(TFClassType j = TFClass_Scout; j <= TFClass_Engineer; ++j) {
-			player_econ_configs[i][j].clear();
+			for(int k = 0; k < PLAYER_CONFIG_MAX; ++k) {
+				player_configs[i][j][k].clear();
+			}
 		}
 	}
 
@@ -1398,15 +1601,22 @@ public void OnConfigsExecuted()
 
 static void on_econ_cat_registered(int cat_idx)
 {
+	if(econ_group_idx == -1) {
+		return;
+	}
+
+	ConfigGroupInfo group;
+	groups.GetArray(econ_group_idx, group, sizeof(ConfigGroupInfo));
+
 	ConfigInfo info;
 
-	int len = econ_group.configs.Length;
+	int len = group.configs.Length;
 	for(int i = 0; i < len; ++i) {
-		int conf_idx = econ_group.configs.Get(i);
+		int conf_idx = group.configs.Get(i);
 
 		configs.GetArray(conf_idx, info, sizeof(ConfigInfo));
 
-		econ_get_or_register_item(cat_idx, info.name, "", "playermodel", info.econ_price, null);
+		econ_get_or_register_item(cat_idx, info.name, info.econ.description, "playermodel", info.econ.price, null);
 	}
 }
 
@@ -1483,7 +1693,7 @@ public void econ_modify_menu(const char[] classname, int item_idx)
 		char tmp_classname[CLASS_NAME_MAX];
 		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
 			if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
-				get_class_name(i, tmp_classname, CLASS_NAME_MAX);
+				get_class_name(i, tmp_classname, CLASS_NAME_MAX, false);
 
 				StrCat(classes_str, classes_str_len, tmp_classname);
 				StrCat(classes_str, classes_str_len, "|");
@@ -1501,8 +1711,6 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 {
 	switch(action) {
 		case econ_item_equip: {
-			unequip_config(client, true);
-
 			int conf_idx = econ_idx_to_conf_idx(item_idx);
 			if(conf_idx == -1) {
 				return;
@@ -1511,13 +1719,28 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 			ConfigInfo config_info;
 			configs.GetArray(conf_idx, config_info, sizeof(ConfigInfo));
 
+			bool ingame = IsClientInGame(client);
+
+			TFClassType player_class = ingame ? get_player_class(client) : TFClass_Unknown;
+
 			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+				if(i == player_class) {
+					continue;
+				}
+
 				if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
-					copy_config_vars(client, player_econ_configs[client][i], conf_idx, config_info);
+					copy_config_vars(i, player_configs[client][i][player_config_econ], conf_idx, config_info);
 				}
 			}
 
-			if(IsClientInGame(client) && is_player_state_valid(client)) {
+			if(player_class != TFClass_Unknown) {
+				if(config_info.classes_allowed & BIT_FOR_CLASS(player_class)) {
+					copy_config_vars(player_class, player_configs[client][player_class][player_config_econ], conf_idx, config_info);
+					handle_gameplay_vars(client, player_configs[client][player_class][player_config_econ]);
+				}
+			}
+
+			if(ingame && is_player_state_valid(client)) {
 				handle_playermodel(client);
 			}
 		}
@@ -1530,10 +1753,20 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 			ConfigInfo config_info;
 			configs.GetArray(conf_idx, config_info, sizeof(ConfigInfo));
 
+			TFClassType player_class = get_player_class(client);
+
 			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-				if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
-					player_econ_configs[client][i].clear();
+				if(i == player_class) {
+					continue;
 				}
+
+				if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
+					player_configs[client][i][player_config_econ].clear();
+				}
+			}
+
+			if(config_info.classes_allowed & BIT_FOR_CLASS(player_class)) {
+				player_configs[client][player_class][player_config_econ].clear();
 			}
 
 			if(IsClientInGame(client) && is_player_state_valid(client)) {
@@ -1614,34 +1847,31 @@ public void OnMapStart()
 
 	ConfigInfo info;
 	ConfigVariationInfo variation;
+	ConfigGroupInfo group;
+	ModelInfo mdlinfo;
 
 	SoundReplacementInfo sound_replace_info;
 	SoundInfo sound_info;
 
-	ArrayList folders_already_precached = new ArrayList();
-
 	char any_file_path[PLATFORM_MAX_PATH];
 
-	int configs_len = configs.Length;
-	for(int i = 0; i < configs_len; ++i) {
-		configs.GetArray(i, info, sizeof(ConfigInfo));
+	int groups_len = groups.Length;
+	for(int i = 0; i < groups_len; ++i) {
+		groups.GetArray(i, group, sizeof(ConfigGroupInfo));
 
-		if(info.model[0] != '\0') {
-			PrecacheModel(info.model);
-			load_depfile(info.model);
-		}
-
-		if(info.sound_replacements != null) {
-			int sound_replaces_len = info.sound_replacements.Length;
+		if(group.baseline_config.sound_replacements != null) {
+			int sound_replaces_len = group.baseline_config.sound_replacements.Length;
 			for(int j = 0; j < sound_replaces_len; ++j) {
-				info.sound_replacements.GetArray(j, sound_replace_info, sizeof(SoundReplacementInfo));
+				group.baseline_config.sound_replacements.GetArray(j, sound_replace_info, sizeof(SoundReplacementInfo));
+
 				int sounds_len = sound_replace_info.destinations.Length;
 				for(int k = 0; k < sounds_len; ++k) {
 					sound_replace_info.destinations.GetArray(k, sound_info, sizeof(SoundInfo));
+
 					if(sound_info.is_script) {
 						PrecacheScriptSound(sound_info.path);
 					#if defined DEBUG_CONFIG
-						PrintToServer(PM2_CON_PREFIX ... "precached sound script %s from replace", sound_info.path);
+						PrintToServer(PM2_CON_PREFIX ... "group %s precached sound script %s from replace", group.name, sound_info.path);
 					#endif
 					} else {
 						if(StrContains(sound_info.path, "$") == -1) {
@@ -1649,7 +1879,226 @@ public void OnMapStart()
 							Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
 							AddFileToDownloadsTable(any_file_path);
 						#if defined DEBUG_CONFIG
-							PrintToServer(PM2_CON_PREFIX ... "precached sound %s from replace", sound_info.path);
+							PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from replace", group.name, sound_info.path);
+						#endif
+						}
+					}
+				}
+			}
+		}
+
+		if(group.baseline_config.models != null) {
+			char str[5];
+
+			StringMapSnapshot snap = group.baseline_config.models.Snapshot();
+			int len = snap.Length;
+			for(int j = 0; j < len; ++j) {
+				snap.GetKey(j, str, sizeof(str));
+
+				if(group.baseline_config.models.GetArray(str, mdlinfo, sizeof(ModelInfo))) {
+					if(StrContains(mdlinfo.model, "$") == -1) {
+					#if defined DEBUG_CONFIG
+						PrintToServer(PM2_CON_PREFIX ... "group %s precached model %s from model", group.name, mdlinfo.model);
+					#endif
+
+						PrecacheModel(mdlinfo.model);
+						load_depfile(mdlinfo.model);
+					}
+
+					if(mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
+					#if defined DEBUG_CONFIG
+						PrintToServer(PM2_CON_PREFIX ... "group %s precached arm model %s from model", group.name, mdlinfo.arm_model);
+					#endif
+
+						PrecacheModel(mdlinfo.arm_model);
+						load_depfile(mdlinfo.arm_model);
+					}
+				}
+			}
+			delete snap;
+		}
+
+		if(group.baseline_config.model_precaches != null) {
+			int models_len = group.baseline_config.model_precaches.Length;
+			for(int j = 0; j < models_len; ++j) {
+				group.baseline_config.model_precaches.GetString(j, any_file_path, PLATFORM_MAX_PATH);
+
+			#if defined DEBUG_CONFIG
+				PrintToServer(PM2_CON_PREFIX ... "group %s precached model %s from precache", group.name, any_file_path);
+			#endif
+
+				PrecacheModel(any_file_path);
+				load_depfile(any_file_path);
+			}
+		}
+
+		if(group.baseline_config.sound_precaches != null) {
+			int sounds_len = group.baseline_config.sound_precaches.Length;
+			for(int j = 0; j < sounds_len; ++j) {
+				group.baseline_config.sound_precaches.GetArray(j, sound_info, sizeof(SoundInfo));
+
+				if(sound_info.is_script) {
+					PrecacheScriptSound(sound_info.path);
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "group %s precached sound script %s from precache", group.name, sound_info.path);
+				#endif
+				} else {
+					PrecacheSound(sound_info.path);
+					Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+					AddFileToDownloadsTable(any_file_path);
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from precache", group.name, sound_info.path);
+				#endif
+				}
+			}
+		}
+
+		if(group.baseline_config.sound_precache_folders != null) {
+			char sound_folder_path[PLATFORM_MAX_PATH];
+			char sound_file_path[PLATFORM_MAX_PATH];
+
+			int sounds_len = group.baseline_config.sound_precache_folders.Length;
+			for(int j = 0; j < sounds_len; ++j) {
+				group.baseline_config.sound_precache_folders.GetString(j, sound_folder_path, PLATFORM_MAX_PATH);
+
+				Format(sound_folder_path, PLATFORM_MAX_PATH, "sound/%s", sound_folder_path);
+
+			#if defined DEBUG_CONFIG
+				PrintToServer(PM2_CON_PREFIX ... "group %s precaching sound folder %s", group.name, sound_folder_path);
+			#endif
+				
+				DirectoryListing maps_dir = OpenDirectory(sound_folder_path, true);
+				if(maps_dir != null) {
+					FileType filetype;
+					while(maps_dir.GetNext(sound_file_path, PLATFORM_MAX_PATH, filetype)) {
+						if(filetype != FileType_File) {
+							continue;
+						}
+
+						Format(sound_file_path, PLATFORM_MAX_PATH, "%s/%s", sound_folder_path[6], sound_file_path);
+
+					#if defined DEBUG_CONFIG && 0
+						PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from precache folder %s", group.name, sound_file_path, sound_folder_path);
+					#endif
+
+						PrecacheSound(sound_file_path);
+						Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
+						AddFileToDownloadsTable(any_file_path);
+					}
+				}
+				delete maps_dir;
+			}
+		}
+	}
+
+	int configs_len = configs.Length;
+	for(int i = 0; i < configs_len; ++i) {
+		configs.GetArray(i, info, sizeof(ConfigInfo));
+
+		char str[5];
+
+		StringMapSnapshot snap = info.models.Snapshot();
+		int len = snap.Length;
+		for(int j = 0; j < len; ++j) {
+			snap.GetKey(j, str, sizeof(str));
+
+			if(info.models.GetArray(str, mdlinfo, sizeof(ModelInfo))) {
+				if(!mdlinfo.model_from_group && StrContains(mdlinfo.model, "$") == -1) {
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "config %s precached model %s from model", info.name, mdlinfo.model);
+				#endif
+
+					PrecacheModel(mdlinfo.model);
+					load_depfile(mdlinfo.model);
+				}
+
+				if(!mdlinfo.arm_from_group && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "config %s precached arm model %s from model", info.name, mdlinfo.arm_model);
+				#endif
+
+					PrecacheModel(mdlinfo.arm_model);
+					load_depfile(mdlinfo.arm_model);
+				}
+			}
+		}
+		delete snap;
+
+		if(info.variations != null) {
+			int variations_len = info.variations.Length;
+			for(int j = 0; j < variations_len; ++j) {
+				info.variations.GetArray(j, variation, sizeof(ConfigVariationInfo));
+
+				snap = variation.models.Snapshot();
+				len = snap.Length;
+				for(int k = 0; k < len; ++k) {
+					snap.GetKey(k, str, sizeof(str));
+
+					if(variation.models.GetArray(str, mdlinfo, sizeof(ModelInfo))) {
+						if(!mdlinfo.model_from_group && StrContains(mdlinfo.model, "$") == -1) {
+						#if defined DEBUG_CONFIG
+							PrintToServer(PM2_CON_PREFIX ... "config %s variation %s precached model %s from model", info.name, variation.name, mdlinfo.model);
+						#endif
+
+							PrecacheModel(mdlinfo.model);
+							load_depfile(mdlinfo.model);
+						}
+
+						if(!mdlinfo.arm_from_group && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
+						#if defined DEBUG_CONFIG
+							PrintToServer(PM2_CON_PREFIX ... "config %s variation %s precached arm model %s from model", info.name, variation.name, mdlinfo.arm_model);
+						#endif
+
+							PrecacheModel(mdlinfo.arm_model);
+							load_depfile(mdlinfo.arm_model);
+						}
+					}
+				}
+				delete snap;
+			}
+		}
+
+		if(info.model_precaches != null) {
+			int models_len = info.model_precaches.Length;
+			for(int j = 0; j < models_len; ++j) {
+				info.model_precaches.GetString(j, any_file_path, PLATFORM_MAX_PATH);
+
+			#if defined DEBUG_CONFIG
+				PrintToServer(PM2_CON_PREFIX ... "config %s precached model %s from precache", info.name, any_file_path);
+			#endif
+
+				PrecacheModel(any_file_path);
+				load_depfile(any_file_path);
+			}
+		}
+
+		if(info.sound_replacements != null) {
+			int sound_replaces_len = info.sound_replacements.Length;
+			for(int j = 0; j < sound_replaces_len; ++j) {
+				info.sound_replacements.GetArray(j, sound_replace_info, sizeof(SoundReplacementInfo));
+				if(sound_replace_info.from_group) {
+					continue;
+				}
+
+				int sounds_len = sound_replace_info.destinations.Length;
+				for(int k = 0; k < sounds_len; ++k) {
+					sound_replace_info.destinations.GetArray(k, sound_info, sizeof(SoundInfo));
+					if(sound_info.from_group) {
+						continue;
+					}
+
+					if(sound_info.is_script) {
+						PrecacheScriptSound(sound_info.path);
+					#if defined DEBUG_CONFIG
+						PrintToServer(PM2_CON_PREFIX ... "config %s precached sound script %s from replace", info.name, sound_info.path);
+					#endif
+					} else {
+						if(StrContains(sound_info.path, "$") == -1) {
+							PrecacheSound(sound_info.path);
+							Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+							AddFileToDownloadsTable(any_file_path);
+						#if defined DEBUG_CONFIG
+							PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from replace", info.name, sound_info.path);
 						#endif
 						}
 					}
@@ -1661,17 +2110,21 @@ public void OnMapStart()
 			int sounds_len = info.sound_precaches.Length;
 			for(int j = 0; j < sounds_len; ++j) {
 				info.sound_precaches.GetArray(j, sound_info, sizeof(SoundInfo));
+				if(sound_info.from_group) {
+					continue;
+				}
+
 				if(sound_info.is_script) {
 					PrecacheScriptSound(sound_info.path);
 				#if defined DEBUG_CONFIG
-					PrintToServer(PM2_CON_PREFIX ... "precached sound script %s from precache", sound_info.path);
+					PrintToServer(PM2_CON_PREFIX ... "config %s precached sound script %s from precache", info.name, sound_info.path);
 				#endif
 				} else {
 					PrecacheSound(sound_info.path);
 					Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
 					AddFileToDownloadsTable(any_file_path);
 				#if defined DEBUG_CONFIG
-					PrintToServer(PM2_CON_PREFIX ... "precached sound %s from precache", sound_info.path);
+					PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from precache", info.name, sound_info.path);
 				#endif
 				}
 			}
@@ -1685,16 +2138,10 @@ public void OnMapStart()
 			for(int j = 0; j < sounds_len; ++j) {
 				info.sound_precache_folders.GetString(j, sound_folder_path, PLATFORM_MAX_PATH);
 
-				if(folders_already_precached.FindString(sound_folder_path) != -1) {
-					continue;
-				}
-
-				folders_already_precached.PushString(sound_folder_path);
-
 				Format(sound_folder_path, PLATFORM_MAX_PATH, "sound/%s", sound_folder_path);
 
 			#if defined DEBUG_CONFIG
-				PrintToServer(PM2_CON_PREFIX ... "precaching sound folder %s", sound_folder_path);
+				PrintToServer(PM2_CON_PREFIX ... "config %s precaching sound folder %s", info.name, sound_folder_path);
 			#endif
 				
 				DirectoryListing maps_dir = OpenDirectory(sound_folder_path, true);
@@ -1707,8 +2154,8 @@ public void OnMapStart()
 
 						Format(sound_file_path, PLATFORM_MAX_PATH, "%s/%s", sound_folder_path[6], sound_file_path);
 
-					#if defined DEBUG_CONFIG && 1
-						PrintToServer(PM2_CON_PREFIX ... "precached sound %s from precache", sound_file_path);
+					#if defined DEBUG_CONFIG && 0
+						PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from precache folder %s", info.name, sound_file_path), sound_folder_path;
 					#endif
 
 						PrecacheSound(sound_file_path);
@@ -1719,21 +2166,7 @@ public void OnMapStart()
 				delete maps_dir;
 			}
 		}
-
-		if(info.variations != null) {
-			int variations_len = info.variations.Length;
-			for(int j = 0; j < variations_len; ++j) {
-				info.variations.GetArray(j, variation, sizeof(ConfigVariationInfo));
-
-				if(variation.model[0] != '\0') {
-					PrecacheModel(variation.model);
-					load_depfile(variation.model);
-				}
-			}
-		}
 	}
-
-	delete folders_already_precached;
 }
 
 static Action sm_rpm(int client, int args)
@@ -1745,72 +2178,105 @@ static Action sm_rpm(int client, int args)
 
 static void unequip_config_basic(int client)
 {
-	if(player_config[client].flags & config_flags_no_gameplay) {
+	TFClassType player_class = get_player_class(client);
+
+	if(player_configs[client][player_class][player_config_custom].flags & config_flags_no_gameplay) {
 		if(no_damage_gameplay_group != INVALID_GAMEPLAY_GROUP) {
 			TeamManager_RemovePlayerFromGameplayGroup(client, no_damage_gameplay_group);
 		}
 	}
 
-	if(player_config[client].flags & config_flags_hide_wearables) {
-		SDKUnhook(client, SDKHook_PostThinkPost, player_think_wearables_alpha);
+	if(player_configs[client][player_class][player_config_custom].flags & config_flags_hide_wearables) {
 		if(is_player_state_valid(client)) {
 			toggle_player_wearables(client, true);
 		}
 	}
 
-	if(player_config[client].flags & config_flags_hide_weapons) {
-		SDKUnhook(client, SDKHook_PostThinkPost, player_think_weapons_alpha);
+	if(player_configs[client][player_class][player_config_custom].flags & config_flags_hide_weapons) {
 		if(is_player_state_valid(client)) {
 			toggle_player_weapons(client, true);
 		}
 	}
 }
 
-static void unequip_config(int client, bool force = false)
+static void unequip_config(int client)
 {
 	unequip_config_basic(client);
 
-	player_config[client].clear();
+	TFClassType player_class = get_player_class(client);
+
+	int idx = player_configs[client][player_class][player_config_custom].idx;
+	if(idx != -1) {
+		int classes_allowed = configs.Get(idx, ConfigInfo::classes_allowed);
+
+		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+			if(i == player_class) {
+				continue;
+			}
+
+			if(classes_allowed & BIT_FOR_CLASS(i)) {
+				if(player_configs[client][i][player_config_custom].idx == idx) {
+					player_configs[client][i][player_config_custom].clear();
+				}
+			}
+		}
+	}
+
+	player_configs[client][player_class][player_config_custom].clear();
 
 	if(IsClientInGame(client) && is_player_state_valid(client)) {
+		if(!player_taunts_in_firstperson(client)) {
+			int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+			handle_viewmodel(client, weapon);
+		}
+
 		handle_playermodel(client);
 	}
 }
 
-static void copy_config_vars(int client, PlayerConfigInfo plrinfo, int idx, ConfigInfo info)
+static void copy_config_vars(TFClassType class, PlayerConfigInfo plrinfo, int idx, ConfigInfo info)
 {
 	plrinfo.clear();
 
 	plrinfo.idx = idx;
 
-	if(info.model[0] != '\0') {
-		strcopy(plrinfo.model, PLATFORM_MAX_PATH, info.model);
+	ModelInfo mdlinfo;
+	if(!info.models.GetArray("", mdlinfo, sizeof(ModelInfo))) {
+		char str[5];
+		pack_int_in_str(view_as<int>(class), str);
+		info.models.GetArray(str, mdlinfo, sizeof(ModelInfo));
 	}
 
-	if(info.arm_model[0] != '\0') {
-		strcopy(plrinfo.arm_model, PLATFORM_MAX_PATH, info.arm_model);
+	if(mdlinfo.model[0] != '\0') {
+		strcopy(plrinfo.model, PLATFORM_MAX_PATH, mdlinfo.model);
 	}
 
-	if(info.skin != -1) {
-		plrinfo.skin = info.skin;
+	if(mdlinfo.arm_model[0] != '\0') {
+		strcopy(plrinfo.arm_model, PLATFORM_MAX_PATH, mdlinfo.arm_model);
 	}
 
-	if(info.bodygroups != -1) {
-		plrinfo.bodygroups = info.bodygroups;
+	if(mdlinfo.skin != -1) {
+		plrinfo.skin = mdlinfo.skin;
 	}
 
-	plrinfo.classes_allowed = info.classes_allowed;
+	if(mdlinfo.bodygroups != -1) {
+		plrinfo.bodygroups = mdlinfo.bodygroups;
+	}
+
+	plrinfo.model_class = mdlinfo.model_class;
 
 	plrinfo.sound_variables = info.sound_variables;
 	plrinfo.sound_replacements = info.sound_replacements;
 	plrinfo.flags = info.flags;
-	plrinfo.model_class = info.model_class;
+}
 
+static void handle_gameplay_vars(int client, PlayerConfigInfo plrinfo)
+{
 	if(plrinfo.flags & config_flags_no_gameplay) {
 		if(no_damage_gameplay_group != INVALID_GAMEPLAY_GROUP) {
 			TeamManager_AddPlayerToGameplayGroup(client, no_damage_gameplay_group);
 		}
-		CPrintToChat(client, PM2_CHAT_PREFIX ... "the model you equipped can not participate in normal gameplay");
+		CPrintToChat(client, PM2_CHAT_PREFIX ... "The model you equipped cannot participate in normal gameplay.");
 	}
 
 	if(IsClientInGame(client) && is_player_state_valid(client)) {
@@ -1822,21 +2288,28 @@ static void copy_config_vars(int client, PlayerConfigInfo plrinfo, int idx, Conf
 			remove_all_player_wearables(client);
 		}
 	}
-
-	if(plrinfo.flags & config_flags_hide_wearables) {
-		SDKHook(client, SDKHook_PostThinkPost, player_think_wearables_alpha);
-	}
-
-	if(plrinfo.flags & config_flags_hide_weapons) {
-		SDKHook(client, SDKHook_PostThinkPost, player_think_weapons_alpha);
-	}
 }
 
 static bool equip_config_basic(int client, int idx, ConfigInfo info)
 {
 	unequip_config_basic(client);
 
-	copy_config_vars(client, player_config[client], idx, info);
+	TFClassType player_class = get_player_class(client);
+
+	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+		if(i == player_class) {
+			continue;
+		}
+
+		if(info.classes_allowed & BIT_FOR_CLASS(i)) {
+			copy_config_vars(i, player_configs[client][i][player_config_custom], idx, info);
+		}
+	}
+
+	if(info.classes_allowed & BIT_FOR_CLASS(player_class)) {
+		copy_config_vars(player_class, player_configs[client][player_class][player_config_custom], idx, info);
+		handle_gameplay_vars(client, player_configs[client][player_class][player_config_custom]);
+	}
 
 	return true;
 }
@@ -1857,28 +2330,73 @@ static void equip_config(int client, int idx, ConfigInfo info)
 	}
 }
 
-static void equip_config_variation(int client, int idx, ConfigInfo info, ConfigVariationInfo variation)
+public Action OnClientSayCommand(int client, const char[] command, const char[] sArgs)
+{
+	int idx = -1;
+	if(chat_triggers.GetValue(sArgs, idx)) {
+		ConfigInfo info;
+		configs.GetArray(idx, info, sizeof(ConfigInfo));
+
+		bool removed = false;
+
+		TFClassType player_class = get_player_class(client);
+
+		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+			if(player_configs[client][i][player_config_custom].idx == idx) {
+				player_configs[client][i][player_config_custom].clear();
+				if(i == player_class) {
+					unequip_config_basic(client);
+					if(is_player_state_valid(client)) {
+						handle_playermodel(client);
+					}
+				}
+				removed = true;
+			}
+		}
+
+		if(!removed) {
+			equip_config(client, idx, info);
+		}
+
+		return Plugin_Handled;
+	}
+
+	return Plugin_Continue;
+}
+
+static void equip_config_variation(int client, int idx, ConfigInfo info, int variation_idx, ConfigVariationInfo variation)
 {
 	if(!equip_config_basic(client, idx, info)) {
 		return;
 	}
 
-	player_config[client].flags = variation.flags;
+	TFClassType player_class = get_player_class(client);
 
-	if(variation.skin != -1) {
-		player_config[client].skin = variation.skin;
+	player_configs[client][player_class][player_config_custom].variation_idx = variation_idx;
+
+	ModelInfo mdlinfo;
+	if(!variation.models.GetArray("", mdlinfo, sizeof(ModelInfo))) {
+		char str[5];
+		pack_int_in_str(view_as<int>(player_class), str);
+		variation.models.GetArray(str, mdlinfo, sizeof(ModelInfo));
 	}
 
-	if(variation.bodygroups != -1) {
-		player_config[client].bodygroups = variation.bodygroups;
+	player_configs[client][player_class][player_config_custom].flags = variation.flags;
+
+	if(mdlinfo.skin != -1) {
+		player_configs[client][player_class][player_config_custom].skin = mdlinfo.skin;
 	}
 
-	if(variation.model[0] != '\0') {
-		strcopy(player_config[client].model, PLATFORM_MAX_PATH, variation.model);
+	if(mdlinfo.bodygroups != -1) {
+		player_configs[client][player_class][player_config_custom].bodygroups = mdlinfo.bodygroups;
 	}
 
-	if(variation.model_class != TFClass_Unknown) {
-		player_config[client].model_class = variation.model_class;
+	if(mdlinfo.model[0] != '\0') {
+		strcopy(player_configs[client][player_class][player_config_custom].model, PLATFORM_MAX_PATH, mdlinfo.model);
+	}
+
+	if(mdlinfo.model_class != TFClass_Unknown) {
+		player_configs[client][player_class][player_config_custom].model_class = mdlinfo.model_class;
 	}
 
 	if(!player_taunts_in_firstperson(client)) {
@@ -1891,188 +2409,427 @@ static void equip_config_variation(int client, int idx, ConfigInfo info, ConfigV
 
 static int handle_variation_menu(Menu menu, MenuAction action, int param1, int param2)
 {
-	if(action == MenuAction_Select) {
-		char int_str[INT_STR_MAX];
-		menu.GetItem(0, int_str, INT_STR_MAX);
-		int group_idx = StringToInt(int_str);
+	switch(action) {
+		case MenuAction_Select: {
+			char str[15];
+			menu.GetItem(param2, str, 15);
 
-		menu.GetItem(1, int_str, INT_STR_MAX);
-		int config_idx = StringToInt(int_str);
-
-		menu.GetItem(param2, int_str, INT_STR_MAX);
-		int variation_idx = StringToInt(int_str);
-
-		ConfigInfo info;
-		configs.GetArray(config_idx, info, sizeof(ConfigInfo));
-
-		switch(variation_idx) {
-			case -1: {
+			int group_idx = unpack_int_in_str(str, 0);
+			if(group_idx == groups.Length) {
 				unequip_config(param1);
-			}
-			case -2: {
-				equip_config(param1, config_idx, info);
-			}
-			default: {
-				ConfigVariationInfo variation;
-				info.variations.GetArray(variation_idx, variation, sizeof(ConfigVariationInfo));
-				equip_config_variation(param1, config_idx, info, variation);
+			} else {
+				int config_idx = unpack_int_in_str(str, 4);
+				if(config_idx == configs.Length) {
+					unequip_config(param1);
+					display_group_menu(param1, group_idx);
+				} else {
+					int variation_idx = unpack_int_in_str(str, 8);
+
+					ConfigInfo info;
+					configs.GetArray(config_idx, info, sizeof(ConfigInfo));
+
+					if(variation_idx == info.variations.Length) {
+						equip_config(param1, config_idx, info);
+					} else {
+						ConfigVariationInfo variation;
+						info.variations.GetArray(variation_idx, variation, sizeof(ConfigVariationInfo));
+						equip_config_variation(param1, config_idx, info, variation_idx, variation);
+					}
+
+					display_variation_menu(param1, info, config_idx, group_idx, menu.Selection);
+				}
 			}
 		}
+		case MenuAction_DrawItem: {
+			char str[15];
+			menu.GetItem(param2, str, sizeof(str));
 
-		display_variation_menu(param1, info, config_idx, group_idx);
-	} else if(action == MenuAction_Cancel) {
-		if(param2 == MenuCancel_ExitBack) {
-			char int_str[INT_STR_MAX];
-			menu.GetItem(0, int_str, INT_STR_MAX);
-			int group_idx = StringToInt(int_str);
+			int group_idx = unpack_int_in_str(str, 0);
+			if(group_idx == groups.Length) {
+				return ITEMDRAW_DISABLED;
+			}
 
-			display_group_menu(param1, group_idx);
+			int config_idx = unpack_int_in_str(str, 4);
+			if(config_idx == configs.Length) {
+				TFClassType player_class = get_player_class(param1);
+				if(player_configs[param1][player_class][player_config_custom].idx == -1) {
+					return ITEMDRAW_DISABLED;
+				}
+				return ITEMDRAW_DEFAULT;
+			}
+
+			ArrayList variations = configs.Get(config_idx, ConfigInfo::variations);
+
+			TFClassType player_class = get_player_class(param1);
+
+			int variation_idx = unpack_int_in_str(str, 8);
+			if(variation_idx == variations.Length) {
+				if(player_configs[param1][player_class][player_config_custom].idx == config_idx &&
+					player_configs[param1][player_class][player_config_custom].variation_idx == -1) {
+					return ITEMDRAW_DISABLED;
+				}
+				return ITEMDRAW_DEFAULT;
+			}
+
+			if(player_configs[param1][player_class][player_config_custom].variation_idx == variation_idx) {
+				return ITEMDRAW_DISABLED;
+			}
+
+			return ITEMDRAW_DEFAULT;
 		}
-	} else if(action == MenuAction_End) {
-		delete menu;
+		case MenuAction_Cancel: {
+			if(param2 == MenuCancel_ExitBack) {
+				char str[15];
+				menu.GetItem(0, str, sizeof(str));
+
+				int group_idx = unpack_int_in_str(str, 0);
+
+				display_group_menu(param1, group_idx);
+			}
+		}
+		case MenuAction_End: {
+			delete menu;
+		}
 	}
 
 	return 0;
 }
 
-static void display_variation_menu(int client, ConfigInfo info, int config_idx, int group_idx)
+static void display_variation_menu(int client, ConfigInfo info, int config_idx, int group_idx, int pos = -1)
 {
-	Menu menu = new Menu(handle_variation_menu);
+	Menu menu = new Menu(handle_variation_menu, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem);
 	menu.SetTitle(info.name);
 	menu.ExitBackButton = true;
 
-	char int_str[INT_STR_MAX];
-	IntToString(group_idx, int_str, INT_STR_MAX);
-	menu.AddItem(int_str, "", ITEMDRAW_IGNORE);
+	char str[15];
 
-	IntToString(config_idx, int_str, INT_STR_MAX);
-	menu.AddItem(int_str, "", ITEMDRAW_IGNORE);
+	pack_int_in_str(group_idx, str, 0);
+	pack_int_in_str(configs.Length, str, 4);
+	menu.AddItem(str, "Remove");
 
-	menu.AddItem("-1", "remove");
+	int len = info.variations.Length;
 
-	menu.AddItem("-2", info.name);
+	pack_int_in_str(group_idx, str, 0);
+	pack_int_in_str(config_idx, str, 4);
+	pack_int_in_str(len, str, 8);
+	menu.AddItem(str, info.name);
 
 	ConfigVariationInfo variation;
 
-	int len = info.variations.Length;
 	for(int i = 0; i < len; ++i) {
 		info.variations.GetArray(i, variation, sizeof(ConfigVariationInfo));
 
-		IntToString(i, int_str, INT_STR_MAX);
-		menu.AddItem(int_str, variation.name);
+		pack_int_in_str(group_idx, str, 0);
+		pack_int_in_str(config_idx, str, 4);
+		pack_int_in_str(i, str, 8);
+		menu.AddItem(str, variation.name);
 	}
 
-	menu.Display(client, MENU_TIME_FOREVER);
+	if(pos == -1) {
+		menu.Display(client, MENU_TIME_FOREVER);
+	} else {
+		menu.DisplayAt(client, pos, MENU_TIME_FOREVER);
+	}
 }
 
 static int handle_group_menu(Menu menu, MenuAction action, int param1, int param2)
 {
-	if(action == MenuAction_Select) {
-		char int_str[INT_STR_MAX];
-		menu.GetItem(0, int_str, INT_STR_MAX);
-		int group_idx = StringToInt(int_str);
+	switch(action) {
+		case MenuAction_Select: {
+			char str[10];
+			menu.GetItem(param2, str, sizeof(str));
 
-		menu.GetItem(param2, int_str, INT_STR_MAX);
-		int config_idx = StringToInt(int_str);
+			int group_idx = unpack_int_in_str(str, 0);
+			if(group_idx == groups.Length) {
+				unequip_config(param1);
+			} else {
+				int config_idx = unpack_int_in_str(str, 4);
+				if(config_idx == configs.Length) {
+					unequip_config(param1);
+					display_group_menu(param1, group_idx, menu.Selection);
+				} else {
+					ConfigInfo info;
+					configs.GetArray(config_idx, info, sizeof(ConfigInfo));
 
-		if(config_idx == -1) {
-			unequip_config(param1);
-		} else {
+					if(info.variations != null) {
+						display_variation_menu(param1, info, config_idx, group_idx);
+					} else {
+						equip_config(param1, config_idx, info);
+						display_group_menu(param1, group_idx, menu.Selection);
+					}
+				}
+			}
+		}
+		case MenuAction_DrawItem: {
+			char str[10];
+			menu.GetItem(param2, str, sizeof(str));
+
+			int group_idx = unpack_int_in_str(str, 0);
+			if(group_idx == groups.Length) {
+				return ITEMDRAW_DISABLED;
+			}
+
+			int config_idx = unpack_int_in_str(str, 4);
+			if(config_idx == configs.Length) {
+				TFClassType player_class = get_player_class(param1);
+				if(player_configs[param1][player_class][player_config_custom].idx == -1) {
+					return ITEMDRAW_DISABLED;
+				}
+				return ITEMDRAW_DEFAULT;
+			}
+
+			ArrayList variations = configs.Get(config_idx, ConfigInfo::variations);
+
+			TFClassType player_class = get_player_class(param1);
+			if((variations == null || variations.Length == 0) && player_configs[param1][player_class][player_config_custom].idx == config_idx) {
+				return ITEMDRAW_DISABLED;
+			}
+
+			int classes_allowed = configs.Get(config_idx, ConfigInfo::classes_allowed);
+			if(classes_allowed & BIT_FOR_CLASS(player_class)) {
+				return ITEMDRAW_DEFAULT;
+			}
+
+			return ITEMDRAW_DISABLED;
+		}
+		case MenuAction_DisplayItem: {
+			char str[10];
+			menu.GetItem(param2, str, sizeof(str));
+
+			int group_idx = unpack_int_in_str(str, 0);
+			if(group_idx == groups.Length) {
+				return 0;
+			}
+
+			int config_idx = unpack_int_in_str(str, 4);
+			if(config_idx == configs.Length) {
+				return 0;
+			}
+
 			ConfigInfo info;
 			configs.GetArray(config_idx, info, sizeof(ConfigInfo));
 
-			if(info.variations != null) {
-				display_variation_menu(param1, info, config_idx, group_idx);
+			TFClassType player_class = get_player_class(param1);
+			if(info.classes_allowed & BIT_FOR_CLASS(player_class)) {
 				return 0;
-			} else {
-				equip_config(param1, config_idx, info);
+			}
+
+			int display_len = (MODEL_NAME_MAX + 4 + ((CLASS_NAME_MAX+1) * TF_CLASS_COUNT_ALL));
+			char[] display = new char[display_len];
+			strcopy(display, display_len, info.name);
+
+			StrCat(display, display_len, " [");
+
+			char tmp_classname[CLASS_NAME_MAX];
+			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+				if(info.classes_allowed & BIT_FOR_CLASS(i)) {
+					get_class_name(i, tmp_classname, CLASS_NAME_MAX, false);
+
+					StrCat(display, display_len, tmp_classname);
+					StrCat(display, display_len, "|");
+				}
+			}
+
+			display_len = strlen(display);
+			display[display_len-1] = ']';
+			display[display_len] = '\0';
+
+			return RedrawMenuItem(display);
+		}
+		case MenuAction_Cancel: {
+			if(param2 == MenuCancel_ExitBack) {
+				display_groups_menu(param1);
 			}
 		}
-
-		display_group_menu(param1, group_idx);
-	} else if(action == MenuAction_Cancel) {
-		if(param2 == MenuCancel_ExitBack) {
-			display_groups_menu(param1);
+		case MenuAction_End: {
+			delete menu;
 		}
-	} else if(action == MenuAction_End) {
-		delete menu;
 	}
 
 	return 0;
 }
 
-static void display_group_menu(int client, int idx)
+static void display_group_menu(int client, int idx, int pos = -1)
 {
 	ConfigGroupInfo group;
 	groups.GetArray(idx, group, sizeof(ConfigGroupInfo));
 
-	Menu menu = new Menu(handle_group_menu);
+	Menu menu = new Menu(handle_group_menu, MENU_ACTIONS_DEFAULT|MenuAction_DisplayItem|MenuAction_DrawItem);
 	menu.SetTitle(group.name);
 	menu.ExitBackButton = true;
 
-	char int_str[INT_STR_MAX];
-	IntToString(idx, int_str, INT_STR_MAX);
-	menu.AddItem(int_str, "", ITEMDRAW_IGNORE);
+	char str[10];
 
-	menu.AddItem("-1", "remove");
+	pack_int_in_str(idx, str, 0);
+	pack_int_in_str(configs.Length, str, 4);
+	menu.AddItem(str, "Remove");
 
 	ConfigInfo info;
 
-	TFClassType class = TF2_GetPlayerClass(client);
-
 	int len = group.configs.Length;
 	for(int i = 0; i < len; ++i) {
-		idx = group.configs.Get(i);
+		int confidx = group.configs.Get(i);
 
-		configs.GetArray(idx, info, sizeof(ConfigInfo));
+		configs.GetArray(confidx, info, sizeof(ConfigInfo));
 
-		if(!(info.classes_allowed & BIT_FOR_CLASS(class))) {
-			continue;
-		}
-
-		IntToString(idx, int_str, INT_STR_MAX);
-		menu.AddItem(int_str, info.name);
+		pack_int_in_str(idx, str, 0);
+		pack_int_in_str(confidx, str, 4);
+		menu.AddItem(str, info.name);
 	}
 
-	menu.Display(client, MENU_TIME_FOREVER);
+	if(pos == -1) {
+		menu.Display(client, MENU_TIME_FOREVER);
+	} else {
+		menu.DisplayAt(client, pos, MENU_TIME_FOREVER);
+	}
 }
 
 static int handle_groups_menu(Menu menu, MenuAction action, int param1, int param2)
 {
-	if(action == MenuAction_Select) {
-		char int_str[INT_STR_MAX];
-		menu.GetItem(param2, int_str, INT_STR_MAX);
-		int idx = StringToInt(int_str);
+	switch(action) {
+		case MenuAction_Select: {
+			char str[15];
+			menu.GetItem(param2, str, sizeof(str));
 
-		if(idx == -1) {
-			unequip_config(param1);
-			display_groups_menu(param1);
-		} else {
-			display_group_menu(param1, idx);
+			bool is_model = (unpack_int_in_str(str, 0) != 0);
+
+			int group_idx = unpack_int_in_str(str, 4);
+			if(group_idx == groups.Length) {
+				unequip_config(param1);
+				display_groups_menu(param1, menu.Selection);
+			} else {
+				if(!is_model) {
+					display_group_menu(param1, group_idx);
+				} else {
+					int conf_idx = unpack_int_in_str(str, 8);
+
+					ConfigInfo info;
+					configs.GetArray(conf_idx, info, sizeof(ConfigInfo));
+
+					if(info.variations != null) {
+						display_variation_menu(param1, info, conf_idx, group_idx);
+					} else {
+						equip_config(param1, conf_idx, info);
+						display_groups_menu(param1, menu.Selection);
+					}
+				}
+			}
 		}
-	} else if(action == MenuAction_End) {
-		delete menu;
+		case MenuAction_DrawItem: {
+			char str[15];
+			menu.GetItem(param2, str, sizeof(str));
+
+			bool is_model = (unpack_int_in_str(str, 0) != 0);
+
+			int group_idx = unpack_int_in_str(str, 4);
+			if(group_idx == groups.Length) {
+				TFClassType player_class = get_player_class(param1);
+				if(player_configs[param1][player_class][player_config_custom].idx == -1) {
+					return ITEMDRAW_DISABLED;
+				}
+				return ITEMDRAW_DEFAULT;
+			}
+
+			if(!is_model) {
+				return ITEMDRAW_DEFAULT;
+			} else {
+				int conf_idx = unpack_int_in_str(str, 8);
+
+				ArrayList variations = configs.Get(conf_idx, ConfigInfo::variations);
+
+				TFClassType player_class = get_player_class(param1);
+				if((variations == null || variations.Length == 0) && player_configs[param1][player_class][player_config_custom].idx == conf_idx) {
+					return ITEMDRAW_DISABLED;
+				}
+
+				int classes_allowed = configs.Get(conf_idx, ConfigInfo::classes_allowed);
+				if(classes_allowed & BIT_FOR_CLASS(player_class)) {
+					return ITEMDRAW_DEFAULT;
+				}
+
+				return ITEMDRAW_DISABLED;
+			}
+		}
+		case MenuAction_DisplayItem: {
+			char str[15];
+			menu.GetItem(param2, str, sizeof(str));
+
+			bool is_model = (unpack_int_in_str(str, 0) != 0);
+
+			int group_idx = unpack_int_in_str(str, 4);
+			if(group_idx == groups.Length) {
+				return 0;
+			}
+
+			if(!is_model) {
+				return 0;
+			} else {
+				int conf_idx = unpack_int_in_str(str, 8);
+
+				ConfigInfo info;
+				configs.GetArray(conf_idx, info, sizeof(ConfigInfo));
+
+				TFClassType player_class = get_player_class(param1);
+				if(info.classes_allowed & BIT_FOR_CLASS(player_class)) {
+					return 0;
+				}
+
+				int display_len = (MODEL_NAME_MAX + 4 + ((CLASS_NAME_MAX+1) * TF_CLASS_COUNT_ALL));
+				char[] display = new char[display_len];
+				strcopy(display, display_len, info.name);
+
+				StrCat(display, display_len, " [");
+
+				char tmp_classname[CLASS_NAME_MAX];
+				for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+					if(info.classes_allowed & BIT_FOR_CLASS(i)) {
+						get_class_name(i, tmp_classname, CLASS_NAME_MAX, false);
+
+						StrCat(display, display_len, tmp_classname);
+						StrCat(display, display_len, "|");
+					}
+				}
+
+				display_len = strlen(display);
+				display[display_len-1] = ']';
+				display[display_len] = '\0';
+
+				return RedrawMenuItem(display);
+			}
+		}
+		case MenuAction_End: {
+			delete menu;
+		}
 	}
 
 	return 0;
 }
 
-static void display_groups_menu(int client)
+static void display_groups_menu(int client, int pos = -1)
 {
 	char clientsteam[STEAMID_MAX];
 
-	Menu menu = new Menu(handle_groups_menu);
-	menu.SetTitle("Groups");
+	Menu menu = new Menu(handle_groups_menu, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem|MenuAction_DisplayItem);
+	menu.SetTitle("Playermodels");
 
-	menu.AddItem("-1", "remove");
+	char str[15];
 
-	char int_str[INT_STR_MAX];
+	pack_int_in_str(0, str, 0);
+	pack_int_in_str(groups.Length, str, 4);
+	menu.AddItem(str, "Remove");
 
 	ConfigGroupInfo info;
+	ConfigInfo conf_info;
 
 	int len = groups.Length;
 	for(int i = 0; i < len; ++i) {
 		groups.GetArray(i, info, sizeof(ConfigGroupInfo));
+
+		if(i != main_group_idx) {
+			if(info.hidden) {
+				continue;
+			}
+		}
 
 		if(info.override[0] != '\0') {
 			if(!CheckCommandAccess(client, info.override, ADMFLAG_GENERIC)) {
@@ -2081,20 +2838,35 @@ static void display_groups_menu(int client)
 		}
 
 		if(info.steamid[0] != '\0') {
-			if(GetClientAuthId(client, AuthId_SteamID64, clientsteam, STEAMID_MAX)) {
-				if(!StrEqual(clientsteam, info.steamid)) {
-					continue;
-				}
-			} else {
+			if(!GetClientAuthId(client, AuthId_SteamID64, clientsteam, STEAMID_MAX) || !StrEqual(clientsteam, info.steamid)) {
 				continue;
 			}
 		}
 
-		IntToString(i, int_str, INT_STR_MAX);
-		menu.AddItem(int_str, info.name);
+		if(i != main_group_idx) {
+			pack_int_in_str(0, str, 0);
+			pack_int_in_str(i, str, 4);
+			menu.AddItem(str, info.name);
+		} else {
+			int len2 = info.configs.Length;
+			for(int j = 0; j < len2; ++j) {
+				int conf_idx = info.configs.Get(j);
+
+				configs.GetArray(conf_idx, conf_info, sizeof(ConfigInfo));
+
+				pack_int_in_str(1, str, 0);
+				pack_int_in_str(i, str, 4);
+				pack_int_in_str(conf_idx, str, 8);
+				menu.AddItem(str, conf_info.name);
+			}
+		}
 	}
 
-	menu.Display(client, MENU_TIME_FOREVER);
+	if(pos == -1) {
+		menu.Display(client, MENU_TIME_FOREVER);
+	} else {
+		menu.DisplayAt(client, pos, MENU_TIME_FOREVER);
+	}
 }
 
 static Action sm_pm(int client, int args)
@@ -2182,15 +2954,16 @@ static void frame_ragdoll_created(int entity)
 		if(player_thirdparty_model[owner].class != TFClass_Unknown) {
 			SetEntProp(entity, Prop_Send, "m_iClass", player_thirdparty_model[owner].class);
 		}
-	} else if((player_config[owner].model[0] != '\0') && !!(player_config[owner].classes_allowed & BIT_FOR_CLASS(player_class))) {
-		strcopy(model, PLATFORM_MAX_PATH, player_config[owner].model);
-		if(player_config[owner].model_class != TFClass_Unknown) {
-			SetEntProp(entity, Prop_Send, "m_iClass", player_config[owner].model_class);
-		}
-	} else if(player_econ_configs[owner][player_class].model[0] != '\0') {
-		strcopy(model, PLATFORM_MAX_PATH, player_econ_configs[owner][player_class].model);
-		if(player_econ_configs[owner][player_class].model_class != TFClass_Unknown) {
-			SetEntProp(entity, Prop_Send, "m_iClass", player_econ_configs[owner][player_class].model_class);
+	} else {
+		for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+			if(player_configs[owner][player_class][i].model[0] != '\0') {
+				strcopy(model, PLATFORM_MAX_PATH, player_configs[owner][player_class][i].model);
+				replace_model_variables(owner, player_configs[owner][player_class][i].model_class, model, PLATFORM_MAX_PATH);
+				if(player_configs[owner][player_class][i].model_class != TFClass_Unknown) {
+					SetEntProp(entity, Prop_Send, "m_iClass", player_configs[owner][player_class][i].model_class);
+				}
+				break;
+			}
 		}
 	}
 
@@ -2219,7 +2992,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 	}
 }
 
-static void get_class_name(TFClassType type, char[] name, int length)
+static void get_class_name(TFClassType type, char[] name, int length, bool short)
 {
 	switch(type)
 	{
@@ -2229,7 +3002,13 @@ static void get_class_name(TFClassType type, char[] name, int length)
 		case TFClass_Sniper: { strcopy(name, length, "sniper"); }
 		case TFClass_Spy: { strcopy(name, length, "spy"); }
 		case TFClass_Medic: { strcopy(name, length, "medic"); }
-		case TFClass_DemoMan: { strcopy(name, length, "demoman"); }
+		case TFClass_DemoMan: {
+			if(!short) {
+				strcopy(name, length, "demoman");
+			} else {
+				strcopy(name, length, "demo");
+			}
+		}
 		case TFClass_Pyro: { strcopy(name, length, "pyro"); }
 		case TFClass_Engineer: { strcopy(name, length, "engineer"); }
 		case TFClass_Heavy: { strcopy(name, length, "heavy"); }
@@ -2245,7 +3024,7 @@ static ArrayList get_classes_for_taunt(int id)
 	char int_str[INT_STR_MAX];
 
 	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		get_class_name(i, class_name, CLASS_NAME_MAX);
+		get_class_name(i, class_name, CLASS_NAME_MAX, false);
 
 		FormatEx(key, sizeof(key), "used_by_classes/%s", class_name);
 
@@ -2268,7 +3047,7 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 	bool has_intro = false;
 
 	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		get_class_name(i, class_name, CLASS_NAME_MAX);
+		get_class_name(i, class_name, CLASS_NAME_MAX, false);
 
 		FormatEx(key, sizeof(key), "taunt/custom_taunt_prop_scene_per_class/%s", class_name);
 
@@ -2283,7 +3062,7 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 		classes = new ArrayList();
 
 		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-			get_class_name(i, class_name, CLASS_NAME_MAX);
+			get_class_name(i, class_name, CLASS_NAME_MAX, false);
 
 			FormatEx(key, sizeof(key), "taunt/custom_taunt_prop_per_class/%s", class_name);
 
@@ -2907,16 +3686,19 @@ static void handle_viewmodel(int client, int weapon)
 
 			TFClassType arm_class = player_class;
 
-			bool has_custom_arm_model = false;
+			int arm_from = -1;
 
 			if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
-				if(!!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class))) {
-					if(StrEqual(player_config[client].arm_model, "model_class")) {
-						if(player_config[client].model_class != TFClass_Unknown) {
-							arm_class = player_config[client].model_class;
+				for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+					if(player_configs[client][player_class][i].model[0] != '\0') {
+						if(StrEqual(player_configs[client][player_class][i].arm_model, "model_class")) {
+							if(player_configs[client][player_class][i].model_class != TFClass_Unknown) {
+								arm_class = player_configs[client][player_class][i].model_class;
+							}
+						} else if(player_configs[client][player_class][i].arm_model[0] != '\0') {
+							arm_from = i;
 						}
-					} else if(player_config[client].arm_model[0] != '\0') {
-						has_custom_arm_model = true;
+						break;
 					}
 				}
 			}
@@ -2927,7 +3709,9 @@ static void handle_viewmodel(int client, int weapon)
 
 			bool different_class = (arm_class != weapon_class);
 
-			if(different_class || has_custom_arm_model) {
+			bool has_vm = (different_class || arm_from != -1);
+
+			if(has_vm) {
 				delete_player_viewmodel_entity(client, 0);
 				int entity = get_or_create_player_viewmodel_entity(client, 0);
 
@@ -2940,8 +3724,15 @@ static void handle_viewmodel(int client, int weapon)
 				effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
 				SetEntProp(entity, Prop_Send, "m_fEffects", effects);
 
-				if(has_custom_arm_model) {
-					strcopy(model, PLATFORM_MAX_PATH, player_config[client].arm_model);
+				if(arm_from != -1) {
+					strcopy(model, PLATFORM_MAX_PATH, player_configs[client][player_class][arm_from].arm_model);
+					replace_model_variables(client, player_configs[client][player_class][arm_from].model_class, model, PLATFORM_MAX_PATH);
+					if(StrEqual(model, "models/weapons/c_models/c_engineer_arms.mdl")) {
+						int melee_weapon = GetPlayerWeaponSlot(client, TFWeaponSlot_Melee);
+						if(melee_weapon != -1 && GetEntProp(melee_weapon, Prop_Send, "m_iItemDefinitionIndex") == 142) {
+							strcopy(model, PLATFORM_MAX_PATH, "models/weapons/c_models/c_engineer_gunslinger.mdl");
+						}
+					}
 				} else {
 					get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
 				}
@@ -2980,7 +3771,7 @@ static void handle_viewmodel(int client, int weapon)
 				}
 			}
 
-			if(different_class || has_custom_arm_model) {
+			if(has_vm) {
 				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
 				effects |= EF_NODRAW;
 				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
@@ -3069,7 +3860,7 @@ public void OnPluginEnd()
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
-			unequip_config(i, true);
+			unequip_config(i);
 			OnClientDisconnect(i);
 		}
 	}
@@ -3143,6 +3934,8 @@ static Action player_proxysend_stunindex(int entity, const char[] prop, int &val
 public void OnClientPutInServer(int client)
 {
 	SDKHook(client, SDKHook_WeaponSwitchPost, player_weapon_switch);
+
+	SDKHook(client, SDKHook_PostThinkPost, player_think);
 
 	if(!IsFakeClient(client)) {
 		QueryClientConVar(client, "tf_taunt_first_person", tf_taunt_first_person_query);
@@ -3262,19 +4055,27 @@ static Action handle_config_sound(int entity, PlayerConfigInfo info, int &numCli
 
 		if(info.sound_variables.GetString("player_class", sound_var_value, MAX_SOUND_VAR_VALUE)) {
 			TFClassType player_class = get_player_class(entity);
-			get_class_name(player_class, player_class_name, sizeof(player_class_name));
+			get_class_name(player_class, player_class_name, sizeof(player_class_name), false);
+
+			TFClassType target_class = TFClass_Unknown;
+
 			if(StrEqual(sound_var_value, "model_class")) {
-				TFClassType model_class = info.model_class;
-				if(model_class != TFClass_Unknown) {
-					char model_class_name[CLASS_NAME_MAX];
-					get_class_name(model_class, model_class_name, CLASS_NAME_MAX);
-					ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
-					anything_changed = true;
-				#if defined DEBUG_CONFIG
-					PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
-				#endif
-					strcopy(player_class_name, sizeof(player_class_name), model_class_name);
+				if(info.model_class != TFClass_Unknown) {
+					target_class = info.model_class;
 				}
+			} else {
+				target_class = TF2_GetClass(sound_var_value);
+			}
+
+			if(target_class != TFClass_Unknown) {
+				char model_class_name[CLASS_NAME_MAX];
+				get_class_name(target_class, model_class_name, CLASS_NAME_MAX, false);
+				ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
+				anything_changed = true;
+			#if defined DEBUG_CONFIG
+				PrintToServer(PM2_CON_PREFIX ... "replaced sound variable %s with %s", player_class_name, model_class_name);
+			#endif
+				strcopy(player_class_name, sizeof(player_class_name), model_class_name);
 			}
 		}
 
@@ -3357,10 +4158,11 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 		PrintToServer(PM2_CON_PREFIX ... "sound_hook %i %s, %s", entity, sample, soundEntry);
 	#endif
 		TFClassType player_class = get_player_class(entity);
-		if(player_config[entity].idx != -1) {
-			return handle_config_sound(entity, player_config[entity], numClients, clients, sample, soundEntry, channel, volume, level, pitch);
-		} else if(player_econ_configs[entity][player_class].model[0] != '\0') {
-			return handle_config_sound(entity, player_econ_configs[entity][player_class], numClients, clients, sample, soundEntry, channel, volume, level, pitch);
+
+		for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+			if(player_configs[entity][player_class][i].model[0] != '\0') {
+				return handle_config_sound(entity, player_configs[entity][player_class][i], numClients, clients, sample, soundEntry, channel, volume, level, pitch);
+			}
 		}
 	}
 
@@ -3374,12 +4176,20 @@ static MRESReturn CBaseEntity_ModifyOrAppendCriteria_detour_post(int pThis, DHoo
 
 static MRESReturn CBasePlayer_GetSceneSoundToken_detour(int pThis, DHookReturn hReturn)
 {
-	if(player_config[pThis].sound_variables != null) {
-		char sound_var_value[MAX_SOUND_VAR_VALUE];
+	TFClassType player_class = get_player_class(pThis);
 
-		if(player_config[pThis].sound_variables.GetString("token", sound_var_value, MAX_SOUND_VAR_VALUE)) {
-			hReturn.SetString(sound_var_value);
-			return MRES_Supercede;
+	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+		if(player_configs[pThis][player_class][i].model[0] != '\0') {
+			if(player_configs[pThis][player_class][i].sound_variables != null) {
+				char sound_var_value[MAX_SOUND_VAR_VALUE];
+				if(player_configs[pThis][player_class][i].sound_variables.GetString("token", sound_var_value, MAX_SOUND_VAR_VALUE)) {
+				#if 0
+					hReturn.SetString(sound_var_value);
+					return MRES_Supercede;
+				#endif
+				}
+			}
+			break;
 		}
 	}
 
@@ -3516,7 +4326,6 @@ public void OnClientDisconnect(int client)
 
 	player_thirdparty_model[client].clear();
 	player_custom_taunt_model[client].clear();
-	player_config[client].clear();
 
 	player_taunt_vars[client].clear();
 
@@ -3525,7 +4334,9 @@ public void OnClientDisconnect(int client)
 	player_swim[client] = false;
 
 	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		player_econ_configs[client][i].clear();
+		for(int k = 0; k < PLAYER_CONFIG_MAX; ++k) {
+			player_configs[client][i][k].clear();
+		}
 	}
 
 	player_weapon_animation_class[client] = TFClass_Unknown;
@@ -3546,66 +4357,34 @@ public void OnClientDisconnect(int client)
 
 static void remove_all_player_wearables(int client)
 {
-#if defined CAN_GET_UTLVECTOR
-	int len = GetEntPropArraySize(client, Prop_Send, "m_hMyWearables");
-	for(int i = 0; i < len; ++i) {
-		int entity = GetEntPropEnt(client, Prop_Send, "m_hMyWearables", i);
-		if(entity != -1) {
-			AcceptEntityInput(entity, "ClearParent");
-			TF2_RemoveWearable(client, entity);
-			RemoveEntity(entity);
+	for(int i = 0; i < TF2Util_GetPlayerWearableCount(client);) {
+		int entity = TF2Util_GetPlayerWearable(client, i);
+		if(entity == -1 || GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex") == 65535) {
+			++i;
+			continue;
 		}
-	}
-#else
-	int entity = -1;
-	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1) {
-		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
-		if(owner == client) {
-			AcceptEntityInput(entity, "ClearParent");
-			TF2_RemoveWearable(owner, entity);
-			RemoveEntity(entity);
-		}
-	}
-#endif
-}
 
-#if !defined CAN_GET_UTLVECTOR
-public void OnGameFrame()
-{
-	int entity = -1;
-	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1) {
-		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
-		if(owner != -1) {
-			if(player_config[owner].flags & config_flags_hide_wearables) {
-				SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
-				set_entity_alpha(entity, 0);
-			}
-		}
+		AcceptEntityInput(entity, "ClearParent");
+		TF2_RemoveWearable(client, entity);
+		RemoveEntity(entity);
 	}
 }
-#endif
 
 static void toggle_player_wearables(int client, bool value)
 {
-#if defined CAN_GET_UTLVECTOR
-	int len = GetEntPropArraySize(client, Prop_Send, "m_hMyWearables");
+	int len = TF2Util_GetPlayerWearableCount(client);
 	for(int i = 0; i < len; ++i) {
-		int entity = GetEntPropEnt(client, Prop_Send, "m_hMyWearables", i);
+		int entity = TF2Util_GetPlayerWearable(client, i);
 		if(entity != -1) {
+			int m_iItemDefinitionIndex = GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex");
+			if(m_iItemDefinitionIndex == 65535) {
+				continue;
+			}
+
 			SetEntityRenderMode(entity, value ? RENDER_NORMAL : RENDER_TRANSCOLOR);
 			set_entity_alpha(entity, value ? 255 : 0);
 		}
 	}
-#else
-	int entity = -1;
-	while((entity = FindEntityByClassname(entity, "tf_wearable*")) != -1) {
-		int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
-		if(owner == client) {
-			SetEntityRenderMode(entity, value ? RENDER_NORMAL : RENDER_TRANSCOLOR);
-			set_entity_alpha(entity, value ? 255 : 0);
-		}
-	}
-#endif
 }
 
 static void post_inventory_application_frame(int userid)
@@ -3615,12 +4394,19 @@ static void post_inventory_application_frame(int userid)
 		return;
 	}
 
-	if(player_config[client].flags & config_flags_no_weapons) {
-		TF2_RemoveAllWeapons(client);
-	}
+	TFClassType player_class = get_player_class(client);
 
-	if(player_config[client].flags & config_flags_no_wearables) {
-		remove_all_player_wearables(client);
+	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+		if(player_configs[client][player_class][i].model[0] != '\0') {
+			if(player_configs[client][player_class][i].flags & config_flags_no_weapons) {
+				TF2_RemoveAllWeapons(client);
+			}
+
+			if(player_configs[client][player_class][i].flags & config_flags_no_wearables) {
+				remove_all_player_wearables(client);
+			}
+			break;
+		}
 	}
 
 	handle_playermodel(client);
@@ -3676,20 +4462,25 @@ static void toggle_player_weapons(int client, bool value)
 	}
 }
 
-static void player_think_weapons_alpha(int client)
+static void player_think(int client)
 {
-	int entity = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	if(entity != -1) {
-		SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
-		set_entity_alpha(entity, 0);
-	}
-}
+	TFClassType player_class = get_player_class(client);
 
-static void player_think_wearables_alpha(int client)
-{
-#if defined CAN_GET_UTLVECTOR
-	toggle_player_wearables(client, false);
-#endif
+	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+		if(player_configs[client][player_class][i].model[0] != '\0') {
+			if(player_configs[client][player_class][i].flags & config_flags_hide_weapons) {
+				int entity = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+				if(entity != -1) {
+					SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+					set_entity_alpha(entity, 0);
+				}
+			}
+			if(player_configs[client][player_class][i].flags & config_flags_hide_wearables) {
+				toggle_player_wearables(client, false);
+			}
+			break;
+		}
+	}
 }
 
 static void player_think_model(int client)
@@ -3867,6 +4658,20 @@ static int team_for_skin(int skin)
 	}
 }
 
+static void replace_model_variables(int client, TFClassType model_class, char[] model, len)
+{
+	TFClassType player_class = TF2_GetPlayerClass(client);
+
+	char classname[CLASS_NAME_MAX];
+	get_class_name(player_class, classname, CLASS_NAME_MAX, true);
+
+	ReplaceString(model, len, "$player_class$", classname);
+
+	get_class_name(model_class, classname, CLASS_NAME_MAX, true);
+
+	ReplaceString(model, len, "$model_class$", classname);
+}
+
 static void handle_playermodel(int client)
 {
 #if defined DEBUG_MODEL
@@ -3893,13 +4698,14 @@ static void handle_playermodel(int client)
 
 	TFClassType player_class = get_player_class(client);
 
-	bool config_valid = ((player_config[client].model[0] != '\0') && !!(player_config[client].classes_allowed & BIT_FOR_CLASS(player_class)));
+	bool has_any_model = (player_thirdparty_model[client].model[0] != '\0');
 
-	bool has_any_model = (
-		player_thirdparty_model[client].model[0] != '\0' ||
-		config_valid ||
-		player_econ_configs[client][player_class].model[0] != '\0'
-	);
+	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+		if(player_configs[client][player_class][i].model[0] != '\0') {
+			has_any_model |= true;
+			break;
+		}
+	}
 
 	TFClassType anim_class = player_class;
 
@@ -3921,7 +4727,7 @@ static void handle_playermodel(int client)
 	}
 
 	bool bonemerge = true;
-	int from = 0;
+	int from = -1;
 	TFClassType model_class = player_class;
 
 	char player_model[PLATFORM_MAX_PATH];
@@ -3944,32 +4750,25 @@ static void handle_playermodel(int client)
 		} else {
 			bonemerge = false;
 		}
-	} else if(config_valid) {
-		from = 1;
-		strcopy(player_model, PLATFORM_MAX_PATH, player_config[client].model);
-		model_class = player_config[client].model_class;
+	} else {
+		for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+			if(player_configs[client][player_class][i].model[0] != '\0') {
+				strcopy(player_model, PLATFORM_MAX_PATH, player_configs[client][player_class][i].model);
+				replace_model_variables(client, player_configs[client][player_class][i].model_class, player_model, PLATFORM_MAX_PATH);
+				model_class = player_configs[client][player_class][i].model_class;
 
-		if(player_config[client].flags & config_flags_never_bonemerge) {
-			bonemerge = false;
-		} else if(!(player_config[client].flags & config_flags_always_bonemerge)) {
-			if(player_config[client].model_class == player_class) {
-				if(animation_model[0] == '\0') {
+				if(player_configs[client][player_class][i].flags & config_flags_never_bonemerge) {
 					bonemerge = false;
+				} else if(!(player_configs[client][player_class][i].flags & config_flags_always_bonemerge)) {
+					if(player_configs[client][player_class][i].model_class == player_class) {
+						if(animation_model[0] == '\0') {
+							bonemerge = false;
+						}
+					}
 				}
-			}
-		}
-	} else if(player_econ_configs[client][player_class].model[0] != '\0') {
-		from = 2;
-		strcopy(player_model, PLATFORM_MAX_PATH, player_econ_configs[client][player_class].model);
-		model_class = player_econ_configs[client][player_class].model_class;
 
-		if(player_econ_configs[client][player_class].flags & config_flags_never_bonemerge) {
-			bonemerge = false;
-		} else if(!(player_econ_configs[client][player_class].flags & config_flags_always_bonemerge)) {
-			if(player_econ_configs[client][player_class].model_class == player_class) {
-				if(animation_model[0] == '\0') {
-					bonemerge = false;
-				}
+				from = i;
+				break;
 			}
 		}
 	}
@@ -4008,8 +4807,35 @@ static void handle_playermodel(int client)
 			return;
 		}
 
+		int entity = get_player_model_entity(client);
+
 		bool same_custom_model = StrEqual(player_custom_model[client], animation_model);
-		bool same_entity_model = StrEqual(player_entity_model[client], player_model) && get_player_model_entity(client) != -1;
+		bool same_entity_model = StrEqual(player_entity_model[client], player_model) && entity != -1;
+
+		if(same_entity_model && entity != -1) {
+			bool set_bodygroups = true;
+
+			if(from != -1) {
+				int bodygroups = player_configs[client][player_class][from].bodygroups;
+				if(bodygroups != -1) {
+					SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
+					set_bodygroups = false;
+				}
+
+				int skin = player_configs[client][player_class][from].skin;
+				if(skin != -1) {
+					SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(skin));
+				}
+			}
+
+			if(set_bodygroups) {
+				int bodygroups = GetEntProp(client, Prop_Send, "m_nBody");
+				if(model_class != player_class) {
+					bodygroups = translate_classes_bodygroups(bodygroups, player_class, model_class);
+				}
+				SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
+			}
+		}
 
 		if(same_custom_model && same_entity_model) {
 			return;
@@ -4022,29 +4848,18 @@ static void handle_playermodel(int client)
 
 		if(!same_entity_model) {
 			delete_player_model_entity(client);
-			int entity = get_or_create_player_model_entity(client);
+			entity = get_or_create_player_model_entity(client);
 
 			bool set_bodygroups = true;
 
-			if(from == 1) {
-				int bodygroups = player_config[client].bodygroups;
+			if(from != -1) {
+				int bodygroups = player_configs[client][player_class][from].bodygroups;
 				if(bodygroups != -1) {
 					SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
 					set_bodygroups = false;
 				}
 
-				int skin = player_config[client].skin;
-				if(skin != -1) {
-					SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(skin));
-				}
-			} else if(from == 2) {
-				int bodygroups = player_econ_configs[client][player_class].bodygroups;
-				if(bodygroups != -1) {
-					SetEntProp(entity, Prop_Send, "m_nBody", bodygroups);
-					set_bodygroups = false;
-				}
-
-				int skin = player_econ_configs[client][player_class].skin;
+				int skin = player_configs[client][player_class][from].skin;
 				if(skin != -1) {
 					SetEntProp(entity, Prop_Send, "m_iTeamNum", team_for_skin(skin));
 				}

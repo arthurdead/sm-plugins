@@ -1021,11 +1021,6 @@ static void handle_player_inventory_impl(int client, ArrayList &arr, int idx, ec
 	}
 }
 
-static void handle_player_items(int client, int idx, econ_item_action action)
-{
-	handle_player_inventory_impl(client, player_inventory_equipped[client], idx, action);
-}
-
 static void handle_player_inventory(int client, econ_item_action action)
 {
 	handle_player_inventory_impl(client, player_inventory_equipped[client], -1, action);
@@ -1462,19 +1457,19 @@ static void query_item_added(Database db, DBResultSet results, const char[] erro
 		for(int i = 0; i < len; ++i) {
 			snap.GetKey(i, sett_name, ECON_MAX_ITEM_SETTING_NAME);
 
-			settings.GetString(sett_name, sett_value, ECON_MAX_ITEM_SETTING_VALUE);
+			if(settings.GetString(sett_name, sett_value, ECON_MAX_ITEM_SETTING_VALUE)) {
+				econ_db.Format(query, QUERY_STR_MAX,
+					"insert into item_setting " ...
+					" (item,name,value) " ...
+					" values " ...
+					" (%i,'%s','%s') " ...
+					";"
+					,id,sett_name,sett_value
+				);
+				tr.AddQuery(query);
 
-			econ_db.Format(query, QUERY_STR_MAX,
-				"insert into item_setting " ...
-				" (item,name,value) " ...
-				" values " ...
-				" (%i,'%s','%s') " ...
-				";"
-				,id,sett_name,sett_value
-			);
-			tr.AddQuery(query);
-
-			item_setting_loaded(id, sett_name, sett_value);
+				item_setting_loaded(id, sett_name, sett_value);
+			}
 		}
 		delete snap;
 
@@ -1659,17 +1654,17 @@ static int native_econ_set_item_settings(Handle plugin, int params)
 	for(int i = 0; i < len; ++i) {
 		snap.GetKey(i, sett_name, ECON_MAX_ITEM_SETTING_NAME);
 
-		settings.GetString(sett_name, sett_value, ECON_MAX_ITEM_SETTING_VALUE);
+		if(settings.GetString(sett_name, sett_value, ECON_MAX_ITEM_SETTING_VALUE)) {
+			econ_db.Format(query, QUERY_STR_MAX,
+				"replace into item_setting set " ...
+				" item=%i,name='%s',value='%s' " ...
+				";"
+				,item_id,sett_name,sett_value
+			);
+			tr.AddQuery(query);
 
-		econ_db.Format(query, QUERY_STR_MAX,
-			"replace into item_setting set " ...
-			" item=%i,name='%s',value='%s' " ...
-			";"
-			,item_id,sett_name,sett_value
-		);
-		tr.AddQuery(query);
-
-		item_settings.SetString(sett_name, sett_value);
+			item_settings.SetString(sett_name, sett_value);
+		}
 	}
 	delete snap;
 
@@ -2125,7 +2120,6 @@ static int item_loaded(int id, int cat_id, const char[] name, const char[] desc,
 		//info.shop_menu.AddItem(str, "Preview");
 
 		pack_int_in_str(idx, str, 0);
-		pack_int_in_str(info.price, str, 4);
 		info.shop_menu.AddItem(str, "Buy", ITEMDRAW_DISABLED);
 	}
 
@@ -2213,7 +2207,7 @@ static void player_item_loaded(int client, int idx, int id, bool equipped)
 		ItemHandler hndlr;
 		item_handlers.GetArray(hndlr_idx, hndlr, sizeof(ItemHandler));
 
-		if(equipped || !hndlr.equipable) {
+		if(!hndlr.equipable) {
 			Call_StartForward(hndlr.handle_fwd);
 			Call_PushCell(client);
 			Call_PushString(info.classname);
@@ -2221,6 +2215,24 @@ static void player_item_loaded(int client, int idx, int id, bool equipped)
 			Call_PushCell(id);
 			Call_PushCell(econ_item_equip);
 			Call_Finish();
+		} else if(equipped || !hndlr.equipable) {
+			Call_StartForward(hndlr.handle_fwd);
+			Call_PushCell(client);
+			Call_PushString(info.classname);
+			Call_PushCell(idx);
+			Call_PushCell(id);
+			Call_PushCell(econ_item_equip);
+			Call_Finish();
+
+			if(econ_player_state_valid(client)) {
+				Call_StartForward(hndlr.handle_fwd);
+				Call_PushCell(client);
+				Call_PushString(info.classname);
+				Call_PushCell(idx);
+				Call_PushCell(id);
+				Call_PushCell(econ_item_apply);
+				Call_Finish();
+			}
 		}
 	}
 
@@ -2501,12 +2513,14 @@ static int menuhandler_inv(Menu menu, MenuAction action, int param1, int param2)
 			}
 		}
 		case MenuAction_Cancel: {
-			on_player_close_inv(param1, true);
-
 			if(param2 == MenuCancel_ExitBack) {
+				on_player_close_inv(param1, true);
+
 				if(show_shop_menu(param1)) {
 					return 0;
 				}
+			} else {
+				on_player_close_inv(param1);
 			}
 		}
 	}
@@ -2588,10 +2602,10 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 {
 	switch(action) {
 		case MenuAction_Select: {
-			char str[10];
+			char str[5];
 			menu.GetItem(param2, str, sizeof(str));
 
-			int idx = unpack_int_in_str(str, 0);
+			int idx = unpack_int_in_str(str);
 			int price = items.Get(idx, ItemInfo::price);
 
 			if(!can_player_buy(param1, idx, price)) {
@@ -2608,10 +2622,10 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 		}
 		case MenuAction_Cancel: {
 			if(param2 == MenuCancel_ExitBack) {
-				char str[10];
+				char str[5];
 				menu.GetItem(menu.ItemCount-1, str, sizeof(str));
 
-				int idx = unpack_int_in_str(str, 0);
+				int idx = unpack_int_in_str(str);
 				int cat_idx = items.Get(idx, ItemInfo::category);
 
 				Menu cat_shop_menu = categories.Get(cat_idx, ItemCategoryInfo::shop_menu);
@@ -2622,11 +2636,11 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 		}
 		case MenuAction_DrawItem: {
 			if(param2 == menu.ItemCount-1) {
-				char str[10];
+				char str[5];
 				menu.GetItem(param2, str, sizeof(str));
 
-				int idx = unpack_int_in_str(str, 0);
-				int price = unpack_int_in_str(str, 4);
+				int idx = unpack_int_in_str(str);
+				int price = items.Get(idx, ItemInfo::price);
 
 				return (can_player_buy(param1, idx, price) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
 			}

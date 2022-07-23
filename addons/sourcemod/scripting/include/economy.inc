@@ -95,6 +95,7 @@ stock void econ_get_or_register_item(int category, const char[] name, const char
 		econ_register_item(category, name, description, classname, price, settings);
 	} else {
 		econ_set_item_price(idx, price);
+		econ_set_item_description(idx, description);
 
 		if(settings != null) {
 			econ_set_item_settings(idx, settings);

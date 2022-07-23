@@ -32,6 +32,8 @@ int m_bIsWaitingForTrainingContinueOffset = -1;
 
 //ConVar tf_training_client_message;
 
+ConVar sv_stressbots;
+
 ArrayList TraningMsgMenus;
 ArrayList TraningMsgMenusFunctions;
 ArrayList TraningMsgPluginMap;
@@ -75,6 +77,8 @@ public void OnPluginStart()
 	AddCommandListener(command_continue, "training_continue");
 
 	//tf_training_client_message = FindConVar("tf_training_client_message");
+
+	sv_stressbots = FindConVar("sv_stressbots");
 
 	HookEvent("player_spawn", player_spawn);
 
@@ -1029,9 +1033,10 @@ int ChangeText(Handle plugin, int params)
 bool IsClientValid(int client)
 {
 	if(!IsClientInGame(client) ||
+		(!sv_stressbots.BoolValue && (
 		IsFakeClient(client) ||
 		IsClientSourceTV(client) ||
-		IsClientReplay(client)) {
+		IsClientReplay(client)))) {
 		return false;
 	}
 

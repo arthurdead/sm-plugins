@@ -188,7 +188,9 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				toggle_trail(client, true);
 			}
 			case econ_item_remove: {
-				toggle_trail(client, false);
+				if(IsClientInGame(client)) {
+					toggle_trail(client, false);
+				}
 			}
 			case econ_item_unequip: {
 				player_has_trail[client] = false;
