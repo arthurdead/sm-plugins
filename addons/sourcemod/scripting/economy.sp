@@ -7,6 +7,8 @@
 #include <animstate>
 #include <savenames>
 
+//TODO!!!!! urgent make a keyvalues to configure methods of giving credits
+
 //#define DEBUG
 
 #define QUERY_STR_MAX 1024
@@ -484,72 +486,16 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
-	int customkill = event.GetInt("customkill");
-
-	int victim_currency = -1;
-
 	if(attacker != 0 && !IsFakeClient(attacker)) {
-		bool taunt_kill = (
-			customkill == TF_CUSTOM_TAUNT_HADOUKEN ||
-			customkill == TF_CUSTOM_TAUNT_HIGH_NOON ||
-			customkill == TF_CUSTOM_TAUNT_GRAND_SLAM ||
-			customkill == TF_CUSTOM_TAUNT_FENCING ||
-			customkill == TF_CUSTOM_TAUNT_ARROW_STAB ||
-			customkill == TF_CUSTOM_TAUNT_GRENADE ||
-			customkill == TF_CUSTOM_TAUNT_BARBARIAN_SWING ||
-			customkill == TF_CUSTOM_TAUNT_UBERSLICE ||
-			customkill == TF_CUSTOM_TAUNT_ENGINEER_SMASH ||
-			customkill == TF_CUSTOM_TAUNT_ENGINEER_ARM ||
-			customkill == TF_CUSTOM_TAUNT_ARMAGEDDON ||
-			customkill == TF_CUSTOM_TAUNT_ALLCLASS_GUITAR_RIFF ||
-			customkill == TF_CUSTOM_TAUNTATK_GASBLAST
-		);
-
-		int attacker_currency = 0;
-
-		if(taunt_kill) {
-			attacker_currency = 7;
-		} else if(customkill == TF_CUSTOM_HEADSHOT) {
-			attacker_currency = 7;
-		} else if(customkill == TF_CUSTOM_BACKSTAB) {
-			attacker_currency = 7;
-		} else {
-			attacker_currency = 5;
-		}
-
-		bool domination = !!(death_flags & TF_DEATHFLAG_KILLERDOMINATION);
-		bool revenge = !!(death_flags & TF_DEATHFLAG_KILLERREVENGE);
-
-		if(domination) {
-			attacker_currency += 7;
-			victim_currency += -3;
-		} else if(revenge) {
-			attacker_currency += 6;
-			victim_currency += -2;
-		}
-
+		static const int attacker_currency = 2;
 		modify_player_currency(attacker, attacker_currency);
 	}
 
 	int assister = GetClientOfUserId(event.GetInt("assister"));
 	if(assister != 0 && !IsFakeClient(assister)) {
-		int assister_currency = 3;
-
-		bool domination = !!(death_flags & TF_DEATHFLAG_ASSISTERDOMINATION);
-		bool revenge = !!(death_flags & TF_DEATHFLAG_ASSISTERREVENGE);
-
-		if(domination) {
-			assister_currency += 7;
-			victim_currency += -3;
-		} else if(revenge) {
-			assister_currency += 6;
-			victim_currency += -2;
-		}
-
+		static const int assister_currency = 1;
 		modify_player_currency(assister, assister_currency);
 	}
-
-	modify_player_currency(victim, victim_currency);
 }
 
 static void object_destroyed(Event event, const char[] name, bool dontBroadcast)
@@ -564,24 +510,6 @@ static void object_destroyed(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 #endif
-
-	TFObjectType objecttype = view_as<TFObjectType>(event.GetInt("objecttype"));
-
-	int attacker = GetClientOfUserId(event.GetInt("attacker"));
-	if(attacker != 0 && !IsFakeClient(attacker)) {
-		modify_player_currency(victim, -1);
-
-		if(objecttype == TFObject_Sentry) {
-			modify_player_currency(attacker, 5);
-		} else {
-			modify_player_currency(attacker, 4);
-		}
-	}
-
-	int assister = GetClientOfUserId(event.GetInt("assister"));
-	if(assister != 0 && !IsFakeClient(assister)) {
-		modify_player_currency(assister, 5);
-	}
 }
 
 static void query_rank(Database db, DBResultSet results, const char[] error, DataPack data)
@@ -2894,6 +2822,8 @@ static void query_player_data(int client)
 	econ_db.Execute(tr, cache_player_data, transaction_error, usrid);
 }
 
+static const int idle_currency_time = 5;
+
 static Action timer_give_currency(Handle timer, int client)
 {
 	client = GetClientOfUserId(client);
@@ -2901,8 +2831,9 @@ static Action timer_give_currency(Handle timer, int client)
 		return Plugin_Stop;
 	}
 
-	modify_player_currency(client, 10);
-	CPrintToChat(client, ECON_CHAT_PREFIX ... "You received %i credits for playing on the server for %i minutes! you can spend it on the !shop.", 10, 5);
+	static const int idle_currency = 30;
+	modify_player_currency(client, idle_currency);
+	CPrintToChat(client, ECON_CHAT_PREFIX ... "You received %i credits for playing on the server for %i minutes! you can spend it on the !shop.", idle_currency, idle_currency_time);
 
 	return Plugin_Continue;
 }
@@ -2919,7 +2850,7 @@ public void OnClientPutInServer(int client)
 	if(!IsFakeClient(client)) {
 		player_purchase_queue[client] = new ArrayList();
 
-		player_currency_timer[client] = CreateTimer(float(5 * 60), timer_give_currency, GetClientUserId(client), TIMER_REPEAT);
+		player_currency_timer[client] = CreateTimer(float(idle_currency_time * 60), timer_give_currency, GetClientUserId(client), TIMER_REPEAT);
 	}
 }
 

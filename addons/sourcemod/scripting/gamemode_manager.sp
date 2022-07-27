@@ -126,9 +126,9 @@ static void unload_gamemodes()
 		snap.GetKey(i, map, PLATFORM_MAX_PATH);
 
 		ArrayList modes;
-		gamemode_map_map.GetValue(map, modes);
-
-		delete modes;
+		if(gamemode_map_map.GetValue(map, modes)) {
+			delete modes;
+		}
 	}
 	delete snap;
 

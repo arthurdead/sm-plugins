@@ -1,3 +1,4 @@
+#include <sourcemod>
 #include <datamaps>
 
 public void OnPluginStart()
