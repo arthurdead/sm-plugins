@@ -1,0 +1,21 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"sizeof(CTFThrowable)"
+			{
+				"linux" "8"
+			}
+		}
+		"Signatures"
+		{
+			"CTFThrowable::CTFThrowable"
+			{
+				"library" "server"
+				"linux" "@_ZN12CTFThrowableC2Ev"
+			}
+		}
+	}
+}

@@ -4437,6 +4437,9 @@ static void post_inventory_application_frame(int userid)
 	}
 
 	handle_playermodel(client);
+
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	handle_viewmodel(client, weapon);
 }
 
 static void player_changeclass(Event event, const char[] name, bool dontBroadcast)
