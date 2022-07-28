@@ -3051,6 +3051,11 @@ static Action timer_ragdoll_reset_model(Handle timer, DataPack data)
 
 static void frame_ragdoll_created(int entity)
 {
+	entity = EntRefToEntIndex(entity);
+	if(entity == -1) {
+		return;
+	}
+
 	int owner = GetEntProp(entity, Prop_Send, "m_iPlayerIndex");
 
 	char model_original[PLATFORM_MAX_PATH];
@@ -3086,19 +3091,10 @@ static void frame_ragdoll_created(int entity)
 	data.WriteString(model_original);
 }
 
-static void frame_taunt_prop_created(int entity)
-{
-#if defined DEBUG_TAUNT
-	PrintToServer(PM2_CON_PREFIX ... "taunt prop created");
-#endif
-}
-
 public void OnEntityCreated(int entity, const char[] classname)
 {
 	if(StrEqual(classname, "tf_ragdoll")) {
-		RequestFrame(frame_ragdoll_created, entity);
-	} else if(StrEqual(classname, "tf_taunt_prop")) {
-		RequestFrame(frame_taunt_prop_created, entity);
+		RequestFrame(frame_ragdoll_created, EntIndexToEntRef(entity));
 	}
 }
 
