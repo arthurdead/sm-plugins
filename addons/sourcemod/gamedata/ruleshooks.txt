@@ -1,0 +1,73 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CUpgrades::ReportUpgrade"
+			{
+				"library" "server"
+				"linux" "@_ZN9CUpgrades13ReportUpgradeEP9CTFPlayeriiiibbb"
+			}
+			"CTFGameRules::GameModeUsesUpgrades"
+			{
+				"library" "server"
+				"linux" "@_ZN12CTFGameRules20GameModeUsesUpgradesEv"
+			}
+		}
+		"Functions"
+		{
+			"CTFGameRules::GameModeUsesUpgrades"
+			{
+				"signature" "CTFGameRules::GameModeUsesUpgrades"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "address"
+				"hooktype" "gamerules"
+			}
+			"CUpgrades::ReportUpgrade"
+			{
+				"signature" "CUpgrades::ReportUpgrade"
+				"callconv" "thiscall"
+				"return" "void"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"pTFPlayer"
+					{
+						"type" "cbaseentity"
+					}
+					"nItemDef"
+					{
+						"type" "int"
+					}
+					"nAttributeDef"
+					{
+						"type" "int"
+					}
+					"nQuality"
+					{
+						"type" "int"
+					}
+					"nCost"
+					{
+						"type" "int"
+					}
+					"bDowngrade"
+					{
+						"type" "bool"
+					}
+					"bIsFresh"
+					{
+						"type" "bool"
+					}
+					"bIsBottle"
+					{
+						"type" "bool"
+					}
+				}
+			}
+		}
+	}
+}
