@@ -7,7 +7,7 @@
 			"CTFThrowable::CTFThrowable"
 			{
 				"library" "server"
-				"linux" "@_ZN12CTFThrowableC2Ev"
+				"linux" "@_ZN12CTFThrowableC1Ev"
 			}
 		}
 	}
