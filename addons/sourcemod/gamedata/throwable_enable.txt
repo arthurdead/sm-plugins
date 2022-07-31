@@ -2,13 +2,6 @@
 {
 	"tf"
 	{
-		"Offsets"
-		{
-			"sizeof(CTFThrowable)"
-			{
-				"linux" "8"
-			}
-		}
 		"Signatures"
 		{
 			"CTFThrowable::CTFThrowable"

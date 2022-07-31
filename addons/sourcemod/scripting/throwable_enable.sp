@@ -21,9 +21,8 @@ public void OnPluginStart()
 {
 	GameData gamedata = new GameData("throwable_enable");
 
-	IEntityFactory jar_factory = EntityFactoryDictionary.find("tf_weapon_jar");
-	CTFThrowable_size = jar_factory.Size;
-	CTFThrowable_size += gamedata.GetOffset("sizeof(CTFThrowable)");
+	IEntityFactory spellbook_factory = EntityFactoryDictionary.find("tf_weapon_spellbook");
+	CTFThrowable_size = spellbook_factory.Size;
 
 	StartPrepSDKCall(SDKCall_Raw);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CTFThrowable::CTFThrowable");
@@ -32,32 +31,27 @@ public void OnPluginStart()
 	delete gamedata;
 
 	CustomEntityFactory factory = EntityFactoryDictionary.register_function("tf_weapon_throwable", throwable_allocate, CTFThrowable_size);
-	CustomSendtable table = CustomSendtable.from_factory(factory, "CTFThrowable");
-	table.set_name("DT_TFWeaponThrowable");
+	CustomSendtable table = CustomSendtable.from_factory(factory);
 	table.set_network_name("CTFThrowable");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_primary", throwable_allocate, CTFThrowable_size);
-	table = CustomSendtable.from_factory(factory, "CTFThrowable");
-	table.set_name("DT_TFWeaponThrowable");
+	table = CustomSendtable.from_factory(factory);
 	table.set_network_name("CTFThrowablePrimary");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_secondary", throwable_allocate, CTFThrowable_size);
-	table = CustomSendtable.from_factory(factory, "CTFThrowable");
-	table.set_name("DT_TFWeaponThrowable");
+	table = CustomSendtable.from_factory(factory);
 	table.set_network_name("CTFThrowableSecondary");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_melee", throwable_allocate, CTFThrowable_size);
-	table = CustomSendtable.from_factory(factory, "CTFThrowable");
-	table.set_name("DT_TFWeaponThrowable");
+	table = CustomSendtable.from_factory(factory);
 	table.set_network_name("CTFThrowableMelee");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_utility", throwable_allocate, CTFThrowable_size);
-	table = CustomSendtable.from_factory(factory, "CTFThrowable");
-	table.set_name("DT_TFWeaponThrowable");
+	table = CustomSendtable.from_factory(factory);
 	table.set_network_name("CTFThrowableUtility");
 
 	TFWeaponInfo info = new TFWeaponInfo();
-	info.ImportFromFile("scripts/tf_weapon_jar.txt");
+	info.ImportFromFile("scripts/tf_weapon_spellbook.txt");
 
 	precache_weapon_kv(info.__kv, "scripts/tf_weapon_throwable.txt", false);
 	precache_weapon_kv(info.__kv, "scripts/tf_weapon_throwable_primary.txt", false);
