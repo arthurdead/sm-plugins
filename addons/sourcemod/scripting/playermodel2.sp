@@ -1943,6 +1943,16 @@ public void OnMapStart()
 {
 	PrecacheModel("models/error.mdl");
 
+	PrecacheModel("models/player/hwm/engineer.mdl");
+	PrecacheModel("models/player/hwm/scout.mdl");
+	PrecacheModel("models/player/hwm/medic.mdl");
+	PrecacheModel("models/player/hwm/soldier.mdl");
+	PrecacheModel("models/player/hwm/heavy.mdl");
+	PrecacheModel("models/player/hwm/demo.mdl");
+	PrecacheModel("models/player/hwm/spy.mdl");
+	PrecacheModel("models/player/hwm/sniper.mdl");
+	PrecacheModel("models/player/hwm/pyro.mdl");
+
 	modelprecache = FindStringTable("modelprecache");
 
 	ConfigInfo info;
