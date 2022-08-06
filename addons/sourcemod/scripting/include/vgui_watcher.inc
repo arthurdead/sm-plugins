@@ -14,6 +14,8 @@ native player_vgui_state player_current_vgui(int client);
 native bool player_is_opening_vgui(int client);
 native bool player_is_closing_class_vgui(int client);
 
+native void reset_player_vgui(int client);
+
 forward void player_opened_vgui(int client, player_vgui_state which);
 forward void player_closed_vgui(int client, player_vgui_state which);
 forward void player_closing_class_vgui(int client);

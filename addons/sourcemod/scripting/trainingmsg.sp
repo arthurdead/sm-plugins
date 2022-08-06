@@ -3,6 +3,7 @@
 #include <proxysend>
 #include <tf2_stocks>
 #include <trainingmsg>
+#include <vgui_watcher>
 
 #define INT_STR_MAX 4
 
@@ -16,11 +17,10 @@ bool has_continued[MAXPLAYERS+1];
 int num_enabled;
 bool gamerules_hooked;
 bool g_bLateLoaded;
-int player_wants_vgui[MAXPLAYERS+1];
-Handle player_vgui_timer[MAXPLAYERS+1];
 int current_player_menu[MAXPLAYERS+1] = {-1, ...};
 
 char player_last_msg[MAXPLAYERS+1][TRAINING_MSG_MAX_LEN];
+char player_last_title[MAXPLAYERS+1][TRAINING_MSG_MAX_TITLE];
 
 UserMsg TrainingObjective = INVALID_MESSAGE_ID;
 UserMsg TrainingMsg = INVALID_MESSAGE_ID;
@@ -72,8 +72,6 @@ public void OnPluginStart()
 	m_bIsTrainingHUDVisibleOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bIsTrainingHUDVisible");
 	m_bIsWaitingForTrainingContinueOffset = FindSendPropInfo("CTFGameRulesProxy", "m_bIsWaitingForTrainingContinue");
 
-	AddCommandListener(command_menu, "menuopen");
-	AddCommandListener(command_menu, "menuclosed");
 	AddCommandListener(command_continue, "training_continue");
 
 	//tf_training_client_message = FindConVar("tf_training_client_message");
@@ -254,6 +252,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("TrainingMsgMenu.DrawItem", TrainingMsgMenuDrawItem);
 	CreateNative("TrainingMsgMenu.AddItem", TrainingMsgMenuAddItem);
 	CreateNative("TrainingMsgMenu.ExitButton.set", TrainingMsgMenuExitButton);
+	CreateNative("TrainingMsgMenu.ExitBackButton.set", TrainingMsgMenuExitBackButton);
 	CreateNative("TrainingMsgMenu.Flags.set", TrainingMsgMenuFlags);
 	CreateNative("TrainingMsgMenu.SendToClient", TrainingMsgMenuSendToClient);
 
@@ -302,6 +301,9 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 	if(action == MenuAction_Select && param2 == 10) {
 		action = MenuAction_Cancel;
 		param2 = MenuCancel_Exit;
+	} else if(action == MenuAction_Select && param2 == 8) {
+		action = MenuAction_Cancel;
+		param2 = MenuCancel_ExitBack;
 	}
 
 	switch(action) {
@@ -343,6 +345,7 @@ int GlobalTrainingMsgMenuHandler(Menu menu, MenuAction action, int param1, int p
 					case MenuCancel_Interrupted: { Call_PushCell(TrainingMsgMenuCancel_Interrupted); }
 					case MenuCancel_Exit: { Call_PushCell(TrainingMsgMenuCancel_Exit); }
 					case MenuCancel_Timeout: { Call_PushCell(TrainingMsgMenuCancel_Timeout); }
+					case MenuCancel_ExitBack: { Call_PushCell(TrainingMsgMenuCancel_ExitBack); }
 					default: { Call_PushCell(-1); }
 				}
 
@@ -476,6 +479,29 @@ int TrainingMsgMenuExitButton(Handle plugin, int params)
 		menuinfo.keys |= (1 << 9);
 	} else {
 		menuinfo.keys &= ~(1 << 9);
+	}
+	menuinfo.pan.SetKeys(menuinfo.keys);
+
+	TraningMsgMenus.SetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
+
+	return 0;
+}
+
+int TrainingMsgMenuExitBackButton(Handle plugin, int params)
+{
+	int index = GetNativeCell(1);
+
+	if(index < 0 || index > TraningMsgMenus.Length) {
+		return ThrowNativeError(SP_ERROR_NATIVE, "invalid menu");
+	}
+
+	TraningMsgMenuInfo menuinfo;
+	TraningMsgMenus.GetArray(index, menuinfo, sizeof(TraningMsgMenuInfo));
+
+	if(GetNativeCell(2)) {
+		menuinfo.keys |= (1 << 7);
+	} else {
+		menuinfo.keys &= ~(1 << 7);
 	}
 	menuinfo.pan.SetKeys(menuinfo.keys);
 
@@ -651,16 +677,6 @@ public void OnEntityDestroyed(int entity)
 	}
 }
 
-Action Timer_ResetWantsVgui(Handle timer, int client)
-{
-	client = GetClientOfUserId(client);
-	if(client != -1) {
-		player_vgui_timer[client] = null;
-		player_wants_vgui[client] = 0;
-	}
-	return Plugin_Continue;
-}
-
 Action command_continue(int client, const char[] command, int args)
 {
 	if(msg_enabled[client] && MsgHasContinue(client)) {
@@ -677,54 +693,38 @@ Action command_continue(int client, const char[] command, int args)
 	return Plugin_Continue;
 }
 
-Action command_menu(int client, const char[] command, int args)
+static Action timer_resetvgui(Handle timer, int client)
 {
-	if(msg_enabled[client] || IsGloballyEnabled()) {
-		if(StrEqual(command, "menuclosed")) {
-			if(player_wants_vgui[client] >= 3) {
-				--player_wants_vgui[client];
-				if((player_wants_vgui[client]-3) == 1) {
-					player_wants_vgui[client] = 0;
-				}
-			} else {
-				if(player_wants_vgui[client]++ == 0) {
-					player_vgui_timer[client] = CreateTimer(0.2, Timer_ResetWantsVgui, GetClientUserId(client));
-
-					BfWrite usrmsg = view_as<BfWrite>(StartMessageOne("HudNotifyCustom", client));
-					usrmsg.WriteString("You need to double-tap to change class.");
-					usrmsg.WriteString("ico_notify_flag_moving");
-					usrmsg.WriteByte(GetClientTeam(client));
-					EndMessage();
-				}
-			}
-		} else if(StrEqual(command, "menuopen")) {
-			player_wants_vgui[client] *= 2;
-		}
+	client = GetClientOfUserId(client);
+	if(client == 0) {
+		return Plugin_Continue;
 	}
+
+	reset_player_vgui(client);
 	return Plugin_Continue;
+}
+
+public void player_opened_vgui(int client, player_vgui_state which)
+{
+	if(msg_enabled[client] && which == player_vgui_team) {
+		BfWrite usrmsg = view_as<BfWrite>(StartMessageOne("HudNotifyCustom", client));
+		usrmsg.WriteString("You need to double-tap to change class.");
+		usrmsg.WriteString("ico_notify_flag_moving");
+		usrmsg.WriteByte(GetClientTeam(client));
+		EndMessage();
+		CreateTimer(0.2, timer_resetvgui, GetClientUserId(client));
+	}
 }
 
 Action HookIsTraining(int entity, const char[] prop, bool &value, int element, int client)
 {
-	if(msg_enabled[client]) {
-		if(player_wants_vgui[client] != 0) {
-			value = false;
-		} else {
-			value = true;
-		}
-	} else {
-		value = false;
-	}
+	value = (msg_enabled[client] && !player_is_opening_vgui(client) && player_current_vgui(client) == player_vgui_none);
 	return Plugin_Changed;
 }
 
 Action HookIsContinue(int entity, const char[] prop, bool &value, int element, int client)
 {
-	if(msg_enabled[client] && MsgHasContinue(client)) {
-		value = true;
-	} else {
-		value = false;
-	}
+	value = (msg_enabled[client] && MsgHasContinue(client));
 	return Plugin_Changed;
 }
 
@@ -764,13 +764,6 @@ void Hook()
 
 void EnableClient(int client)
 {
-	player_wants_vgui[client] = 0;
-
-	if(player_vgui_timer[client] != null) {
-		KillTimer(player_vgui_timer[client]);
-		player_vgui_timer[client] = null;
-	}
-
 	if(!msg_enabled[client]) {
 		msg_enabled[client] = true;
 		++num_enabled;
@@ -779,13 +772,6 @@ void EnableClient(int client)
 
 int DisableClient(int client, bool send_empty = true, bool cancel_menu = true, int reason = TrainingMsgMenuCancel_Interrupted)
 {
-	player_wants_vgui[client] = 0;
-
-	if(player_vgui_timer[client] != null) {
-		KillTimer(player_vgui_timer[client]);
-		player_vgui_timer[client] = null;
-	}
-
 	if(cancel_menu) {
 		CancelTrainingMsgMenu(client, reason);
 	}
@@ -803,6 +789,7 @@ int DisableClient(int client, bool send_empty = true, bool cancel_menu = true, i
 		msg_flags[client] = TMSG_NOFLAGS;
 		has_continued[client] = false;
 		player_last_msg[client][0] = '\0';
+		player_last_title[client][0] = '\0';
 		--num_enabled;
 
 		if(num_enabled == 0) {
@@ -842,17 +829,26 @@ Action player_spawn(Event event, const char[] name, bool dontBroadcast)
 
 void SendUsrMsgHelper(int[] clients, int numClients, const char[] title, const char[] msg)
 {
-	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingObjective, clients, numClients));
-	usrmsg.WriteString(title);
-	EndMessage();
-
-	usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, clients, numClients));
-	usrmsg.WriteString(msg);
-	EndMessage();
-
 	for(int i = 0; i < numClients; ++i) {
 		int client = clients[i];
+
+		int tmp_clients[1];
+		tmp_clients[0] = client;
+
+		if(!StrEqual(player_last_title[client], title)) {
+			BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingObjective, tmp_clients, 1));
+			usrmsg.WriteString(title);
+			EndMessage();
+		}
+
+		if(!StrEqual(player_last_msg[client], msg)) {
+			BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingMsg, tmp_clients, 1));
+			usrmsg.WriteString(msg);
+			EndMessage();
+		}
+
 		strcopy(player_last_msg[client], TRAINING_MSG_MAX_LEN, msg);
+		strcopy(player_last_title[client], TRAINING_MSG_MAX_TITLE, title);
 	}
 }
 
@@ -981,6 +977,11 @@ int ChangeTextAll(Handle plugin, int params)
 
 int ChangeTitle(Handle plugin, int params)
 {
+	int length = 0;
+	GetNativeStringLength(3, length);
+	char[] title = new char[++length];
+	GetNativeString(3, title, length);
+
 	int numClients = GetNativeCell(2);
 
 	int[] clients = new int[numClients];
@@ -988,15 +989,11 @@ int ChangeTitle(Handle plugin, int params)
 
 	for(int i = 0; i < numClients; ++i) {
 		int client = clients[i];
+		strcopy(player_last_title[i], TRAINING_MSG_MAX_TITLE, title);
 		if(CancelTrainingMsgMenu(client)) {
 			//TODO!!! change msg
 		}
 	}
-
-	int length = 0;
-	GetNativeStringLength(3, length);
-	char[] title = new char[++length];
-	GetNativeString(3, title, length);
 
 	BfWrite usrmsg = view_as<BfWrite>(StartMessageEx(TrainingObjective, clients, numClients));
 	usrmsg.WriteString(title);

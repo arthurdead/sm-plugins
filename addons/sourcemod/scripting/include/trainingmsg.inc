@@ -6,6 +6,7 @@
 #define TRAINING_MSG_MAX_WIDTH 59
 #define TRAINING_MSG_MAX_HEIGHT 4
 #define TRAINING_MSG_MAX_LEN (TRAINING_MSG_MAX_WIDTH * TRAINING_MSG_MAX_HEIGHT)
+#define TRAINING_MSG_MAX_TITLE 64
 
 enum TrainingMsgMenuAction
 {
@@ -19,6 +20,7 @@ enum
 	TrainingMsgMenuCancel_Interrupted,
 	TrainingMsgMenuCancel_Exit,
 	TrainingMsgMenuCancel_Timeout,
+	TrainingMsgMenuCancel_ExitBack
 };
 
 typedef TrainingMsgMenuHandler = function void (TrainingMsgMenuAction action, int client, int param1, any menu_data, any item_data);
@@ -44,6 +46,10 @@ methodmap TrainingMsgMenu
 	public native bool AddItem(const char[] str, any data = 0);
 
 	property bool ExitButton {
+		public native set(bool value);
+	}
+
+	property bool ExitBackButton {
 		public native set(bool value);
 	}
 

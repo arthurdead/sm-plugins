@@ -22,7 +22,7 @@
 				"signature" "CTFGameRules::GameModeUsesUpgrades"
 				"callconv" "thiscall"
 				"return" "bool"
-				"this" "address"
+				"this" "ignore"
 				"hooktype" "gamerules"
 			}
 			"CUpgrades::ReportUpgrade"

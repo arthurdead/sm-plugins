@@ -35,6 +35,24 @@ static int native_player_is_closing_class_vgui(Handle plugin, int params)
 	return (player_vgui[client] == player_vgui_class && player_menu_close_num[client] == 1 && player_menu_open_num[client] == 0);
 }
 
+static int native_reset_player_vgui(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	if(player_vgui[client] != player_vgui_none) {
+		Call_StartForward(fwd_player_closed_vgui);
+		Call_PushCell(client);
+		Call_PushCell(player_vgui[client]);
+		Call_Finish();
+	}
+
+	player_menu_open_num[client] = 0;
+	player_menu_close_num[client] = 0;
+	player_vgui[client] = player_vgui_none;
+
+	return 0;
+}
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 {
 	RegPluginLibrary("vgui_watcher");
@@ -42,6 +60,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 	CreateNative("player_current_vgui", native_player_current_vgui);
 	CreateNative("player_is_opening_vgui", native_player_is_opening_vgui);
 	CreateNative("player_is_closing_class_vgui", native_player_is_closing_class_vgui);
+
+	CreateNative("reset_player_vgui", native_reset_player_vgui);
 
 	fwd_player_opened_vgui = new GlobalForward("player_opened_vgui", ET_Ignore, Param_Cell, Param_Cell);
 	fwd_player_closed_vgui = new GlobalForward("player_closed_vgui", ET_Ignore, Param_Cell, Param_Cell);
@@ -88,6 +108,10 @@ static Action command_team(int client, const char[] command, int args)
 
 static Action command_menu(int client, const char[] command, int args)
 {
+#if defined DEBUG
+	PrintToServer("%s", command);
+#endif
+
 	if(StrEqual(command, "menuclosed")) {
 		++player_menu_close_num[client];
 		if(player_menu_close_num[client] == 2 && player_menu_open_num[client] == 0) {

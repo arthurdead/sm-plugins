@@ -3648,7 +3648,7 @@ static TFClassType get_class_for_weapon(int weapon, TFClassType real_player_clas
 	int m_iItemDefinitionIndex = -1;
 
 	if(!viewmodel) {
-		m_iItemDefinitionIndex = TF2CustAttr_GetInt(weapon, "playermodel2_thirdperson_defidx", -1);
+		m_iItemDefinitionIndex = TF2CustAttr_GetInt(weapon, "playermodel2_thirdperson_itemdef", -1);
 	}
 
 	if(m_iItemDefinitionIndex == -1) {
@@ -4006,16 +4006,17 @@ static Action timer_handle_weapon_switch(Handle timer, DataPack data)
 	return Plugin_Continue;
 }
 
-static void player_weapon_equip(int client, int weapon)
+static Action player_weapon_equip(int client, int weapon)
 {
 #if defined DEBUG_VIEWMODEL
 	PrintToServer(PM2_CON_PREFIX ... "player_weapon_equip(%i)", client);
 #endif
 
 	handle_weapon_switch(client, weapon, true);
+	return Plugin_Continue;
 }
 
-static void player_weapon_switch(int client, int weapon)
+static Action player_weapon_switch(int client, int weapon)
 {
 	if(player_weapon_switch_timer[client] != null) {
 		KillTimer(player_weapon_switch_timer[client]);
@@ -4025,6 +4026,7 @@ static void player_weapon_switch(int client, int weapon)
 	player_weapon_switch_timer[client] = CreateDataTimer(0.1, timer_handle_weapon_switch, data, TIMER_FLAG_NO_MAPCHANGE);
 	data.WriteCell(GetClientUserId(client));
 	data.WriteCell(weapon == -1 ? INVALID_ENT_REFERENCE : EntIndexToEntRef(weapon));
+	return Plugin_Continue;
 }
 
 public void OnPluginEnd()
@@ -4115,8 +4117,8 @@ static Action player_proxysend_stunindex(int entity, const char[] prop, int &val
 
 public void OnClientPutInServer(int client)
 {
-	SDKHook(client, SDKHook_WeaponSwitchPost, player_weapon_switch);
-	SDKHook(client, SDKHook_WeaponEquipPost, player_weapon_equip);
+	SDKHook(client, SDKHook_WeaponSwitch, player_weapon_switch);
+	SDKHook(client, SDKHook_WeaponEquip, player_weapon_equip);
 
 	SDKHook(client, SDKHook_PostThinkPost, player_think);
 
