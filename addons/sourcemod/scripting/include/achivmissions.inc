@@ -146,7 +146,7 @@ methodmap MissionEntry
 	//public native void GetParamInfo(int idx, MissionParamInfoVar info);
 
 	public native MissionInstance Give(int client);
-	public native MissionInstance GiveEx(int client, int param_values[MAX_MISSION_PARAMS]);
+	public native MissionInstance GiveEx(int client, const int param_values[MAX_MISSION_PARAMS]);
 
 	public native ArrayList GetInstanceCache(int client);
 
