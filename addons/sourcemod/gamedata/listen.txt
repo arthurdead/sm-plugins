@@ -35,9 +35,61 @@
 				"library"	"server"
 				"linux"		"@_ZN13NDebugOverlay6CircleERK6VectorS2_S2_fiiiibf"
 			}
+			"NDebugOverlay::BoxAngles"
+			{
+				"library"	"server"
+				"linux"		"@_ZN13NDebugOverlay9BoxAnglesERK6VectorS2_S2_RK6QAngleiiiif"
+			}
 		}
 		"Functions"
 		{
+			"NDebugOverlay::BoxAngles"
+			{
+				"signature" "NDebugOverlay::BoxAngles"
+				"callconv" "cdecl"
+				"return" "void"
+				"this" "ignore"
+				"hooktype" "raw"
+				"arguments"
+				{
+					"origin"
+					{
+						"type" "vectorptr"
+					}
+					"mins"
+					{
+						"type" "vectorptr"
+					}
+					"maxs"
+					{
+						"type" "vectorptr"
+					}
+					"angles"
+					{
+						"type" "vectorptr"
+					}
+					"r"
+					{
+						"type" "int"
+					}
+					"g"
+					{
+						"type" "int"
+					}
+					"b"
+					{
+						"type" "int"
+					}
+					"a"
+					{
+						"type" "int"
+					}
+					"duration"
+					{
+						"type" "float"
+					}
+				}
+			}
 			"NDebugOverlay::Line"
 			{
 				"signature" "NDebugOverlay::Line"

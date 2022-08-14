@@ -25,7 +25,7 @@ char player_last_title[MAXPLAYERS+1][TRAINING_MSG_MAX_TITLE];
 UserMsg TrainingObjective = INVALID_MESSAGE_ID;
 UserMsg TrainingMsg = INVALID_MESSAGE_ID;
 
-int tf_gamerules = -1;
+int tf_gamerules = INVALID_ENT_REFERENCE;
 int m_bIsInTrainingOffset = -1;
 int m_bIsTrainingHUDVisibleOffset = -1;
 int m_bIsWaitingForTrainingContinueOffset = -1;
@@ -543,6 +543,8 @@ int TrainingMsgMenuAddItem(Handle plugin, int params)
 		return 0;
 	}
 
+	bool disabled = GetNativeCell(4);
+
 	int length = 0;
 	GetNativeStringLength(2, length);
 	char[] title = new char[++length];
@@ -551,7 +553,9 @@ int TrainingMsgMenuAddItem(Handle plugin, int params)
 	ReplaceString(title, length, "\n", "");
 
 	menuinfo.keys |= (1 << menuinfo.curritem);
-	menuinfo.pan.SetKeys(menuinfo.keys);
+	if(!disabled) {
+		menuinfo.pan.SetKeys(menuinfo.keys);
+	}
 	++menuinfo.curritem;
 
 	menuinfo.items.PushString(title);
@@ -637,12 +641,8 @@ public void OnNotifyPluginUnloaded(Handle plugin)
 
 public void OnMapStart()
 {
-	if(g_bLateLoaded) {
-		tf_gamerules = FindEntityByClassname(-1, "tf_gamerules");
-		if(tf_gamerules == -1) {
-			ThrowError("tf_gamerules was not found");
-		}
-	}
+	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
+	tf_gamerules = EntIndexToEntRef(gamerules);
 }
 
 public void OnPluginEnd()
@@ -656,25 +656,7 @@ public void OnMapEnd()
 {
 	OnPluginEnd();
 
-	tf_gamerules = -1;
-}
-
-public void OnEntityCreated(int entity, const char[] classname)
-{
-	if(StrEqual(classname, "tf_gamerules")) {
-		if(tf_gamerules != -1) {
-			ThrowError("multiple tf_gamerules");
-		}
-
-		tf_gamerules = entity;
-	}
-}
-
-public void OnEntityDestroyed(int entity)
-{
-	if(entity == tf_gamerules) {
-		tf_gamerules = -1;
-	}
+	tf_gamerules = INVALID_ENT_REFERENCE;
 }
 
 Action command_continue(int client, const char[] command, int args)
@@ -701,12 +683,14 @@ static Action timer_resetvgui(Handle timer, int client)
 	}
 
 	reset_player_vgui(client);
+	ChangeGameRulesState();
 	return Plugin_Continue;
 }
 
 public void player_opened_vgui(int client, player_vgui_state which)
 {
 	if(msg_enabled[client] && which == player_vgui_team) {
+		ChangeGameRulesState();
 		BfWrite usrmsg = view_as<BfWrite>(StartMessageOne("HudNotifyCustom", client));
 		usrmsg.WriteString("You need to double-tap to change class.");
 		usrmsg.WriteString("ico_notify_flag_moving");
@@ -714,6 +698,18 @@ public void player_opened_vgui(int client, player_vgui_state which)
 		EndMessage();
 		CreateTimer(0.2, timer_resetvgui, GetClientUserId(client));
 	}
+}
+
+public void player_closed_vgui(int client, player_vgui_state which)
+{
+	if(which == player_vgui_class) {
+		ChangeGameRulesState();
+	}
+}
+
+public void player_opening_vgui(int client)
+{
+	ChangeGameRulesState();
 }
 
 Action HookIsTraining(int entity, const char[] prop, bool &value, int element, int client)
@@ -731,13 +727,11 @@ Action HookIsContinue(int entity, const char[] prop, bool &value, int element, i
 void Unhook(bool value, bool has_continue)
 {
 	if(gamerules_hooked) {
-		if(tf_gamerules == -1) {
-			ThrowError("tf_gamerules was not found");
-		}
+		int gamerules = EntRefToEntIndex(tf_gamerules);
 
-		proxysend_unhook(tf_gamerules, "m_bIsInTraining", HookIsTraining);
-		proxysend_unhook(tf_gamerules, "m_bIsTrainingHUDVisible", HookIsTraining);
-		proxysend_unhook(tf_gamerules, "m_bIsWaitingForTrainingContinue", HookIsContinue);
+		proxysend_unhook(gamerules, "m_bIsInTraining", HookIsTraining);
+		proxysend_unhook(gamerules, "m_bIsTrainingHUDVisible", HookIsTraining);
+		proxysend_unhook(gamerules, "m_bIsWaitingForTrainingContinue", HookIsContinue);
 		gamerules_hooked = false;
 	}
 
@@ -748,16 +742,23 @@ void Unhook(bool value, bool has_continue)
 	}
 }
 
+void ChangeGameRulesState()
+{
+	int gamerules = EntRefToEntIndex(tf_gamerules);
+
+	ChangeEdictState(gamerules, m_bIsInTrainingOffset);
+	ChangeEdictState(gamerules, m_bIsTrainingHUDVisibleOffset);
+	ChangeEdictState(gamerules, m_bIsWaitingForTrainingContinueOffset);
+}
+
 void Hook()
 {
 	if(!gamerules_hooked) {
-		if(tf_gamerules == -1) {
-			ThrowError("tf_gamerules was not found");
-		}
+		int gamerules = EntRefToEntIndex(tf_gamerules);
 
-		proxysend_hook(tf_gamerules, "m_bIsInTraining", HookIsTraining, true);
-		proxysend_hook(tf_gamerules, "m_bIsTrainingHUDVisible", HookIsTraining, true);
-		proxysend_hook(tf_gamerules, "m_bIsWaitingForTrainingContinue", HookIsContinue, true);
+		proxysend_hook(gamerules, "m_bIsInTraining", HookIsTraining, true);
+		proxysend_hook(gamerules, "m_bIsTrainingHUDVisible", HookIsTraining, true);
+		proxysend_hook(gamerules, "m_bIsWaitingForTrainingContinue", HookIsContinue, true);
 		gamerules_hooked = true;
 	}
 }
@@ -856,12 +857,14 @@ void SendToClientsHelper(int[] clients, int numClients, const char[] title, cons
 {
 	Hook();
 	SendUsrMsgHelper(clients, numClients, title, msg);
+	ChangeGameRulesState();
 }
 
 void SendToAllHelper(int[] clients, int numClients, const char[] title, const char[] msg, bool has_continue)
 {
 	Hook();
 	SendUsrMsgHelper(clients, numClients, title, msg);
+	ChangeGameRulesState();
 }
 
 bool IsGloballyEnabled()
@@ -904,6 +907,7 @@ int RemoveContinueMsg(Handle plugin, int params)
 
 	if(msg_enabled[client] && MsgHasContinue(client)) {
 		msg_flags[client] &= ~(TMSG_HAS_CONTINUE|TMSG_REMOVE_ON_CONTINUE);
+		ChangeGameRulesState();
 	}
 
 	return 0;

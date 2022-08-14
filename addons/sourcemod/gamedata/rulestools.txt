@@ -2,6 +2,21 @@
 {
 	"tf"
 	{
+		"Offsets"
+		{
+			"CGameRules::RoundCleanupShouldIgnore"
+			{
+				"linux" "187"
+			}
+			"CGameRules::ShouldCreateEntity"
+			{
+				"linux" "188"
+			}
+			"CTeamplayRoundBasedRules::CleanUpMap"
+			{
+				"linux" "228"
+			}
+		}
 		"Signatures"
 		{
 			"CUpgrades::ReportUpgrade"
@@ -17,6 +32,36 @@
 		}
 		"Functions"
 		{
+			"CGameRules::RoundCleanupShouldIgnore"
+			{
+				"offset" "CGameRules::RoundCleanupShouldIgnore"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "ignore"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"pEnt"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+			"CGameRules::ShouldCreateEntity"
+			{
+				"offset" "CGameRules::ShouldCreateEntity"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "ignore"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"pszClassName"
+					{
+						"type" "charptr"
+					}
+				}
+			}
 			"CTFGameRules::GameModeUsesUpgrades"
 			{
 				"signature" "CTFGameRules::GameModeUsesUpgrades"

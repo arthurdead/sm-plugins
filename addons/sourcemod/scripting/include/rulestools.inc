@@ -49,6 +49,27 @@ enum
 	TF_HUDTYPE_TRAINING
 };
 
+enum
+{
+	WINREASON_NONE =0,
+	WINREASON_ALL_POINTS_CAPTURED,
+	WINREASON_OPPONENTS_DEAD,
+	WINREASON_FLAG_CAPTURE_LIMIT,
+	WINREASON_DEFEND_UNTIL_TIME_LIMIT,
+	WINREASON_STALEMATE,
+	WINREASON_TIMELIMIT,
+	WINREASON_WINLIMIT,
+	WINREASON_WINDIFFLIMIT,
+	WINREASON_RD_REACTOR_CAPTURED,
+	WINREASON_RD_CORES_COLLECTED,
+	WINREASON_RD_REACTOR_RETURNED,
+	WINREASON_PD_POINTS,
+	WINREASON_SCORED,
+	WINREASON_STOPWATCH_WATCHING_ROUNDS,
+	WINREASON_STOPWATCH_WATCHING_FINAL_ROUND,
+	WINREASON_STOPWATCH_PLAYING_ROUNDS,
+};
+
 #define GR_STATE_INIT RoundState_Init
 #define GR_STATE_PREGAME RoundState_Pregame
 #define GR_STATE_STARTGAME RoundState_StartGame
@@ -63,7 +84,59 @@ enum
 
 native void clear_all_gamemodes();
 
+native bool is_gamemode_entity(const char[] classname);
+
 native int get_objective_entity();
+native int get_gamerules_proxy();
+
+stock void SetHUDType(int type)
+{
+	GameRules_SetProp("m_nHudType", type);
+
+	int proxy = get_gamerules_proxy();
+	if(proxy != -1) {
+		SetEntProp(proxy, Prop_Data, "m_nHudType", type);
+	}
+}
+
+enum
+{
+	WINPANEL_DEFAULT,
+	WINPANEL_NORMAL,
+	WINPANEL_ARENA,
+	WINPANEL_MVM
+};
+
+stock void SetWinningTeam(int team, int iWinReason, bool bForceMapReset = false, bool bSwitchTeams = false, int winpanel = WINPANEL_DEFAULT)
+{
+	int entity = CreateEntityByName("game_round_win");
+	SetEntProp(entity, Prop_Data, "m_iWinReason", iWinReason);
+	SetEntProp(entity, Prop_Data, "m_bForceMapReset", bForceMapReset);
+	SetEntProp(entity, Prop_Data, "m_bSwitchTeamsOnWin", bSwitchTeams);
+	bool was_mvm = GameRules_GetProp("m_bPlayingMannVsMachine") != 0;
+	int old_gametype = GameRules_GetProp("m_nGameType");
+	switch(winpanel) {
+		case WINPANEL_NORMAL: {
+			if(old_gametype == WINPANEL_ARENA) {
+				GameRules_SetProp("m_nGameType", TF_GAMETYPE_CP);
+			}
+			GameRules_SetProp("m_bPlayingMannVsMachine", 0);
+		}
+		case WINPANEL_ARENA: {
+			GameRules_SetProp("m_nGameType", TF_GAMETYPE_ARENA);
+			GameRules_SetProp("m_bPlayingMannVsMachine", 0);
+		}
+		case WINPANEL_MVM: {
+			GameRules_SetProp("m_nGameType", TF_GAMETYPE_MVM);
+			GameRules_SetProp("m_bPlayingMannVsMachine", 1);
+		}
+	}
+	SetEntProp(entity, Prop_Data, "m_iTeamNum", team);
+	AcceptEntityInput(entity, "RoundWin");
+	RemoveEntity(entity);
+	GameRules_SetProp("m_nGameType", old_gametype);
+	GameRules_SetProp("m_bPlayingMannVsMachine", was_mvm);
+}
 
 stock void SetMannVsMachineMaxWaveCount(int nCount)
 {
@@ -156,6 +229,12 @@ native bool GetMannVsMachineWaveClassActive(int nIndex);
 
 native void SetMannVsMachineWaveClassFlags(int nIndex, int iFlags);
 native int GetMannVsMachineWaveClassFlags(int nIndex);
+
+native void CleanUpMap();
+forward Action should_cleanup_entity(int entity, bool &should);
+forward Action should_create_entity(const char[] classname, bool &should);
+
+forward Action gamemode_uses_upgrades(bool &uses);
 
 stock void ResetMannVsMachineWaveInfo()
 {

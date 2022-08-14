@@ -43,7 +43,7 @@ methodmap TrainingMsgMenu
 	public native void SetTitle(const char[] str);
 
 	public native bool DrawItem(const char[] str);
-	public native bool AddItem(const char[] str, any data = 0);
+	public native bool AddItem(const char[] str, any data = 0, bool disabled = false);
 
 	property bool ExitButton {
 		public native set(bool value);

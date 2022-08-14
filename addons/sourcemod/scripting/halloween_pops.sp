@@ -2,7 +2,7 @@
 #include <sdktools>
 #include <popspawner>
 
-//#define DEBUG
+#define DEBUG
 
 #define SKELETON_NORMAL 0
 #define SKELETON_KING 1
@@ -124,6 +124,10 @@ static bool hhh_pop_spawn(CustomPopulationSpawner spawner, float pos[3], ArrayLi
 	TeleportEntity(entity, pos);
 	SetEntProp(entity, Prop_Send, "m_iTeamNum", TF_TEAM_HALLOWEEN);
 	DispatchSpawn(entity);
+
+#if defined DEBUG
+	PrintToServer("hhh_pop_spawn [%f, %f, %f]", pos[0], pos[1], pos[2]);
+#endif
 
 	if(result) {
 		result.Push(entity);
