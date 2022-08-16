@@ -3,6 +3,8 @@
 #endif
 #define __listen_inc
 
+#define NDEBUG_PERSIST_TILL_NEXT_SERVER 0.0
+
 #define VEC_HULL_MINS (view_as<float>({-24.0, -24.0, 0.0}))
 #define VEC_HULL_MAXS (view_as<float>({24.0, 24.0, 82.0}))
 

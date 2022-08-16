@@ -2,7 +2,7 @@
 #include <sdktools>
 #include <popspawner>
 
-#define DEBUG
+//#define DEBUG
 
 #define SKELETON_NORMAL 0
 #define SKELETON_KING 1
@@ -20,7 +20,7 @@ public void OnPluginStart()
 	tf_halloween_bot_min_player_count = FindConVar("tf_halloween_bot_min_player_count");
 	tf_halloween_bot_health_per_player = FindConVar("tf_halloween_bot_health_per_player");
 
-	CustomPopulationSpawner spawner = register_popspawner("Zombie");
+	CustomPopulationSpawnerEntry spawner = register_popspawner("Zombie");
 	spawner.Parse = zombie_pop_parse;
 	spawner.Spawn = zombie_pop_spawn;
 	spawner.GetClass = zombie_pop_class;
