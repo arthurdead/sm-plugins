@@ -80,6 +80,124 @@ static int native_NDebugOverlay_BoxAngles(Handle plugin, int params)
 	return 0;
 }
 
+static void DrawSphere( const float center[3], float radius, int r, int g, int b, bool noDepthTest, float flDuration )
+{
+	float edge[3]
+	float lastEdge[3];
+
+	float axisSize = radius;
+
+	float tmp1[3];
+	tmp1[0] = 0.0;
+	tmp1[1] = 0.0;
+	tmp1[2] = -axisSize;
+	AddVectors(center, tmp1, tmp1);
+
+	float tmp2[3];
+	tmp2[0] = 0.0;
+	tmp2[1] = 0.0;
+	tmp2[2] = axisSize;
+	AddVectors(center, tmp2, tmp2);
+
+	DrawLine( tmp1, tmp2, r, g, b, noDepthTest, flDuration );
+
+	tmp1[0] = 0.0;
+	tmp1[1] = -axisSize;
+	tmp1[2] = 0.0;
+	AddVectors(center, tmp1, tmp1);
+
+	tmp2[0] = 0.0;
+	tmp2[1] = axisSize;
+	tmp2[2] = 0.0;
+	AddVectors(center, tmp2, tmp2);
+
+	DrawLine( tmp1, tmp2, r, g, b, noDepthTest, flDuration );
+
+	tmp1[0] = -axisSize;
+	tmp1[1] = 0.0;
+	tmp1[2] = 0.0;
+	AddVectors(center, tmp1, tmp1);
+
+	tmp2[0] = axisSize;
+	tmp2[1] = 0.0;
+	tmp2[2] = 0.0;
+	AddVectors(center, tmp2, tmp2);
+
+	DrawLine( tmp1, tmp2, r, g, b, noDepthTest, flDuration );
+
+	lastEdge[0] = radius + center[0];
+	lastEdge[1] = center[1];
+	lastEdge[2] = center[2];
+
+	float angle;
+	for( angle=0.0; angle <= 360.0; angle += 22.5 )
+	{
+		edge[0] = radius * Cosine( angle / 180.0 * FLOAT_PI ) + center[0];
+		edge[1] = center[1];
+		edge[2] = radius * Sine( angle / 180.0 * FLOAT_PI ) + center[2];
+
+		DrawLine( edge, lastEdge, r, g, b, noDepthTest, flDuration );
+
+		lastEdge[0] = edge[0];
+		lastEdge[1] = edge[1];
+		lastEdge[2] = edge[2];
+	}
+
+	lastEdge[0] = center[0];
+	lastEdge[1] = radius + center[1];
+	lastEdge[2] = center[2];
+
+	for( angle=0.0; angle <= 360.0; angle += 22.5 )
+	{
+		edge[0] = center[0];
+		edge[1] = radius * Cosine( angle / 180.0 * FLOAT_PI ) + center[1];
+		edge[2] = radius * Sine( angle / 180.0 * FLOAT_PI ) + center[2];
+
+		DrawLine( edge, lastEdge, r, g, b, noDepthTest, flDuration );
+
+		lastEdge[0] = edge[0];
+		lastEdge[1] = edge[1];
+		lastEdge[2] = edge[2];
+	}
+
+	lastEdge[0] = center[0];
+	lastEdge[1] = radius + center[1];
+	lastEdge[2] = center[2];
+
+	for( angle=0.0; angle <= 360.0; angle += 22.5 )
+	{
+		edge[0] = radius * Cosine( angle / 180.0 * FLOAT_PI ) + center[0];
+		edge[1] = radius * Sine( angle / 180.0 * FLOAT_PI ) + center[1];
+		edge[2] = center[2];
+
+		DrawLine( edge, lastEdge, r, g, b, noDepthTest, flDuration );
+
+		lastEdge[0] = edge[0];
+		lastEdge[1] = edge[1];
+		lastEdge[2] = edge[2];
+	}
+}
+
+static int native_NDebugOverlay_Sphere1(Handle plugin, int params)
+{
+	float center[3];
+	GetNativeArray(1, center, 3);
+
+	float radius = GetNativeCell(2);
+
+	int r = GetNativeCell(3);
+	int g = GetNativeCell(4);
+	int b = GetNativeCell(5);
+
+	bool noDepthTest = GetNativeCell(6);
+
+	float flDuration = GetNativeCell(7);
+
+	DrawSphere( center, radius, r, g, b, noDepthTest, flDuration );
+
+	return 0;
+}
+
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 {
 	RegPluginLibrary("listen");
@@ -87,6 +205,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 	CreateNative("NDebugOverlay_Line", native_NDebugOverlay_Line);
 	CreateNative("NDebugOverlay_Circle3", native_NDebugOverlay_Circle3);
 	CreateNative("NDebugOverlay_BoxAngles", native_NDebugOverlay_BoxAngles);
+	CreateNative("NDebugOverlay_Sphere1", native_NDebugOverlay_Sphere1);
 
 	return APLRes_Success;
 }

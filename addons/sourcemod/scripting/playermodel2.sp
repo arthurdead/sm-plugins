@@ -3017,6 +3017,10 @@ static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 static void player_death(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
+	if(client == 0) {
+		return;
+	}
+
 	int flags = event.GetInt("death_flags");
 
 	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {

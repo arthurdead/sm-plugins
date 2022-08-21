@@ -37,7 +37,7 @@ stock void NDebugOverlay_BoxDirection(const float origin[3], const float mins[3]
 }
 
 native void NDebugOverlay_BoxAngles(const float origin[3], const float mins[3], const float maxs[3], const float angles[3], int r, int g, int b, int a, float flDuration);
-//native void NDebugOverlay_SweptBox(const Vector& start, const Vector& end, const Vector& mins, const Vector& maxs, const float angles[3], int r, int g, int b, int a, float flDuration);
+//native void NDebugOverlay_SweptBox(const float start[3], const float end[3], const float mins[3], const float maxs[3], const float angles[3], int r, int g, int b, int a, float flDuration);
 //native void NDebugOverlay_EntityBounds( int entity, int r, int g, int b, int a, float flDuration );
 native void NDebugOverlay_Line( const float origin[3], const float target[3], int r, int g, int b, bool noDepthTest, float flDuration );
 //native void NDebugOverlay_Triangle( const float p1[3], const float p2[3], const float p3[3], int r, int g, int b, int a, bool noDepthTest, float duration );
@@ -158,7 +158,7 @@ stock void NDebugOverlay_Cross3DOriented1( const float position[3], const float 
 //native void NDebugOverlay_YawArrow( const float startPos[3], float yaw, float length, float width, int r, int g, int b, int a, bool noDepthTest, float flDuration);
 //native void NDebugOverlay_VertArrow( const float startPos[3], const float endPos[3], float width, int r, int g, int b, int a, bool noDepthTest, float flDuration);
 //native void NDebugOverlay_Axis( const float position, const float angles[3], float size, bool noDepthTest, float flDuration );
-//native void NDebugOverlay_Sphere1( const float center, float radius, int r, int g, int b, bool noDepthTest, float flDuration );
+native void NDebugOverlay_Sphere1( const float center[3], float radius, int r, int g, int b, bool noDepthTest, float flDuration );
 //native void NDebugOverlay_Sphere2( const float position[3], const float angles[3], float radius, int r, int g, int b, int a, bool bNoDepthTest, float flDuration );
 //native void NDebugOverlay_Circle1( const float position[3], float radius, int r, int g, int b, int a, bool bNoDepthTest, float flDuration );
 //native void NDebugOverlay_Circle2( const float position[3], const float angles[3], float radius, int r, int g, int b, int a, bool bNoDepthTest, float flDuration );
