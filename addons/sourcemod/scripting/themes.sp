@@ -29,14 +29,10 @@
 #include <sdkhooks>
 #include <morecolors>
 
-#if 0
-	#undef REQUIRE_EXTENSIONS
-	#tryinclude <system2>
-	#tryinclude <bzip2>
-#else
-	#include <system2>
-	#include <bzip2>
-#endif
+#undef REQUIRE_EXTENSIONS
+#tryinclude <system2>
+#tryinclude <bzip2>
+#define REQUIRE_EXTENSIONS
 
 /* PREPROCESSOR ***************************************************************/
 #pragma semicolon 1
@@ -220,6 +216,8 @@ bool r_RainHack[MAXPLAYERS+1] = {false, ...};
 float cl_winddir[MAXPLAYERS+1] = {0.0, ...};
 float cl_windspeed[MAXPLAYERS+1] = {0.0, ...};
 
+int player_tempparticle_ent[MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
+
 bool bSystem2 = false;
 bool bBZip2 = false;
 	
@@ -323,15 +321,15 @@ public void OnPluginStart()
 	cvPluginTimer  = CreateConVar("sm_themes_timer", "10.0");
 	cvNextTheme = 	 CreateConVar("sm_themes_next_theme", "", "Forces the next map to use the given theme");
 	cvAnnounce =     CreateConVar("sm_themes_announce", "1", "Whether or not to announce the current theme");
-	cvParticles =    CreateConVar("sm_themes_particles", "0", "Enables or disables particles for themes");
+	cvParticles =    CreateConVar("sm_themes_particles", "1", "Enables or disables particles for themes");
 	cvParticlesTempEnt = CreateConVar("sm_themes_particles_tempent", "1");
-	cvParticlesReplaceCustom = CreateConVar("sm_themes_particles_replace_custom", "1");
+	cvParticlesReplaceCustom = CreateConVar("sm_themes_particles_replace_custom", "0");
 	cvPrecipitation =    CreateConVar("sm_themes_precipitation", "1", "Enables or disables precipitation for themes");
 	cvPrecipitationReplace =    CreateConVar("sm_themes_precipitation_replace", "0", "Replaces particles with precipitation");
 	cvWind	    =    CreateConVar("sm_themes_wind", "1");
 	cvWindTimer	  =  CreateConVar("sm_themes_wind_timer", "0.2");
 
-	cvManifests = CreateConVar("sm_themes_manifests", "0");
+	cvManifests = CreateConVar("sm_themes_manifests", "1");
 	cvCreateManifests = CreateConVar("sm_themes_create_manifests", "1");
 	cvAutoBZ2 = CreateConVar("sm_themes_bz2_manifests", "1");
 	cvBZ2Compression = CreateConVar("sm_themes_bz2_compression", "9", "1,3,5,7,9");
@@ -585,6 +583,10 @@ void SpawnWeatherParticles(int i, float player_origin[3], int name)
 
 			if(StrEqual(mapParticle, "env_snow_light_001")) {
 				particlepos[2] = player_origin[2];
+			} else if(StrEqual(mapParticle, "env_themes_fireflies") ||
+						StrEqual(mapParticle, "env_themes_twilight") ||
+						StrEqual(mapParticle, "env_themes_mist")) {
+				particlepos[2] = player_origin[2] + mapParticleHeight;
 			}
 
 			SendWeatherParticle(i, particlepos, name, j == 0);
@@ -872,6 +874,7 @@ void StartTheme(bool download=true)
 public void OnMapStart()
 {
 	PrecacheModel("models/error.mdl");
+	PrecacheModel("materials/sprites/dot.vmt");
 
 	ParticleEffectNames = FindStringTable("ParticleEffectNames");
 	EmptyParticleIndex = FindStringIndex(ParticleEffectNames, "nutsnbolts_upgrade");
@@ -1690,18 +1693,18 @@ void HandleParticleFiles()
 {
 	char file[96];
 	if(cvManifests.BoolValue) {
-		GetCurrentMap(file, sizeof(file));
-		HandleMapParticleManifest(file);
-
 		// Add ALL map particle manifest files (due to waffle bug)
-		/*if (kvMaps.GotoFirstSubKey()) {
+		if (kvMaps.GotoFirstSubKey()) {
 			do {
 				kvMaps.GetSectionName(file, sizeof(file));
 				HandleMapParticleManifest(file);
 			} while (kvMaps.GotoNextKey());
 			
 			kvMaps.GoBack();
-		}*/
+		}
+
+		GetCurrentMap(file, sizeof(file));
+		HandleMapParticleManifest(file);
 	}
 
 	// Add particle files
@@ -2191,29 +2194,74 @@ enum
 	PATTACH_ROOTBONE_FOLLOW
 };
 
+int GetPlayerTempParticleEnt(int client)
+{
+	int entity = -1;
+	if(player_tempparticle_ent[client] != INVALID_ENT_REFERENCE) {
+		entity = EntRefToEntIndex(player_tempparticle_ent[client]);
+	}
+
+	if(entity == -1) {
+		entity = CreateEntityByName("env_sprite");
+		DispatchKeyValue(entity, "model", "materials/sprites/dot.vmt");
+		DispatchKeyValue(entity, "renderamt", "0");
+		DispatchKeyValue(entity, "rendercolor", "0 0 0");
+		player_tempparticle_ent[client] = EntIndexToEntRef(entity);
+	}
+
+	return entity;
+}
+
 void RemoveWeatherParticlesFromAll()
 {
 	if(EmptyParticleIndex != INVALID_STRING_INDEX) {
-		TE_Start("TFParticleEffect");
-		TE_WriteNum("m_iParticleSystemIndex", EmptyParticleIndex);
-		TE_WriteNum("entindex", 0);
-		TE_WriteNum("m_bResetParticles", 1);
-		TE_SendToAll();
+		for(int i = 1; i <= MaxClients; ++i) {
+			if(!IsClientInGame(i) || IsFakeClient(i)) {
+				continue;
+			}
+
+			int ent = GetPlayerTempParticleEnt(i);
+			if(ent == -1) {
+				continue;
+			}
+
+			TE_Start("TFParticleEffect");
+			TE_WriteNum("m_iParticleSystemIndex", EmptyParticleIndex);
+			TE_WriteNum("entindex", ent);
+			TE_WriteNum("m_bResetParticles", 1);
+			TE_SendToClient(i);
+		}
 	}
 
 	if(ParticleEffectStop == INVALID_STRING_INDEX) {
 		ParticleEffectStop = FindStringIndex(EffectDispatch, "ParticleEffectStop");
 	}
 	if(ParticleEffectStop != INVALID_STRING_INDEX) {
-		TE_Start("EffectDispatch");
-		TE_WriteNum("m_iEffectName", ParticleEffectStop);
-		TE_WriteNum("entindex", 0);
-		TE_SendToAll();
+		for(int i = 1; i <= MaxClients; ++i) {
+			if(!IsClientInGame(i) || IsFakeClient(i)) {
+				continue;
+			}
+
+			int ent = GetPlayerTempParticleEnt(i);
+			if(ent == -1) {
+				continue;
+			}
+
+			TE_Start("EffectDispatch");
+			TE_WriteNum("m_iEffectName", ParticleEffectStop);
+			TE_WriteNum("entindex", ent);
+			TE_SendToClient(i);
+		}
 	}
 }
 
 void SendWeatherParticle(int client, const float pos[3], int name, bool reset)
 {
+	int ent = GetPlayerTempParticleEnt(client);
+	if(ent == -1) {
+		return;
+	}
+
 	TE_Start("TFParticleEffect");
 
 	TE_WriteNum("m_iParticleSystemIndex", name);
@@ -2226,7 +2274,7 @@ void SendWeatherParticle(int client, const float pos[3], int name, bool reset)
 	//PrintToServer("sent to %N [%f, %f, %f]", client == -1 ? 0 : client, pos[0], pos[1], pos[2]);
 #endif
 
-	TE_WriteNum("entindex", 0);
+	TE_WriteNum("entindex", ent);
 	TE_WriteNum("m_iAttachType", PATTACH_CUSTOMORIGIN);
 
 	TE_WriteNum("m_bResetParticles", reset);
@@ -2253,8 +2301,30 @@ void DestroyParticles()
 	}
 }
 
+public void OnPluginEnd()
+{
+	DestroyParticles();
+	DestroyPrecipitation();
+
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(IsClientInGame(i)) {
+			OnClientDisconnect(i);
+		}
+	}
+
+	OnMapEnd();
+}
+
 public void OnClientDisconnect(int client)
 {
+	if(player_tempparticle_ent[client] != INVALID_ENT_REFERENCE) {
+		int entity = EntRefToEntIndex(player_tempparticle_ent[client]);
+		if(entity != -1 && entity != 0 && entity != client) {
+			RemoveEntity(entity);
+		}
+		player_tempparticle_ent[client] = INVALID_ENT_REFERENCE;
+	}
+
 	vecLastWeatherPos[client][0] = 0.0;
 	vecLastWeatherPos[client][1] = 0.0;
 	vecLastWeatherPos[client][2] = 0.0;
@@ -2268,18 +2338,10 @@ public void OnClientDisconnect(int client)
 	r_RainHack[client] = false;
 }
 
-stock void tf_particles_disable_weather(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
+stock void tf_particles_disable_weather_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
 {
-	if(result == ConVarQuery_Okay) {
-		if(StrEqual(cvarValue, "1")) {
-			bWeatherEnabled[client] = false;
-		} else {
-			QueryClientConVar(client, "r_RainRadius", r_RainRadius_query);
-			QueryClientConVar(client, "r_RainHack", r_RainHack_query);
-			QueryClientConVar(client, "r_rainspeed", r_rainspeed_query);
-			QueryClientConVar(client, "cl_winddir", cl_winddir_query);
-			QueryClientConVar(client, "cl_windspeed", cl_windspeed_query);
-		}
+	if(result == ConVarQuery_Okay && StrEqual(cvarValue, "1")) {
+		bWeatherEnabled[client] = false;
 	}
 }
 
@@ -2292,8 +2354,8 @@ static void r_RainRadius_query(QueryCookie cookie, int client, ConVarQueryResult
 
 static void r_RainHack_query(QueryCookie cookie, int client, ConVarQueryResult result, const char[] cvarName, const char[] cvarValue, any data)
 {
-	if(result == ConVarQuery_Okay) {
-		r_RainHack[client] = view_as<bool>(StringToInt(cvarValue));
+	if(result == ConVarQuery_Okay && StrEqual(cvarValue, "1")) {
+		r_RainHack[client] = true;
 	}
 }
 
@@ -2324,7 +2386,12 @@ public void OnClientPutInServer(int client)
 		return;
 	}
 
-	QueryClientConVar(client, "tf_particles_disable_weather", tf_particles_disable_weather);
+	QueryClientConVar(client, "tf_particles_disable_weather", tf_particles_disable_weather_query);
+	QueryClientConVar(client, "r_RainRadius", r_RainRadius_query);
+	QueryClientConVar(client, "r_RainHack", r_RainHack_query);
+	QueryClientConVar(client, "r_rainspeed", r_rainspeed_query);
+	QueryClientConVar(client, "cl_winddir", cl_winddir_query);
+	QueryClientConVar(client, "cl_windspeed", cl_windspeed_query);
 
 	SDKHook(client, SDKHook_PostThinkPost, OnClientPostThinkPost);
 }

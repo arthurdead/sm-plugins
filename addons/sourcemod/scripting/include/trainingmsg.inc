@@ -3,10 +3,9 @@
 #endif
 #define trainingmsg_inc
 
-#define TRAINING_MSG_MAX_WIDTH 59
+#define TRAINING_MSG_MAX_WIDTH 56
 #define TRAINING_MSG_MAX_HEIGHT 4
 #define TRAINING_MSG_MAX_LEN (TRAINING_MSG_MAX_WIDTH * TRAINING_MSG_MAX_HEIGHT)
-#define TRAINING_MSG_MAX_TITLE 64
 
 enum TrainingMsgMenuAction
 {
@@ -23,7 +22,7 @@ enum
 	TrainingMsgMenuCancel_ExitBack
 };
 
-typedef TrainingMsgMenuHandler = function void (TrainingMsgMenuAction action, int client, int param1, any menu_data, any item_data);
+typedef TrainingMsgMenuHandler = function void (TrainingMsgMenuAction action, int client, int param1, any menu_data);
 
 #define TRAININGMSGMENU_TIME_FOREVER 0
 
@@ -43,7 +42,7 @@ methodmap TrainingMsgMenu
 	public native void SetTitle(const char[] str);
 
 	public native bool DrawItem(const char[] str);
-	public native bool AddItem(const char[] str, any data = 0, bool disabled = false);
+	public native bool AddItem(const char[] str, bool disabled = false);
 
 	property bool ExitButton {
 		public native set(bool value);
@@ -93,30 +92,17 @@ native void ChangeTrainingMessageTextAll(const char[] title);
 
 stock void CleanTrainingMessageText(char[] msg, int len)
 {
-	ReplaceString(msg, len, "\\x2", "\x2");
-	ReplaceString(msg, len, "\\x1", "\x1");
-	ReplaceString(msg, len, "\\n", "\n");
-	ReplaceString(msg, len, "\\t", "\t");
-
 	ReplaceString(msg, len, "{yellow}", "\x2");
 	ReplaceString(msg, len, "{gold}", "\x2");
 
 	ReplaceString(msg, len, "{default}", "\x1");
 	ReplaceString(msg, len, "{white}", "\x1");
-}
 
-stock void WarpTrainingMessageText(char[] dst, char[] src, int len)
-{
-	for(int i = 0, j = 0; j <= len; ++i, ++j) {
-		if(j > 1) {
-			int mod = (j % TRAINING_MSG_MAX_WIDTH);
-			if(mod == 0) {
-				dst[i++] = '\n';
-			}
-		}
+	ReplaceString(msg, len, "\\x2", "\x2");
+	ReplaceString(msg, len, "\\x1", "\x1");
 
-		dst[i] = src[j];
-	}
+	ReplaceString(msg, len, "\\n", "\n");
+	ReplaceString(msg, len, "\\t", "\t");
 }
 
 stock void RemoveTrainingMessageFromClient(int client)
