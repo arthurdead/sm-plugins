@@ -456,6 +456,14 @@ double parser_read_builtin( parser_data pd ){
 				v0 = parser_read_argument( pd );
 				// This is a C99 compiler - use the built-in round function.
 				v0 = round( v0 );
+			} else if( strcmp( token, "random_int" ) == 0 ){
+				v0 = parser_read_argument( pd );
+				v1 = parser_read_argument( pd );
+				v0 = float(GetURandomInt() % RoundToFloor((v1 + 1.0) - v0) + RoundToFloor(v0));
+			} else if( strcmp( token, "random_float" ) == 0 ){
+				v0 = parser_read_argument( pd );
+				v1 = parser_read_argument( pd );
+				v0 = GetRandomFloat(v0, v1);
 			} else {
 				parser_read_argument_list( pd, num_args, args );
 				bool result = false;
