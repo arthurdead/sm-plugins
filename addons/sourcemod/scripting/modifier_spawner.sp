@@ -148,6 +148,10 @@ static Action sm_mspawn(int client, int args)
 	GetClientAbsOrigin(client, pos);
 
 	int entity = CreateEntityByName(classname);
+	if(entity == -1) {
+		return Plugin_Handled;
+	}
+
 	TeleportEntity(entity, pos);
 	DispatchSpawn(entity);
 	ActivateEntity(entity);
@@ -301,6 +305,9 @@ static int native_modifier_spawner_spawn(Handle plugin, int params)
 	int len = result.Length;
 	for(int i = 0; i < len; ++i) {
 		int entity = result.Get(i);
+		if(!IsValidEntity(entity)) {
+			return 0;
+		}
 
 		if(!modifier_entity_init(modifier, entity)) {
 			return 0;

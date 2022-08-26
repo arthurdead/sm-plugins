@@ -314,71 +314,129 @@ static bool clsobj_hack_loaded;
 
 static ConVar randomizer_fix_taunt;
 
+static ConVar sv_usehwmmodels;
+
 static int modelprecache = INVALID_STRING_TABLE;
 
-static void get_model_for_class(TFClassType class, char[] model, int length, int for_client = -1)
+static void get_mvm_model_for_class(TFClassType class, char[] model, int length)
 {
 	switch(class)
 	{
 		case TFClass_Unknown: { strcopy(model, length, "models/error.mdl"); }
 		case TFClass_Engineer: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			strcopy(model, length, "models/bots/engineer/bot_engineer.mdl");
+		}
+		case TFClass_Scout: {
+			strcopy(model, length, "models/bots/scout/bot_scout.mdl");
+		}
+		case TFClass_Medic: {
+			strcopy(model, length, "models/bots/medic/bot_medic.mdl");
+		}
+		case TFClass_Soldier: {
+			strcopy(model, length, "models/bots/soldier/bot_soldier.mdl");
+		}
+		case TFClass_Heavy: {
+			strcopy(model, length, "models/bots/heavy/bot_heavy.mdl");
+		}
+		case TFClass_DemoMan: {
+			strcopy(model, length, "models/bots/demo/bot_demo.mdl");
+		}
+		case TFClass_Spy: {
+			strcopy(model, length, "models/bots/spy/bot_spy.mdl");
+		}
+		case TFClass_Sniper: {
+			strcopy(model, length, "models/bots/sniper/bot_sniper.mdl");
+		}
+		case TFClass_Pyro: {
+			strcopy(model, length, "models/bots/pyro/bot_pyro.mdl");
+		}
+	}
+}
+
+static void get_model_for_class(TFClassType class, char[] model, int length, int for_client)
+{
+	bool mvm = (GetClientTeam(for_client) == 3 && GameRules_GetProp("m_bPlayingMannVsMachine"));
+	bool hwm = (sv_usehwmmodels.BoolValue || mp_usehwmmodels[for_client]);
+
+	switch(class)
+	{
+		case TFClass_Unknown: { strcopy(model, length, "models/error.mdl"); }
+		case TFClass_Engineer: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/engineer/bot_engineer.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/engineer.mdl");
 			} else {
 				strcopy(model, length, "models/player/engineer.mdl");
 			}
 		}
 		case TFClass_Scout: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/scout/bot_scout.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/scout.mdl");
 			} else {
 				strcopy(model, length, "models/player/scout.mdl");
 			}
 		}
 		case TFClass_Medic: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/medic/bot_medic.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/medic.mdl");
 			} else {
 				strcopy(model, length, "models/player/medic.mdl");
 			}
 		}
 		case TFClass_Soldier: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/soldier/bot_soldier.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/soldier.mdl");
 			} else {
 				strcopy(model, length, "models/player/soldier.mdl");
 			}
 		}
 		case TFClass_Heavy: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/heavy/bot_heavy.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/heavy.mdl");
 			} else {
 				strcopy(model, length, "models/player/heavy.mdl");
 			}
 		}
 		case TFClass_DemoMan: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/demo/bot_demo.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/demo.mdl");
 			} else {
 				strcopy(model, length, "models/player/demo.mdl");
 			}
 		}
 		case TFClass_Spy: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/spy/bot_spy.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/spy.mdl");
 			} else {
 				strcopy(model, length, "models/player/spy.mdl");
 			}
 		}
 		case TFClass_Sniper: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/sniper/bot_sniper.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/sniper.mdl");
 			} else {
 				strcopy(model, length, "models/player/sniper.mdl");
 			}
 		}
 		case TFClass_Pyro: {
-			if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+			if(mvm) {
+				strcopy(model, length, "models/bots/pyro/bot_pyro.mdl");
+			} else if(hwm) {
 				strcopy(model, length, "models/player/hwm/pyro.mdl");
 			} else {
 				strcopy(model, length, "models/player/pyro.mdl");
@@ -388,7 +446,10 @@ static void get_model_for_class(TFClassType class, char[] model, int length, int
 		default: {
 			if(clsobj_hack_loaded) {
 				TFPlayerClassData data = TFPlayerClassData.Get(class);
-				if(for_client != -1 && mp_usehwmmodels[for_client] == 1) {
+				if(mvm) {
+					TFClassType rep = view_as<TFClassType>(data.GetInt("m_nRepresentative"));
+					get_mvm_model_for_class(rep, model, length);
+				} else if(hwm) {
 					data.GetString("m_szHWMModelName", model, length);
 				} else {
 					data.GetString("m_szModelName", model, length);
@@ -1447,6 +1508,8 @@ public void OnPluginStart()
 
 	tf_always_loser = FindConVar("tf_always_loser");
 	tf_always_loser.AddChangeHook(tf_always_loser_changed);
+
+	sv_usehwmmodels = CreateConVar("sv_usehwmmodels", "0");
 
 	load_configs();
 
@@ -4766,8 +4829,17 @@ static void recalculate_player_bodygroups(int client)
 
 static void remove_playermodel(int client)
 {
-	set_player_custom_model(client, "");
-	SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
+	bool mvm = (GetClientTeam(client) == 3 && GameRules_GetProp("m_bPlayingMannVsMachine"));
+	if(mvm) {
+		TFClassType rep_player_class = get_player_class_rep(client);
+		char model[PLATFORM_MAX_PATH];
+		get_mvm_model_for_class(rep_player_class, model, PLATFORM_MAX_PATH);
+		set_player_custom_model(client, model);
+		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
+	} else {
+		set_player_custom_model(client, "");
+		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 0);
+	}
 	recalculate_player_bodygroups(client);
 
 	//SetEntProp(client, Prop_Send, "m_bForcedSkin", 0);

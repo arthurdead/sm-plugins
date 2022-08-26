@@ -8,7 +8,7 @@
 #define SKELETON_KING 1
 #define SKELETON_MINI 2
 
-#define TF_TEAM_HALLOWEEN 4
+#define TF_TEAM_PVE_INVADERS 3
 
 static ConVar tf_halloween_bot_health_base;
 static ConVar tf_halloween_bot_min_player_count;
@@ -20,12 +20,13 @@ public void OnPluginStart()
 	tf_halloween_bot_min_player_count = FindConVar("tf_halloween_bot_min_player_count");
 	tf_halloween_bot_health_per_player = FindConVar("tf_halloween_bot_health_per_player");
 
-	CustomPopulationSpawnerEntry spawner = register_popspawner("Zombie");
+	CustomPopulationSpawnerEntry spawner = register_popspawner("Skeleton");
 	spawner.Parse = zombie_pop_parse;
 	spawner.Spawn = zombie_pop_spawn;
 	spawner.GetClass = zombie_pop_class;
 	spawner.GetHealth = zombie_pop_health;
 	spawner.HasAttribute = zombie_pop_attribute;
+	spawner.GetClassIcon = zombie_pop_classicon;
 
 	spawner = register_popspawner("HeadlessHatmann");
 	spawner.Parse = hhh_pop_parse;
@@ -33,6 +34,7 @@ public void OnPluginStart()
 	spawner.GetClass = hhh_pop_class;
 	spawner.GetHealth = hhh_pop_health;
 	spawner.HasAttribute = hhh_pop_attribute;
+	spawner.GetClassIcon = hhh_pop_classicon;
 }
 
 public void OnMapStart()
@@ -59,12 +61,25 @@ static bool zombie_pop_parse(CustomPopulationSpawner spawner, KeyValues data)
 	return true;
 }
 
-static bool zombie_pop_spawn(CustomPopulationSpawner spawner, float pos[3], ArrayList result)
+stock int create_halloween_npc(const char[] classname, const float pos[3])
 {
-	int entity = CreateEntityByName("tf_zombie");
+	int entity = CreateEntityByName(classname);
 	TeleportEntity(entity, pos);
-	SetEntProp(entity, Prop_Send, "m_iTeamNum", TF_TEAM_HALLOWEEN);
+	SetEntProp(entity, Prop_Data, "m_iInitialTeamNum", TF_TEAM_PVE_INVADERS);
 	DispatchSpawn(entity);
+	ActivateEntity(entity);
+	SetEntProp(entity, Prop_Send, "m_iTeamNum", TF_TEAM_PVE_INVADERS);
+
+	if(StrEqual(classname, "tf_zombie")) {
+		SetEntProp(entity, Prop_Send, "m_nSkin", 1);
+	}
+
+	return entity;
+}
+
+static bool zombie_pop_spawn(CustomPopulationSpawner spawner, const float pos[3], ArrayList result)
+{
+	int entity = create_halloween_npc("tf_zombie", pos);
 
 	switch(spawner.get_data("type")) {
 		case SKELETON_KING: {
@@ -87,6 +102,26 @@ static bool zombie_pop_spawn(CustomPopulationSpawner spawner, float pos[3], Arra
 	}
 
 	return true;
+}
+
+static bool zombie_pop_classicon(CustomPopulationSpawner spawner, int num, char[] str, int len)
+{
+	switch(spawner.get_data("type")) {
+		case SKELETON_NORMAL: {
+			strcopy(str, len, "skeleton");
+			return true;
+		}
+		case SKELETON_KING: {
+			strcopy(str, len, "boss_skeleton");
+			return true;
+		}
+		case SKELETON_MINI: {
+			strcopy(str, len, "skeleton");
+			return true;
+		}
+	}
+
+	return false;
 }
 
 static TFClassType zombie_pop_class(CustomPopulationSpawner spawner, int num)
@@ -118,12 +153,9 @@ static bool hhh_pop_parse(CustomPopulationSpawner spawner, KeyValues data)
 	return true;
 }
 
-static bool hhh_pop_spawn(CustomPopulationSpawner spawner, float pos[3], ArrayList result)
+static bool hhh_pop_spawn(CustomPopulationSpawner spawner, const float pos[3], ArrayList result)
 {
-	int entity = CreateEntityByName("headless_hatman");
-	TeleportEntity(entity, pos);
-	SetEntProp(entity, Prop_Send, "m_iTeamNum", TF_TEAM_HALLOWEEN);
-	DispatchSpawn(entity);
+	int entity = create_halloween_npc("headless_hatman", pos);
 
 #if defined DEBUG
 	PrintToServer("hhh_pop_spawn [%f, %f, %f]", pos[0], pos[1], pos[2]);
@@ -133,6 +165,12 @@ static bool hhh_pop_spawn(CustomPopulationSpawner spawner, float pos[3], ArrayLi
 		result.Push(entity);
 	}
 
+	return true;
+}
+
+static bool hhh_pop_classicon(CustomPopulationSpawner spawner, int num, char[] str, int len)
+{
+	strcopy(str, len, "horsemann");
 	return true;
 }
 
