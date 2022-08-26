@@ -93,8 +93,8 @@ static Action modifier_takedamagealive(int entity, CTakeDamageInfo info, int &re
 void vampiric_entity_created(int entity, const char[] classname)
 {
 	if(EntityIsCombatCharacter(entity)) {
-		HookEntityOnTakeDamage(entity, modifier_takedamage);
-		HookEntityOnTakeDamageAlive(entity, modifier_takedamagealive);
+		HookEntityOnTakeDamage(entity, modifier_takedamage, false);
+		HookEntityOnTakeDamageAlive(entity, modifier_takedamagealive, true);
 	}
 }
 

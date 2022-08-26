@@ -139,16 +139,23 @@ static Action sm_mspawn(int client, int args)
 	char classname[64];
 	GetCmdArg(1, classname, sizeof(classname));
 
-	char modifier_name[MAX_MODIFIER_NAME];
-	GetCmdArg(2, modifier_name, MAX_MODIFIER_NAME);
+	ArrayList modifiers = new ArrayList();
 
-	int idx = get_modifier_idx(modifier_name);
+	for(int i = 0; i < (args-1); ++i) {
+		char modifier_name[MAX_MODIFIER_NAME];
+		GetCmdArg(2+i, modifier_name, MAX_MODIFIER_NAME);
+
+		int idx = get_modifier_idx(modifier_name);
+
+		modifiers.Push(idx);
+	}
 
 	float pos[3];
 	GetClientAbsOrigin(client, pos);
 
 	int entity = CreateEntityByName(classname);
 	if(entity == -1) {
+		delete modifiers;
 		return Plugin_Handled;
 	}
 
@@ -156,7 +163,14 @@ static Action sm_mspawn(int client, int args)
 	DispatchSpawn(entity);
 	ActivateEntity(entity);
 
-	modifier_entity_init(idx, entity);
+	int len = modifiers.Length;
+	for(int i = 0; i < len; ++i) {
+		int idx = modifiers.Get(i);
+
+		modifier_entity_init(idx, entity);
+	}
+
+	delete modifiers;
 
 	return Plugin_Handled;
 }
@@ -184,10 +198,12 @@ static int native_modifier_spawner_parse(Handle plugin, int params)
 	CustomPopulationSpawner spawner = GetNativeCell(1);
 	KeyValues data = GetNativeCell(2);
 
-	ArrayList modifiers = new ArrayList(2);
+	ArrayList modifier_syms = new ArrayList(2);
 
 	bool valid = true;
 	bool section_valid = false;
+
+	int desired_count = 1;
 
 	if(data.JumpToKey("Modifiers")) {
 		section_valid = true;
@@ -197,6 +213,11 @@ static int native_modifier_spawner_parse(Handle plugin, int params)
 
 			do {
 				data.GetSectionName(modifier_name, MAX_MODIFIER_NAME);
+
+				if(StrEqual(modifier_name, "Count")) {
+					desired_count = data.GetNum(NULL_STRING);
+					continue;
+				}
 
 				int sym = -1;
 				if(!data.GetSectionSymbol(sym)) {
@@ -210,8 +231,8 @@ static int native_modifier_spawner_parse(Handle plugin, int params)
 					break;
 				}
 
-				idx = modifiers.Push(idx);
-				modifiers.Set(idx, sym, 1);
+				idx = modifier_syms.Push(idx);
+				modifier_syms.Set(idx, sym, 1);
 			} while(data.GotoNextKey());
 			data.GoBack();
 		}
@@ -219,44 +240,52 @@ static int native_modifier_spawner_parse(Handle plugin, int params)
 	}
 
 	if(!valid) {
-		delete modifiers;
+		delete modifier_syms;
 		return 0;
 	}
 
-	int len = modifiers.Length;
-	if(len == 0) {
-		delete modifiers;
-		return section_valid ? 0 : 1;
-	}
+	int actual_count = 0;
+	int[] modifiers = new int[desired_count];
 
-	int idx = (GetURandomInt() % len);
-	int modifier = modifiers.Get(idx);
-	int sym = modifiers.Get(idx, 1);
+	for(int i = 0; i < desired_count; ++i) {
+		int len = modifier_syms.Length;
+		if(len == 0) {
+			break;
+		}
 
-	if(!data.JumpToKey("Modifiers")) {
+		int idx = (GetURandomInt() % len);
+		int modifier = modifier_syms.Get(idx);
+		int sym = modifier_syms.Get(idx, 1);
+
+		modifier_syms.Erase(idx);
+
+		if(!data.JumpToKey("Modifiers")) {
+			data.GoBack();
+			delete modifier_syms;
+			return 0;
+		}
+
+		if(!data.JumpToKeySymbol(sym)) {
+			data.GoBack();
+			delete modifier_syms;
+			return 0;
+		}
+
 		data.GoBack();
-		delete modifiers;
-		return 0;
-	}
-
-	if(!data.JumpToKeySymbol(sym)) {
 		data.GoBack();
-		delete modifiers;
-		return 0;
+
+		if(!modifier_parse(modifier, spawner, data)) {
+			delete modifier_syms;
+			return 0;
+		}
+
+		modifiers[actual_count++] = modifier;
 	}
 
-	if(!modifier_parse(modifier, spawner, data)) {
-		data.GoBack();
-		delete modifiers;
-		return 0;
-	}
+	delete modifier_syms;
 
-	data.GoBack();
-	data.GoBack();
-
-	delete modifiers;
-
-	spawner.set_data("modifier", modifier);
+	spawner.set_data("modifiers_count", actual_count);
+	spawner.set_data_array("modifiers", modifiers, actual_count);
 
 	return 1;
 }
@@ -300,7 +329,10 @@ static int native_modifier_spawner_spawn(Handle plugin, int params)
 	float pos[3];
 	GetNativeArray(2, pos, 3);
 
-	int modifier = spawner.get_data("modifier");
+	int count = spawner.get_data("modifiers_count");
+
+	int[] modifiers = new int[count];
+	spawner.get_data_array("modifiers", modifiers, count);
 
 	int len = result.Length;
 	for(int i = 0; i < len; ++i) {
@@ -309,8 +341,12 @@ static int native_modifier_spawner_spawn(Handle plugin, int params)
 			return 0;
 		}
 
-		if(!modifier_entity_init(modifier, entity)) {
-			return 0;
+		for(int j = 0; j < count; ++j) {
+			int modifier = modifiers[j];
+
+			if(!modifier_entity_init(modifier, entity)) {
+				return 0;
+			}
 		}
 	}
 

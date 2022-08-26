@@ -72,7 +72,7 @@ static Action modifier_takedamage(int entity, CTakeDamageInfo info, int &result)
 void lighting_entity_created(int entity, const char[] classname)
 {
 	if(EntityIsCombatCharacter(entity)) {
-		HookEntityOnTakeDamage(entity, modifier_takedamage);
+		HookEntityOnTakeDamage(entity, modifier_takedamage, false);
 	}
 }
 
