@@ -220,6 +220,9 @@ int player_tempparticle_ent[MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 
 bool bSystem2 = false;
 bool bBZip2 = false;
+
+bool mapHasCustomManifest = false;
+
 	
 /* PLUGIN *********************************************************************/
 public Plugin myinfo =
@@ -893,10 +896,12 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
+	mapHasCustomManifest = false;
+
 	if (cvManifests.BoolValue) {
 		char nextmap[PLATFORM_MAX_PATH];
 		if(GetNextMap(nextmap, PLATFORM_MAX_PATH)) {
-			HandleMapParticleManifest(nextmap);
+			HandleMapParticleManifest(nextmap, true);
 		}
 	}
 }
@@ -1414,7 +1419,7 @@ void ReadThemeAttributes(KeyValues kv)
 		// Read Particle Name
 		kv.GetString("name", mapParticle, sizeof(mapParticle), mapParticle);
 
-		if(cvParticlesReplaceCustom.BoolValue || !cvManifests.BoolValue) {
+		if(cvParticlesReplaceCustom.BoolValue || !cvManifests.BoolValue || mapHasCustomManifest) {
 			if(StrContains(mapParticle, "env_themes_rain") != -1) {
 				strcopy(mapParticle, sizeof(mapParticle), "env_rain_001");
 			} else if(StrContains(mapParticle, "env_themes_snow") != -1) {
@@ -1433,7 +1438,7 @@ void ReadThemeAttributes(KeyValues kv)
 		}
 		
 	#if defined DEBUG
-		PrintToServer("mpi = %i", mapParticleIndex);
+		PrintToServer("mpi = %i, %s", mapParticleIndex, mapParticle);
 	#endif
 
 		// Read Particle Height
@@ -1661,27 +1666,45 @@ void OnCopyMapTemplate(bool success, const char[] from, const char[] to)
 }
 #endif
 
-void HandleMapParticleManifest(const char[] mapname)
+void HandleMapParticleManifest(const char[] mapname, bool current)
 {
-	char file[96];
-	Format(file, sizeof(file), "maps/%s_particles.txt", mapname);
+	char file_path[96];
+	Format(file_path, sizeof(file_path), "maps/%s_particles.txt", mapname);
 
-	if(!FileExists(file, true)) {
+	if(!FileExists(file_path, true)) {
 	#if defined _system2_included
 		if(cvCreateManifests.BoolValue && bSystem2) {
-			LogMessage("Warning: Particles file does not exist: %s, creating a new one", file);
+			LogMessage("Warning: Particles file does not exist: %s, creating a new one", file_path);
 
 			char template[PLATFORM_MAX_PATH];
 			BuildPath(Path_SM, template, sizeof(template), "data/themes/particles_template.txt");
 
-			System2_CopyFile(OnCopyMapTemplate, template, file);
+			System2_CopyFile(OnCopyMapTemplate, template, file_path);
 		} else
 	#endif
 		{
-			LogMessage("Error: Particles file does not exist: %s", file);
+			LogMessage("Error: Particles file does not exist: %s", file_path);
 		}
 	} else {
-		AddFileToDownloadsTable(file);
+		if(current) {
+			mapHasCustomManifest = true;
+
+			File file = OpenFile(file_path, "r", true);
+
+			char line[PLATFORM_MAX_PATH];
+			while(!file.EndOfFile()) {
+				if(file.ReadLine(line, sizeof(line))) {
+					if(StrContains(line, "custom_particles") != -1) {
+						mapHasCustomManifest = false;
+						break;
+					}
+				}
+			}
+
+			delete file;
+		}
+
+		AddFileToDownloadsTable(file_path);
 	}
 }
 
@@ -1697,14 +1720,14 @@ void HandleParticleFiles()
 		if (kvMaps.GotoFirstSubKey()) {
 			do {
 				kvMaps.GetSectionName(file, sizeof(file));
-				HandleMapParticleManifest(file);
+				HandleMapParticleManifest(file, false);
 			} while (kvMaps.GotoNextKey());
 			
 			kvMaps.GoBack();
 		}
 
 		GetCurrentMap(file, sizeof(file));
-		HandleMapParticleManifest(file);
+		HandleMapParticleManifest(file, true);
 	}
 
 	// Add particle files
@@ -2818,6 +2841,7 @@ void LogTheme()
 	LogMessage("Overlay: %s", mapOverlay);
 	LogMessage("Stageless: %d", mapStageless);
 	LogMessage("Cold: %d", mapCold);
+	LogMessage("Has Custom Manifest: %d", mapHasCustomManifest);
 	#endif
 }
 
