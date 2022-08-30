@@ -5,6 +5,13 @@
 
 #include <popspawner>
 
+enum entity_healthbar_t
+{
+	entity_healthbar_none,
+	entity_healthbar_boss,
+	entity_healthbar_last,
+};
+
 native bool expr_pop_parse(CustomPopulationSpawner spawner, KeyValues data);
 native bool expr_pop_spawn(CustomPopulationSpawner spawner, const float pos[3], ArrayList result);
 
@@ -19,12 +26,12 @@ stock int expr_pop_health(CustomPopulationSpawner spawner, int num)
 
 stock bool expr_pop_attribute(CustomPopulationSpawner spawner, AttributeType attr, int num)
 {
-	bool bosshealthbar = false;
-	if(spawner.has_data("bosshealthbar")) {
-		bosshealthbar = spawner.get_data("bosshealthbar");
+	entity_healthbar_t healthbar = entity_healthbar_none;
+	if(spawner.has_data("healthbar")) {
+		healthbar = spawner.get_data("healthbar");
 	}
 
-	if(bosshealthbar && !!(attr & (MINIBOSS|USE_BOSS_HEALTH_BAR))) {
+	if((healthbar == entity_healthbar_boss) && !!(attr & (MINIBOSS|USE_BOSS_HEALTH_BAR))) {
 		return true;
 	}
 

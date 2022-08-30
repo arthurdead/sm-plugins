@@ -4,6 +4,7 @@
 #include <stocksoup/tf/monster_resource>
 #include <datamaps>
 #include <nextbot>
+#include <expr_pop>
 
 #define TEAM_SPECTATOR 1
 #define TF_TEAM_PVE_DEFENDERS 2
@@ -416,10 +417,13 @@ static int native_expr_pop_parse(Handle plugin, int params)
 		data.GoBack();
 	}
 
-	if(data.JumpToKey("BossHealthBar")) {
+	if(data.JumpToKey("HealthBar")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_spawner_var, expr_pop_spawner_func, spawner);
-		spawner.set_data("bosshealthbar", RoundToFloor(value) != 0);
+		if(StrEqual(value_str, "None")) {
+			spawner.set_data("healthbar", entity_healthbar_none);
+		} else if(StrEqual(value_str, "Boss")) {
+			spawner.set_data("healthbar", entity_healthbar_boss);
+		}
 		data.GoBack();
 	}
 
@@ -467,9 +471,9 @@ static int native_expr_pop_spawn(Handle plugin, int params)
 		model_scale = spawner.get_data("model_scale");
 	}
 
-	bool bosshealthbar = false;
-	if(spawner.has_data("bosshealthbar")) {
-		bosshealthbar = spawner.get_data("bosshealthbar");
+	entity_healthbar_t healthbar = entity_healthbar_none;
+	if(spawner.has_data("healthbar")) {
+		healthbar = spawner.get_data("healthbar");
 	}
 
 	int len = result.Length;
@@ -497,9 +501,11 @@ static int native_expr_pop_spawn(Handle plugin, int params)
 			SetEntPropFloat(entity, Prop_Send, "m_flModelScale", tf_mvm_miniboss_scale.FloatValue);
 		}
 
-		if(bosshealthbar) {
-			HookEntityContextThink(entity, bosshealthbar_think, "ThinkBossHealthbar");
-			SetEntityNextThink(entity, GetGameTime() + 0.1, "ThinkBossHealthbar");
+		switch(healthbar) {
+			case entity_healthbar_boss: {
+				HookEntityContextThink(entity, bosshealthbar_think, "ThinkBossHealthbar");
+				SetEntityNextThink(entity, GetGameTime() + 0.1, "ThinkBossHealthbar");
+			}
 		}
 	}
 
