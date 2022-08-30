@@ -17,11 +17,12 @@
 
 #define TF2_MAXPLAYERS 33
 
+#define TEAM_UNASSIGNED 0
+#define TEAM_SPECTATOR 1
 #define TF_TEAM_PVE_DEFENDERS 2
 #define TF_TEAM_PVE_INVADERS 3
-
-#define LIFE_ALIVE 2
-#define EFL_KILLME (1 << 0)
+#define TF_TEAM_PVE_INVADERS_GIANTS 4
+#define TF_TEAM_HALLOWEEN 5
 
 static Handle CPopulationManager_SetPopulationFilename;
 static Handle CPopulationManager_Initialize;
@@ -29,20 +30,21 @@ static Handle CPopulationManager_Initialize;
 static Address g_pPopulationManager;
 
 static int info_populator = INVALID_ENT_REFERENCE;
+static int tf_logic_mann_vs_machine = INVALID_ENT_REFERENCE;
 static int tf_gamerules = INVALID_ENT_REFERENCE;
 
 static ConVar tf_gamemode_mvm;
 
-static ConVar tf_populator_active_buffer_range;
+static ConVar mp_tournament_blueteamname;
+static ConVar mp_tournament_redteamname;
+
+static ConVar npc_deathnotice_eventtime;
 
 static ConVar mve_pop_file;
 
-static ArrayList last_ambush_areas;
-static float next_ambush_calc;
-static ArrayList entity_seen_time;
+static bool game_ended;
 
-static float next_teleport_calc;
-static float next_playercount_calc;
+static ArrayList last_killed_data;
 
 static void mve_pop_file_changed(ConVar convar, const char[] oldValue, const char[] newValue)
 {
@@ -71,7 +73,13 @@ public void OnPluginStart()
 
 	tf_gamemode_mvm = FindConVar("tf_gamemode_mvm");
 
-	tf_populator_active_buffer_range = FindConVar("tf_populator_active_buffer_range");
+	mp_tournament_blueteamname = FindConVar("mp_tournament_blueteamname");
+	mp_tournament_blueteamname.Flags &= ~FCVAR_NOTIFY;
+
+	mp_tournament_redteamname = FindConVar("mp_tournament_redteamname");
+	mp_tournament_redteamname.Flags &= ~FCVAR_NOTIFY;
+
+	npc_deathnotice_eventtime = FindConVar("npc_deathnotice_eventtime");
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(IsClientInGame(i)) {
@@ -79,8 +87,7 @@ public void OnPluginStart()
 		}
 	}
 
-	last_ambush_areas = new ArrayList();
-	entity_seen_time = new ArrayList(3);
+	last_killed_data = new ArrayList(2);
 
 	HookEvent("teamplay_round_start", teamplay_round_start);
 
@@ -138,207 +145,176 @@ static MRESReturn CPopulationManagerAllocateBots(int pThis)
 
 static void teamplay_round_start(Event event, const char[] name, bool dontBroadcast)
 {
-	collect_ambush_areas();
+	game_ended = false;
 
-	int populator = EntRefToEntIndex(info_populator);
-	if(populator != -1) {
-		SDKCall(CPopulationManager_Initialize, populator);
-	} else {
-		LogError("missing info_populator");
+#if 0
+	char model[PLATFORM_MAX_PATH];
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "prop_dynamic")) != -1) {
+		GetEntPropString(entity, Prop_Data, "m_ModelName", model, PLATFORM_MAX_PATH);
+		if(StrEqual(model, "models/props_mvm/robot_hologram.mdl")) {
+			RemoveEntity(entity);
+		}
+	}
+#endif
+
+	int logic = EntRefToEntIndex(tf_logic_mann_vs_machine);
+	if(logic == -1) {
+		int populator = EntRefToEntIndex(info_populator);
+		if(populator != -1) {
+			SDKCall(CPopulationManager_Initialize, populator);
+		} else {
+			LogError("missing info_populator");
+		}
 	}
 }
 
-static void collect_ambush_areas()
+static void frame_currency_spawn(int entity)
 {
-	last_ambush_areas.Clear();
+	entity = EntRefToEntIndex(entity);
+	if(entity == -1) {
+		return;
+	}
 
-	ArrayList tmp_ambush_areas = new ArrayList();
+	SetEntityNextThink(entity, TIME_NEVER_THINK, "PowerupRemoveThink");
 
-	for(int i = 1; i <= MaxClients; ++i) {
-		if(!IsClientInGame(i) ||
-			!IsPlayerAlive(i) ||
-			GetClientTeam(i) < 2 ||
-			TF2_GetPlayerClass(i) == TFClass_Unknown) {
-			continue;
-		}
-
-		if(IsFakeClient(i)) {
-			continue;
-		}
-
-		CNavArea start_area = GetEntityLastKnownArea(i);
-		if(start_area == CNavArea_Null) {
-			continue;
-		}
-
-		CollectSurroundingAreas(tmp_ambush_areas, start_area, tf_populator_active_buffer_range.FloatValue, STEP_HEIGHT, STEP_HEIGHT);
-
-		int len = tmp_ambush_areas.Length;
-		for(int j = 0; j < len; ++j) {
-			CTFNavArea area = tmp_ambush_areas.Get(j);
-
-			if(!area.ValidForWanderingPopulation) {
-				continue;
-			}
-
-			if(area.IsPotentiallyVisibleToTeam(TF_TEAM_PVE_DEFENDERS)) {
-				continue;
-			}
-
-			if(last_ambush_areas.FindValue(area) == -1) {
-				last_ambush_areas.Push(area);
+	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	if(owner != -1) {
+		int idx = last_killed_data.FindValue(EntIndexToEntRef(owner));
+		if(idx != -1) {
+			int attacker = GetClientOfUserId(last_killed_data.Get(idx, 1));
+			if(attacker != 0) {
+				float pos[3];
+				GetClientAbsOrigin(attacker, pos);
+				TeleportEntity(entity, pos);
 			}
 		}
 	}
-
-	delete tmp_ambush_areas;
-
-	next_ambush_calc = GetGameTime() + 1.0;
 }
 
-static bool get_random_ambush(float pos[3])
+static void currency_spawn(int entity)
 {
-	int len = last_ambush_areas.Length;
-	if(len == 0) {
-		return false;
-	}
-
-	for(int i = 0; i < 5; ++i) {
-		int idx = GetRandomInt(0, len-1);
-		CNavArea area = last_ambush_areas.Get(idx);
-
-		for(int j = 0; j < 3; ++j) {
-			area.GetRandomPoint(pos);
-
-			if(IsSpaceToSpawnHere(pos)) {
-				return true;
-			}
-		}
-	}
-
-	return false;
+	RequestFrame(frame_currency_spawn, EntIndexToEntRef(entity));
 }
 
-public Action find_spawn_location(float pos[3])
+static Action pop_entity_killed(int entity, CTakeDamageInfo info)
 {
-	return get_random_ambush(pos) ? Plugin_Changed : Plugin_Handled;
+	int attacker = info.m_hAttacker;
+	if(attacker < 1 || attacker > MaxClients) {
+		return Plugin_Continue;
+	}
+
+	int userid = GetClientUserId(attacker);
+
+	int ref = EntIndexToEntRef(entity);
+	int idx = last_killed_data.FindValue(ref);
+	if(idx == -1) {
+		idx = last_killed_data.Push(ref);
+	}
+
+	last_killed_data.Set(idx, userid, 1);
+
+	return Plugin_Continue;
+}
+
+public void pop_entity_spawned(IPopulator populator, IPopulationSpawner spawner, SpawnLocation location, int entity)
+{
+	HookEntityKilled(entity, pop_entity_killed, true);
+}
+
+public void OnEntityDestroyed(int entity)
+{
+	if(entity == -1) {
+		return;
+	}
+
+	if(entity & (1 << 31)) {
+		entity = EntRefToEntIndex(entity);
+	}
+
+	int idx = last_killed_data.FindValue(EntIndexToEntRef(entity));
+	if(idx != -1) {
+		last_killed_data.Erase(idx);
+	}
+}
+
+public void OnEntityCreated(int entity, const char[] classname)
+{
+	if(StrEqual(classname, "item_currencypack_large") ||
+		StrEqual(classname, "item_currencypack_medium") ||
+		StrEqual(classname, "item_currencypack_small") ||
+		StrEqual(classname, "item_currencypack_custom")) {
+		SDKHook(entity, SDKHook_SpawnPost, currency_spawn);
+	}
+}
+
+static Action timer_endgame(Handle timer, any data)
+{
+	InsertServerCommand("tf_mvm_nextmission");
+	ServerExecute();
+
+	return Plugin_Continue;
+}
+
+#define WINPANEL_HOLD_TIME 14.0
+
+static Action proxysend_roundstate(int entity, const char[] prop, RoundState &value, int element, int client)
+{
+	if(game_ended) {
+		value = GR_STATE_GAME_OVER;
+		return Plugin_Changed;
+	} else if(value != GR_STATE_BETWEEN_RNDS) {
+		value = GR_STATE_BETWEEN_RNDS;
+		return Plugin_Changed;
+	}
+	return Plugin_Continue;
+}
+
+static Action timer_sendwinpanel(Handle timer, any data)
+{
+	SetWinningTeam(TF_TEAM_PVE_INVADERS, WINREASON_OPPONENTS_DEAD, true, false, WINPANEL_ARENA);
+
+	CreateTimer(WINPANEL_HOLD_TIME, timer_endgame);
+
+	return Plugin_Continue;
 }
 
 public void OnGameFrame()
 {
-	if(next_ambush_calc < GetGameTime()) {
-		collect_ambush_areas();
-	}
-
-	if(next_playercount_calc < GetGameTime()) {
-		if(!GameRules_GetProp("m_bInWaitingForPlayers") && GameRules_GetRoundState() == GR_STATE_RND_RUNNING) {
-			int num_alive = 0;
-			for(int i = 1; i <= MaxClients; ++i) {
-				if(!IsClientInGame(i) ||
-					IsFakeClient(i)) {
-					continue;
-				}
-				if(IsPlayerAlive(i)) {
-					++num_alive;
-				}
+	if(!GameRules_GetProp("m_bInWaitingForPlayers") && GameRules_GetRoundState() == GR_STATE_RND_RUNNING) {
+		int num_connected = 0;
+		int num_alive = 0;
+		for(int i = 1; i <= MaxClients; ++i) {
+			if(!IsClientInGame(i) ||
+				IsClientSourceTV(i) ||
+				IsClientReplay(i)) {
+				continue;
 			}
-			if(num_alive == 0) {
-				SetWinningTeam(TF_TEAM_PVE_INVADERS, WINREASON_OPPONENTS_DEAD, true, false, WINPANEL_ARENA);
+
+			if(GetClientTeam(i) != TF_TEAM_PVE_DEFENDERS) {
+				continue;
+			}
+
+			++num_connected;
+
+			if(IsPlayerAlive(i)) {
+				++num_alive;
 			}
 		}
+		if(num_connected > 0 && num_alive == 0) {
+			game_ended = true;
 
-		next_playercount_calc = GetGameTime() + 0.2;
-	}
+			mp_tournament_blueteamname.SetString("?????");
+			mp_tournament_redteamname.SetString("MANNCO");
 
-	if(next_teleport_calc < GetGameTime()) {
-		int entity = -1;
-		while((entity = FindEntityByClassname(entity, "*")) != -1) {
-			if(entity & (1 << 31)) {
-				entity = EntRefToEntIndex(entity);
-			}
+			float networktime = 0.3;
 
-			INextBot bot = INextBot(entity);
-			if(bot == INextBot_Null) {
-				continue;
-			}
+			BfWrite bitbuf = view_as<BfWrite>(StartMessageAll("MVMServerKickTimeUpdate"));
+			bitbuf.WriteByte(RoundToFloor(networktime + WINPANEL_HOLD_TIME));
+			EndMessage();
 
-			if(entity >= 1 && entity <= MaxClients) {
-				if(!IsFakeClient(entity)) {
-					continue;
-				}
-			}
-
-			if(GetEntProp(entity, Prop_Send, "m_iTeamNum") == TF_TEAM_PVE_DEFENDERS) {
-				continue;
-			}
-
-			bool remove = false;
-
-			if(GetEntProp(entity, Prop_Data, "m_lifeState") != LIFE_ALIVE ||
-				GetEntProp(entity, Prop_Data, "m_iEFlags") & EFL_KILLME) {
-				remove = true;
-			}
-
-			int ref = EntIndexToEntRef(entity);
-
-			int idx = entity_seen_time.FindValue(ref);
-
-			if(remove) {
-				if(idx != -1) {
-					entity_seen_time.Erase(idx);
-				}
-				continue;
-			}
-
-			if(idx == -1) {
-				idx = entity_seen_time.Push(ref);
-				entity_seen_time.Set(idx, 0.0, 1);
-			}
-
-			IVision vision = bot.VisionInterface;
-
-			for(int i = 1; i <= MaxClients; ++i) {
-				if(!IsClientInGame(i) ||
-					IsFakeClient(i)) {
-					continue;
-				}
-
-				if(CombatCharacterIsAbleToSeeEnt(i, entity, USE_FOV) ||
-					vision.IsAbleToSeeEntity(i, DISREGARD_FOV)) {
-					entity_seen_time.Set(idx, GetGameTime(), 1);
-					break;
-				}
-			}
-
-			float last_seen = entity_seen_time.Get(idx, 1);
-
-			if((GetGameTime() - last_seen) > 5.0) {
-				float pos[3];
-				if(get_random_ambush(pos)) {
-					TeleportEntity(entity, pos);
-				}
-			}
+			CreateTimer(networktime, timer_sendwinpanel);
 		}
-
-		int len = entity_seen_time.Length;
-		for(int i = 0; i < len;) {
-			int ref = entity_seen_time.Get(i);
-			entity = EntRefToEntIndex(ref);
-			if(entity != -1) {
-				if(GetEntProp(entity, Prop_Data, "m_lifeState") != LIFE_ALIVE ||
-					GetEntProp(entity, Prop_Data, "m_iEFlags") & EFL_KILLME) {
-					entity = -1;
-				}
-			}
-			if(entity == -1) {
-				entity_seen_time.Erase(i);
-				--len;
-				continue;
-			}
-			++i;
-		}
-
-		next_teleport_calc = GetGameTime() + 0.5;
 	}
 }
 
@@ -347,28 +323,45 @@ public Action should_cleanup_entity(int entity, bool &should)
 	char classname[64];
 	GetEntityClassname(entity, classname, sizeof(classname));
 
+#if 0
 	if(is_gamemode_entity(classname)) {
 		should = true;
 		return Plugin_Changed;
 	}
+#endif
+
+#if 0
+	if(StrEqual(classname, "prop_dynamic")) {
+		char model[PLATFORM_MAX_PATH];
+		GetEntPropString(entity, Prop_Data, "m_ModelName", model, PLATFORM_MAX_PATH);
+		if(StrEqual(model, "models/props_mvm/robot_hologram.mdl")) {
+			should = true;
+			return Plugin_Changed;
+		}
+	}
+#endif
 
 	return Plugin_Continue;
 }
 
 public Action should_create_entity(const char[] classname, bool &should)
 {
+#if 0
 	if(is_gamemode_entity(classname)) {
 		should = false;
 		return Plugin_Changed;
 	}
+#endif
 
 	return Plugin_Continue;
 }
 
 public void OnConfigsExecuted()
 {
+#if 0
 	FindConVar("tf_populator_debug").BoolValue = true;
 	FindConVar("tf_debug_placement_failure").BoolValue = false;
+#endif
 	FindConVar("tf_mvm_min_players_to_start").IntValue = 1;
 
 	FindConVar("mve_pop_file").SetString("test");
@@ -383,11 +376,11 @@ static void update_pop_path(const char[] name = NULL_STRING)
 	char pop_file_path[PLATFORM_MAX_PATH];
 	if(IsNullString(name) || name[0] == '\0') {
 		mve_pop_file.GetString(pop_file_path, PLATFORM_MAX_PATH);
-		if(pop_file_path[0] != '\0') {
-			BuildPath(Path_SM, pop_file_path, PLATFORM_MAX_PATH, "configs/mve/%s.pop", pop_file_path);
-		}
-	} else {
-		BuildPath(Path_SM, pop_file_path, PLATFORM_MAX_PATH, "configs/mve/%s.pop", name);
+	}
+
+	int len = strlen(pop_file_path);
+	if(StrContains(pop_file_path, ".pop") != (len-4)) {
+		StrCat(pop_file_path, PLATFORM_MAX_PATH, ".pop");
 	}
 
 	int populator = EntRefToEntIndex(info_populator);
@@ -401,12 +394,18 @@ static void update_pop_path(const char[] name = NULL_STRING)
 
 public void OnMapStart()
 {
-	clear_all_gamemodes();
-
-	next_ambush_calc = 0.0;
+	//clear_all_gamemodes();
 
 	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
+#if 0
+	proxysend_hook(gamerules, "m_iRoundState", proxysend_roundstate, false);
+#endif
 	tf_gamerules =  EntIndexToEntRef(gamerules);
+
+	int logic = FindEntityByClassname(-1, "tf_logic_mann_vs_machine");
+	if(logic != -1) {
+		tf_logic_mann_vs_machine = EntIndexToEntRef(logic);
+	}
 
 	int stats = FindEntityByClassname(-1, "tf_mann_vs_machine_stats");
 	if(stats == -1) {
@@ -426,8 +425,11 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
+	game_ended = false;
+
 	tf_gamerules = INVALID_ENT_REFERENCE;
 	info_populator = INVALID_ENT_REFERENCE;
+	tf_logic_mann_vs_machine = INVALID_ENT_REFERENCE;
 }
 
 public void OnClientPutInServer(int client)
