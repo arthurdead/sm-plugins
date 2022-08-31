@@ -82,6 +82,10 @@ public Action pop_parse(KeyValues data, bool &result)
 		soundinfos[i].Clear();
 	}
 
+	if(!data.JumpToKey("Plugin")) {
+		return Plugin_Continue;
+	}
+
 	SoundInfo info;
 
 	if(data.JumpToKey("WaveStartSound")) {
@@ -98,6 +102,8 @@ public Action pop_parse(KeyValues data, bool &result)
 		parse_sound_section(data, soundinfos[2], info);
 		data.GoBack();
 	}
+
+	data.GoBack();
 
 	for(int i = 0; i < 3; ++i) {
 		int len = soundinfos[i].Length;

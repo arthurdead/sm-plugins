@@ -239,6 +239,13 @@ public Action find_spawn_location(IPopulator populator, SpawnLocation location, 
 
 public Action spawnlocation_parse(IPopulator populator, SpawnLocation location, KeyValues data, bool &result)
 {
+	char name[20];
+	data.GetSectionName(name, sizeof(name));
+
+	if(!StrEqual(name, "PluginSpawnLocation")) {
+		return Plugin_Continue;
+	}
+
 	if(data.JumpToKey("Where")) {
 		char value_str[32];
 		data.GetString(NULL_STRING, value_str, sizeof(value_str));
@@ -249,6 +256,8 @@ public Action spawnlocation_parse(IPopulator populator, SpawnLocation location, 
 		}
 		data.GoBack();
 	}
+
+	data.GoBack();
 
 	return Plugin_Continue;
 }
@@ -577,6 +586,10 @@ static bool expr_pop_wave_var(any user_data, const char[] name, float &value)
 
 public Action wave_parse(CWave populator, KeyValues data, bool &result)
 {
+	if(!data.JumpToKey("Plugin")) {
+		return Plugin_Continue;
+	}
+
 	char value_str[EXPR_STR_MAX];
 
 	if(data.JumpToKey("WaitWhenDone")) {
@@ -586,11 +599,17 @@ public Action wave_parse(CWave populator, KeyValues data, bool &result)
 		data.GoBack();
 	}
 
+	data.GoBack();
+
 	return Plugin_Continue;
 }
 
 public Action wavespawn_parse(CWaveSpawnPopulator populator, KeyValues data, bool &result)
 {
+	if(!data.JumpToKey("Plugin")) {
+		return Plugin_Continue;
+	}
+
 	char value_str[EXPR_STR_MAX];
 
 	if(data.JumpToKey("TotalCount")) {
@@ -648,6 +667,8 @@ public Action wavespawn_parse(CWaveSpawnPopulator populator, KeyValues data, boo
 		populator.TotalCurrency = RoundToFloor(value);
 		data.GoBack();
 	}
+
+	data.GoBack();
 
 	return Plugin_Continue;
 }
