@@ -1,11 +1,19 @@
 #include <sourcemod>
 #include <popspawner>
 
+enum mod_type_t
+{
+	mod_merge,
+	mod_merge_parent,
+	mod_merge_root,
+};
+
 enum struct ModInfo
 {
 	KeyValues data;
 	float min;
 	float max;
+	mod_type_t type;
 }
 
 static ArrayList manager_mods;
@@ -21,6 +29,18 @@ public void OnPluginStart()
 
 static void parse_mod(const char[] path, ArrayList arr)
 {
+	mod_type_t type = mod_merge;
+
+	int idx = StrContains(path, ".parent");
+	if(idx != -1) {
+		type = mod_merge_parent;
+	} else {
+		idx = StrContains(path, ".root");
+		if(idx != -1) {
+			type = mod_merge_root;
+		}
+	}
+
 	KeyValues kv = new KeyValues("Population");
 	if(kv.ImportFromFile(path)) {
 		if(kv.GotoFirstSubKey()) {
@@ -45,6 +65,8 @@ static void parse_mod(const char[] path, ArrayList arr)
 				mod.min = StringToFloat(min_str);
 				mod.max = StringToFloat(max_str);
 
+				mod.type = type;
+
 				arr.PushArray(mod, sizeof(ModInfo));
 			} while(kv.GotoNextKey());
 			kv.GoBack();
@@ -64,12 +86,12 @@ static void loop_mod_folder(const char[] type, ArrayList arr, char[] mod_dir_pat
 				continue;
 			}
 
-			int pop = StrContains(mod_file_path, ".pop");
-			if(pop == -1) {
+			int mod = StrContains(mod_file_path, ".mod");
+			if(mod == -1) {
 				continue;
 			}
 
-			if((strlen(mod_file_path)-pop) != 4) {
+			if((strlen(mod_file_path)-mod) != 4) {
 				continue;
 			}
 
@@ -121,34 +143,121 @@ public Action pop_parse(KeyValues data, bool &result)
 	int num_wave_mods = wave_mods.Length;
 	int num_wavespawn_mods = wavespawn_mods.Length;
 
+	char tmp_sec_name[64];
+
 	int num_waves = wave_count();
 	for(int i = 0; i < num_waves; ++i) {
 		CWave wave = get_wave(i);
 
-		float percent = (float(i) / float(num_waves));
+		float percent = (float(i+1) / float(num_waves));
 
 		for(int j = 0; j < num_wave_mods; ++j) {
 			wave_mods.GetArray(j, mod, sizeof(ModInfo));
 
 			if(percent >= mod.min && percent <= mod.max) {
-				if(!wave.ParseAdditive(mod.data)) {
-					result = false;
-					return Plugin_Stop;
+				switch(mod.type) {
+					case mod_merge: {
+						if(!wave.ParseAdditive(mod.data)) {
+							result = false;
+							return Plugin_Stop;
+						}
+					}
+					case mod_merge_parent, mod_merge_root: {
+						if(!merge_pop(mod.data)) {
+							result = false;
+							return Plugin_Stop;
+						}
+					}
 				}
 			}
 		}
 
 		int num_wavespawns = wave.WaveSpawnCount;
-		for(int j = 0; j < num_wavespawn_mods; ++j) {
-			wavespawn_mods.GetArray(j, mod, sizeof(ModInfo));
+		for(int k = 0; k < num_wavespawns; ++k) {
+			CWaveSpawnPopulator wavespawn = wave.GetWaveSpawn(k);
 
-			if(percent >= mod.min && percent <= mod.max) {
-				for(int k = 0; k < num_wavespawns; ++i) {
-					CWaveSpawnPopulator wavespawn = wave.GetWaveSpawn(k);
+			for(int j = 0; j < num_wavespawn_mods; ++j) {
+				wavespawn_mods.GetArray(j, mod, sizeof(ModInfo));
 
-					if(!wavespawn.ParseAdditive(mod.data)) {
-						result = false;
-						return Plugin_Stop;
+				if(percent >= mod.min && percent <= mod.max) {
+					KeyValues mod_data;
+					bool mod_data_allocated;
+
+					if(mod.type == mod_merge_parent) {
+						mod_data = new KeyValues("Population");
+						mod_data_allocated = true;
+						mod_data.Import(mod.data);
+
+						if(mod_data.GotoFirstSubKey()) {
+							do {
+								mod_data.GetSectionName(tmp_sec_name, sizeof(tmp_sec_name));
+
+								if(StrEqual(tmp_sec_name, "WaveSpawn")) {
+									if(!mod_data.JumpToKey("WaitForAllSpawned")) {
+										wavespawn.GetWaitForAllSpawned(tmp_sec_name, sizeof(tmp_sec_name));
+										mod_data.SetString("WaitForAllSpawned", tmp_sec_name);
+									} else {
+										mod_data.GoBack();
+									}
+
+									if(!mod_data.JumpToKey("WaitForAllDead")) {
+										wavespawn.GetWaitForAllSpawned(tmp_sec_name, sizeof(tmp_sec_name));
+										mod_data.SetString("WaitForAllDead", tmp_sec_name);
+									} else {
+										mod_data.GoBack();
+									}
+
+									if(!mod_data.JumpToKey("WaitBetweenSpawns")) {
+										mod_data.SetFloat("WaitBetweenSpawns", wavespawn.WaitBetweenSpawns);
+									} else {
+										mod_data.GoBack();
+									}
+
+									if(!mod_data.JumpToKey("WaitBeforeStarting")) {
+										mod_data.SetFloat("WaitBeforeStarting", wavespawn.WaitBeforeStarting);
+									} else {
+										mod_data.GoBack();
+									}
+								}
+							} while(mod_data.GotoNextKey());
+							mod_data.GoBack();
+						}
+					} else {
+						mod_data = mod.data;
+					}
+
+					switch(mod.type) {
+						case mod_merge: {
+							if(!wavespawn.ParseAdditive(mod_data)) {
+								if(mod_data_allocated) {
+									delete mod_data;
+								}
+								result = false;
+								return Plugin_Stop;
+							}
+						}
+						case mod_merge_parent: {
+							if(!wave.ParseAdditive(mod_data)) {
+								if(mod_data_allocated) {
+									delete mod_data;
+								}
+								result = false;
+								return Plugin_Stop;
+							}
+						}
+						case mod_merge_root: {
+							if(!merge_pop(mod_data)) {
+								if(mod_data_allocated) {
+									delete mod_data;
+								}
+								result = false;
+								return Plugin_Stop;
+							}
+						}
+					}
+
+					if(mod_data_allocated) {
+						delete mod_data;
 					}
 				}
 			}
