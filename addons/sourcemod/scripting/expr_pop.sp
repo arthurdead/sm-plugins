@@ -160,6 +160,7 @@ public void OnGameFrame()
 			int entity = EntRefToEntIndex(ref);
 			if(entity == -1) {
 				ambush_entities.Erase(i);
+				--len;
 				if(seen_idx != -1) {
 					entity_seen_time.Erase(seen_idx);
 				}
@@ -169,6 +170,7 @@ public void OnGameFrame()
 			if(GetEntProp(entity, Prop_Data, "m_lifeState") != LIFE_ALIVE ||
 				GetEntProp(entity, Prop_Data, "m_iEFlags") & EFL_KILLME) {
 				ambush_entities.Erase(i);
+				--len;
 				if(seen_idx != -1) {
 					entity_seen_time.Erase(seen_idx);
 				}
@@ -178,6 +180,7 @@ public void OnGameFrame()
 			if(GetEntProp(entity, Prop_Send, "m_iTeamNum") == TF_TEAM_PVE_DEFENDERS ||
 				GetEntProp(entity, Prop_Send, "m_iTeamNum") == TEAM_SPECTATOR) {
 				ambush_entities.Erase(i);
+				--len;
 				if(seen_idx != -1) {
 					entity_seen_time.Erase(seen_idx);
 				}
