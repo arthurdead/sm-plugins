@@ -12,6 +12,19 @@
 #define LIFE_ALIVE 2
 #define EFL_KILLME (1 << 0)
 
+enum mod_type_t
+{
+	mod_merge,
+	mod_merge_parent,
+	mod_merge_root,
+};
+
+enum struct ModInfo
+{
+	KeyValues data;
+	mod_type_t type;
+}
+
 static TFMonsterResource monster_resource;
 
 static ConVar tf_mvm_miniboss_scale;
@@ -31,6 +44,10 @@ static ConVar ambush_unseen_time;
 static ConVar ambush_teleport_time;
 static ConVar ambush_collect_time;
 
+static ArrayList manager_mods;
+static ArrayList wave_mods;
+static ArrayList wavespawn_mods;
+
 public void OnPluginStart()
 {
 	tf_mvm_miniboss_scale = FindConVar("tf_mvm_miniboss_scale");
@@ -49,6 +66,10 @@ public void OnPluginStart()
 	entity_seen_time = new ArrayList(3);
 
 	HookEvent("teamplay_round_start", teamplay_round_start);
+
+	manager_mods = new ArrayList(sizeof(ModInfo));
+	wave_mods = new ArrayList(sizeof(ModInfo));
+	wavespawn_mods = new ArrayList(sizeof(ModInfo));
 }
 
 //TODO!!!! hook takedmg and *= damage to pop_damage_multiplier
@@ -269,6 +290,8 @@ public void OnMapEnd()
 {
 	ambush_spawn_locations.Clear();
 	ambush_entities.Clear();
+	entity_seen_time.Clear();
+	last_ambush_areas.Clear();
 }
 
 public void OnEntityDestroyed(int entity)
@@ -292,20 +315,188 @@ public void OnEntityDestroyed(int entity)
 	if(idx != -1) {
 		ambush_entities.Erase(idx);
 	}
-
-	char classname[64];
-	GetEntityClassname(entity, classname, sizeof(classname));
-	if(StrEqual(classname, "info_populator")) {
-		ambush_spawn_locations.Clear();
-		ambush_entities.Clear();
-	}
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if(StrEqual(classname, "info_populator")) {
-		ambush_spawn_locations.Clear();
-		ambush_entities.Clear();
+	
+}
+
+static void parse_mod(const char[] path, ArrayList arr)
+{
+	mod_type_t type = mod_merge;
+
+	int idx = StrContains(path, ".parent");
+	if(idx != -1) {
+		type = mod_merge_parent;
+	} else {
+		idx = StrContains(path, ".root");
+		if(idx != -1) {
+			type = mod_merge_root;
+		}
+	}
+
+	KeyValues kv = new KeyValues("Population");
+	if(kv.ImportFromFile(path)) {
+		if(kv.GotoFirstSubKey()) {
+			ModInfo mod;
+
+			do {
+				mod.data = view_as<KeyValues>(CloneHandle(kv));
+
+				mod.type = type;
+
+				arr.PushArray(mod, sizeof(ModInfo));
+			} while(kv.GotoNextKey());
+			kv.GoBack();
+		}
+	}
+	delete kv;
+}
+
+static void loop_mod_folder(const char[] type, ArrayList arr, char[] mod_dir_path, char[] mod_file_path)
+{
+	BuildPath(Path_SM, mod_dir_path, PLATFORM_MAX_PATH, "configs/pop_mods/%s", type);
+	DirectoryListing dir_it = OpenDirectory(mod_dir_path, true);
+	if(dir_it != null) {
+		FileType filetype;
+		while(dir_it.GetNext(mod_file_path, PLATFORM_MAX_PATH, filetype)) {
+			if(filetype != FileType_File) {
+				continue;
+			}
+
+			int mod = StrContains(mod_file_path, ".mod");
+			if(mod == -1) {
+				continue;
+			}
+
+			if((strlen(mod_file_path)-mod) != 4) {
+				continue;
+			}
+
+			Format(mod_file_path, PLATFORM_MAX_PATH, "%s/%s", mod_dir_path, mod_file_path);
+
+			parse_mod(mod_file_path, arr);
+		}
+	}
+	delete dir_it;
+}
+
+static void free_mods(ArrayList arr, ModInfo mod)
+{
+	int num_mods = arr.Length;
+	for(int j = 0; j < num_mods; ++j) {
+		arr.GetArray(j, mod, sizeof(ModInfo));
+		delete mod.data;
+	}
+
+	arr.Clear();
+}
+
+enum expand_type_t
+{
+	expand_manager,
+	expand_wave,
+	expand_wavespawn,
+};
+
+static float tmp_wave_percent = -1.0;
+
+static bool expr_pop_mod_func(any user_data, const char[] name, int num_args, const float[] args, float &value)
+{
+	DataPack pack = view_as<DataPack>(user_data);
+
+	pack.Reset();
+
+	CWave wave = pack.ReadCell();
+	CWaveSpawnPopulator wavespawn = pack.ReadCell();
+
+	if(wavespawn != CWaveSpawnPopulator_Null) {
+		if(expr_pop_wavespawn_func_impl(wavespawn, name, num_args, args, value)) {
+			return true;
+		}
+	}
+
+	if(wave != CWave_Null) {
+		if(expr_pop_wave_func_impl(wave, name, num_args, args, value)) {
+			return true;
+		}
+	}
+
+	if(base_expr_pop_func(name, num_args, args, value)) {
+		return true;
+	}
+
+	return false;
+}
+
+static bool expr_pop_mod_var(any user_data, const char[] name, float &value)
+{
+	DataPack pack = view_as<DataPack>(user_data);
+
+	pack.Reset();
+
+	CWave wave = pack.ReadCell();
+	CWaveSpawnPopulator wavespawn = pack.ReadCell();
+
+	if(wavespawn != CWaveSpawnPopulator_Null) {
+		if(expr_pop_wavespawn_var_impl(wavespawn, name, value)) {
+			return true;
+		}
+	}
+
+	if(wave != CWave_Null) {
+		if(expr_pop_wave_var_impl(wave, name, value)) {
+			return true;
+		}
+	}
+
+	if(StrEqual(name, "WavePercent")) {
+		value = tmp_wave_percent;
+		return true;
+	}
+
+	if(base_expr_pop_var(name, value)) {
+		return true;
+	}
+
+	return false;
+}
+
+static void expand_mod_ifs(KeyValues data, KeyValues expanded, expand_type_t type, DataPack objs)
+{
+	if(data.GotoFirstSubKey(false)) {
+		char tmp_sec_name[EXPR_STR_MAX];
+		char tmp_value[64];
+
+		do {
+			data.GetSectionName(tmp_sec_name, sizeof(tmp_sec_name));
+
+			bool is_if = (strncmp(tmp_sec_name, "If", 2) == 0);
+
+			float value = 0.0;
+			if(is_if) {
+				value = parse_expression(tmp_sec_name[3], expr_pop_mod_var, expr_pop_mod_func, objs);
+			} else {
+				value = 1.0;
+			}
+
+			if(RoundToFloor(value) == 0) {
+				continue;
+			}
+
+			if(is_if) {
+				expand_mod_ifs(data, expanded, type, objs);
+			} else {
+				if(expanded.JumpToKey(tmp_sec_name, true)) {
+					data.GetString(NULL_STRING, tmp_value, sizeof(tmp_value));
+					expanded.SetString(NULL_STRING, tmp_value);
+					expand_mod_ifs(data, expanded, type, objs);
+					expanded.GoBack();
+				}
+			}
+		} while(data.GotoNextKey(false));
+		data.GoBack();
 	}
 }
 
@@ -313,6 +504,165 @@ public Action pop_parse(KeyValues data, bool &result)
 {
 	ambush_spawn_locations.Clear();
 	ambush_entities.Clear();
+
+	ModInfo mod;
+
+	free_mods(manager_mods, mod);
+	free_mods(wave_mods, mod);
+	free_mods(wavespawn_mods, mod);
+
+	char mod_file_path[PLATFORM_MAX_PATH];
+	char mod_dir_path[PLATFORM_MAX_PATH];
+
+	loop_mod_folder("wave", wave_mods, mod_dir_path, mod_file_path);
+	loop_mod_folder("wavespawn", wavespawn_mods, mod_dir_path, mod_file_path);
+	loop_mod_folder("manager", manager_mods, mod_dir_path, mod_file_path);
+
+	int num_manager_mods = manager_mods.Length;
+
+	char tmp_sec_name[EXPR_STR_MAX];
+
+	tmp_wave_percent = -1.0;
+
+	for(int i = 0; i < num_manager_mods; ++i) {
+		manager_mods.GetArray(i, mod, sizeof(ModInfo));
+
+		KeyValues mod_data_expanded = new KeyValues("Population");
+
+		DataPack objs = new DataPack();
+		objs.WriteCell(CWave_Null);
+		objs.WriteCell(CWaveSpawnPopulator_Null);
+		expand_mod_ifs(mod.data, mod_data_expanded, expand_manager, objs);
+		delete objs;
+
+		if(!merge_pop(mod_data_expanded)) {
+			delete mod_data_expanded;
+			result = false;
+			return Plugin_Stop;
+		}
+
+		delete mod_data_expanded;
+	}
+
+	int num_wave_mods = wave_mods.Length;
+	int num_wavespawn_mods = wavespawn_mods.Length;
+
+	int num_waves = wave_count();
+	for(int i = 0; i < num_waves; ++i) {
+		CWave wave = get_wave(i);
+
+		tmp_wave_percent = (float(i+1) / float(num_waves));
+
+		for(int j = 0; j < num_wave_mods; ++j) {
+			wave_mods.GetArray(j, mod, sizeof(ModInfo));
+
+			KeyValues mod_data_expanded = new KeyValues("Population");
+
+			DataPack objs = new DataPack();
+			objs.WriteCell(wave);
+			objs.WriteCell(CWaveSpawnPopulator_Null);
+			expand_mod_ifs(mod.data, mod_data_expanded, expand_wave, objs);
+			delete objs;
+
+			switch(mod.type) {
+				case mod_merge: {
+					if(!wave.ParseAdditive(mod_data_expanded)) {
+						result = false;
+						return Plugin_Stop;
+					}
+				}
+				case mod_merge_parent, mod_merge_root: {
+					if(!merge_pop(mod_data_expanded)) {
+						result = false;
+						return Plugin_Stop;
+					}
+				}
+			}
+
+			delete mod_data_expanded;
+		}
+
+		int num_wavespawns = wave.WaveSpawnCount;
+		for(int k = 0; k < num_wavespawns; ++k) {
+			CWaveSpawnPopulator wavespawn = wave.GetWaveSpawn(k);
+
+			for(int j = 0; j < num_wavespawn_mods; ++j) {
+				wavespawn_mods.GetArray(j, mod, sizeof(ModInfo));
+
+				KeyValues mod_data_expanded = new KeyValues("Population");
+
+				DataPack objs = new DataPack();
+				objs.WriteCell(wave);
+				objs.WriteCell(wavespawn);
+				expand_mod_ifs(mod.data, mod_data_expanded, expand_wavespawn, objs);
+				delete objs;
+
+				if(mod.type == mod_merge_parent) {
+					if(mod_data_expanded.GotoFirstSubKey()) {
+						do {
+							mod_data_expanded.GetSectionName(tmp_sec_name, sizeof(tmp_sec_name));
+
+							if(StrEqual(tmp_sec_name, "WaveSpawn")) {
+								if(!mod_data_expanded.JumpToKey("WaitForAllSpawned")) {
+									wavespawn.GetWaitForAllSpawned(tmp_sec_name, sizeof(tmp_sec_name));
+									mod_data_expanded.SetString("WaitForAllSpawned", tmp_sec_name);
+								} else {
+									mod_data_expanded.GoBack();
+								}
+
+								if(!mod_data_expanded.JumpToKey("WaitForAllDead")) {
+									wavespawn.GetWaitForAllSpawned(tmp_sec_name, sizeof(tmp_sec_name));
+									mod_data_expanded.SetString("WaitForAllDead", tmp_sec_name);
+								} else {
+									mod_data_expanded.GoBack();
+								}
+
+								if(!mod_data_expanded.JumpToKey("WaitBetweenSpawns")) {
+									mod_data_expanded.SetFloat("WaitBetweenSpawns", wavespawn.WaitBetweenSpawns);
+								} else {
+									mod_data_expanded.GoBack();
+								}
+
+								if(!mod_data_expanded.JumpToKey("WaitBeforeStarting")) {
+									mod_data_expanded.SetFloat("WaitBeforeStarting", wavespawn.WaitBeforeStarting);
+								} else {
+									mod_data_expanded.GoBack();
+								}
+							}
+						} while(mod_data_expanded.GotoNextKey());
+						mod_data_expanded.GoBack();
+					}
+				}
+
+				switch(mod.type) {
+					case mod_merge: {
+						if(!wavespawn.ParseAdditive(mod_data_expanded)) {
+							delete mod_data_expanded;
+							result = false;
+							return Plugin_Stop;
+						}
+					}
+					case mod_merge_parent: {
+						if(!wave.ParseAdditive(mod_data_expanded)) {
+							delete mod_data_expanded;
+							result = false;
+							return Plugin_Stop;
+						}
+					}
+					case mod_merge_root: {
+						if(!merge_pop(mod_data_expanded)) {
+							delete mod_data_expanded;
+							result = false;
+							return Plugin_Stop;
+						}
+					}
+				}
+
+				delete mod_data_expanded;
+			}
+		}
+	}
+
 	return Plugin_Continue;
 }
 
@@ -321,24 +671,16 @@ static bool base_expr_pop_var(const char[] name, float &value)
 	if(StrEqual(name, "DamageMultiplier")) {
 		value = pop_damage_multiplier();
 		return true;
-	}
-
-	if(StrEqual(name, "HealthMultiplier")) {
+	} else if(StrEqual(name, "HealthMultiplier")) {
 		value = pop_health_multiplier(false);
 		return true;
-	}
-
-	if(StrEqual(name, "TankHealthMultiplier")) {
+	} else if(StrEqual(name, "TankHealthMultiplier")) {
 		value = pop_health_multiplier(true);
 		return true;
-	}
-
-	if(StrEqual(name, "CurrentWaveIndex")) {
+	} else if(StrEqual(name, "CurrentWaveIndex")) {
 		value = float(current_wave_index());
 		return true;
-	}
-
-	if(StrEqual(name, "CurrentWave")) {
+	} else if(StrEqual(name, "CurrentWave")) {
 		CWave wave = current_wave();
 		if(wave != CWave_Null) {
 			value = float(wave.Index);
@@ -346,12 +688,12 @@ static bool base_expr_pop_var(const char[] name, float &value)
 			value = 0.0;
 		}
 		return true;
-	}
-
-	ConVar cvar = FindConVar(name);
-	if(cvar) {
-		value = cvar.FloatValue;
-		return true;
+	} else {
+		ConVar cvar = FindConVar(name);
+		if(cvar) {
+			value = cvar.FloatValue;
+			return true;
+		}
 	}
 
 	return false;
@@ -385,14 +727,10 @@ static bool expr_pop_spawner_var(any user_data, const char[] name, float &value)
 	if(StrEqual(name, "MiniBoss")) {
 		value = spawner.IsMiniBoss() ? 1.0 : 0.0;
 		return true;
-	}
-
-	if(StrEqual(name, "Health")) {
+	} else if(StrEqual(name, "Health")) {
 		value = float(spawner.GetHealth());
 		return true;
-	}
-
-	if(StrEqual(name, "Class")) {
+	} else if(StrEqual(name, "Class")) {
 		value = float(view_as<int>(spawner.GetClass()));
 		return true;
 	}
@@ -532,12 +870,34 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	return APLRes_Success;
 }
 
+static bool expr_pop_wavespawn_func_impl(any user_data, const char[] name, int num_args, const float[] args, float &value)
+{
+	return false;
+}
+
 static bool expr_pop_wavespawn_func(any user_data, const char[] name, int num_args, const float[] args, float &value)
 {
+	DataPack pack = view_as<DataPack>(user_data);
+
+	pack.Reset();
+
+	CWave wave = pack.ReadCell();
+	CWaveSpawnPopulator wavespawn = pack.ReadCell();
+
+	if(expr_pop_wavespawn_func_impl(wavespawn, name, num_args, args, value)) {
+		return true;
+	}
+
+	if(wave != CWave_Null) {
+		if(expr_pop_wave_func_impl(wave, name, num_args, args, value)) {
+			return true;
+		}
+	}
+
 	return base_expr_pop_func(name, num_args, args, value);
 }
 
-static bool expr_pop_wavespawn_var(any user_data, const char[] name, float &value)
+static bool expr_pop_wavespawn_var_impl(any user_data, const char[] name, float &value)
 {
 	CWaveSpawnPopulator populator = view_as<CWaveSpawnPopulator>(user_data);
 
@@ -567,20 +927,60 @@ static bool expr_pop_wavespawn_var(any user_data, const char[] name, float &valu
 		return true;
 	}
 
+	return false;
+}
+
+static bool expr_pop_wavespawn_var(any user_data, const char[] name, float &value)
+{
+	DataPack pack = view_as<DataPack>(user_data);
+
+	pack.Reset();
+
+	CWave wave = pack.ReadCell();
+	CWaveSpawnPopulator wavespawn = pack.ReadCell();
+
+	if(expr_pop_wavespawn_var_impl(wavespawn, name, value)) {
+		return true;
+	}
+
+	if(wave != CWave_Null) {
+		if(expr_pop_wave_var_impl(wave, name, value)) {
+			return true;
+		}
+	}
+
 	return base_expr_pop_var(name, value);
+}
+
+static bool expr_pop_wave_func_impl(any user_data, const char[] name, int num_args, const float[] args, float &value)
+{
+	return false;
 }
 
 static bool expr_pop_wave_func(any user_data, const char[] name, int num_args, const float[] args, float &value)
 {
+	if(expr_pop_wave_func_impl(user_data, name, num_args, args, value)) {
+		return true;
+	}
+
 	return base_expr_pop_func(name, num_args, args, value);
 }
 
-static bool expr_pop_wave_var(any user_data, const char[] name, float &value)
+static bool expr_pop_wave_var_impl(any user_data, const char[] name, float &value)
 {
 	CWave populator = view_as<CWave>(user_data);
 
 	if(StrEqual(name, "WaitWhenDone")) {
 		value = populator.WaitWhenDone;
+		return true;
+	}
+
+	return false;
+}
+
+static bool expr_pop_wave_var(any user_data, const char[] name, float &value)
+{
+	if(expr_pop_wave_var_impl(user_data, name, value)) {
 		return true;
 	}
 
@@ -607,7 +1007,7 @@ public Action wave_parse(CWave populator, KeyValues data, bool &result)
 	return Plugin_Continue;
 }
 
-public Action wavespawn_parse(CWaveSpawnPopulator populator, KeyValues data, bool &result)
+public Action wavespawn_parse(CWave wave, CWaveSpawnPopulator populator, KeyValues data, bool &result)
 {
 	if(!data.JumpToKey("Plugin")) {
 		return Plugin_Continue;
@@ -615,63 +1015,69 @@ public Action wavespawn_parse(CWaveSpawnPopulator populator, KeyValues data, boo
 
 	char value_str[EXPR_STR_MAX];
 
+	DataPack objs = new DataPack();
+	objs.WriteCell(wave);
+	objs.WriteCell(populator);
+
 	if(data.JumpToKey("TotalCount")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.TotalCount = RoundToFloor(value);
 		data.GoBack();
 	}
 
 	if(data.JumpToKey("MaxActive")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.MaxActive = RoundToFloor(value);
 		data.GoBack();
 	}
 
 	if(data.JumpToKey("SpawnCount")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.SpawnCount = RoundToFloor(value);
 		data.GoBack();
 	}
 
 	if(data.JumpToKey("WaitBeforeStarting")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.WaitBeforeStarting = value;
 		data.GoBack();
 	}
 
 	if(data.JumpToKey("WaitBetweenSpawns")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.WaitBetweenSpawns = value;
 		data.GoBack();
 	}
 
 	if(data.JumpToKey("WaitBetweenSpawnsAfterDeath")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.WaitBetweenSpawnsAfterDeath = value;
 		data.GoBack();
 	}
 
 	if(data.JumpToKey("RandomSpawn")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.RandomSpawn = (RoundToFloor(value) != 0);
 		data.GoBack();
 	}
 
 	if(data.JumpToKey("TotalCurrency")) {
 		data.GetString(NULL_STRING, value_str, EXPR_STR_MAX);
-		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, populator);
+		float value = parse_expression(value_str, expr_pop_wavespawn_var, expr_pop_wavespawn_func, objs);
 		populator.TotalCurrency = RoundToFloor(value);
 		data.GoBack();
 	}
 
 	data.GoBack();
+
+	delete objs;
 
 	return Plugin_Continue;
 }

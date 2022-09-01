@@ -150,9 +150,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	return APLRes_Success;
 }
 
-void parser_error( parser_data pd, const char[] err ){
-	strcopy(pd.error, MAX_ERROR_STR, err);
-	ThrowError("%s", err);
+void parser_error( parser_data pd, const char[] err, any ... ){
+	VFormat(pd.error, MAX_ERROR_STR, err, 3);
+	ThrowError("%s", pd.error);
 }
 
 char parser_eat( parser_data pd ){
@@ -504,7 +504,7 @@ double parser_read_builtin( parser_data pd ){
 			}
 
 			if(!result) {
-				parser_error( pd, "Could not look up value for variable!" );
+				parser_error( pd, "Could not look up value for variable %s!", token );
 			}
 		}
 	} else {
