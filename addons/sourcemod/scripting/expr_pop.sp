@@ -401,6 +401,7 @@ enum expand_type_t
 };
 
 static float tmp_wave_percent = -1.0;
+static float tmp_wavespawn_percent = -1.0;
 
 static bool expr_pop_mod_func(any user_data, const char[] name, int num_args, const float[] args, float &value)
 {
@@ -453,6 +454,11 @@ static bool expr_pop_mod_var(any user_data, const char[] name, float &value)
 
 	if(StrEqual(name, "WavePercent")) {
 		value = tmp_wave_percent;
+		return true;
+	}
+
+	if(StrEqual(name, "WaveSpawnPercent")) {
+		value = tmp_wavespawn_percent;
 		return true;
 	}
 
@@ -523,6 +529,7 @@ public Action pop_parse(KeyValues data, bool &result)
 	char tmp_sec_name[EXPR_STR_MAX];
 
 	tmp_wave_percent = -1.0;
+	tmp_wavespawn_percent = -1.0;
 
 	for(int i = 0; i < num_manager_mods; ++i) {
 		manager_mods.GetArray(i, mod, sizeof(ModInfo));
@@ -585,6 +592,8 @@ public Action pop_parse(KeyValues data, bool &result)
 		int num_wavespawns = wave.WaveSpawnCount;
 		for(int k = 0; k < num_wavespawns; ++k) {
 			CWaveSpawnPopulator wavespawn = wave.GetWaveSpawn(k);
+
+			tmp_wavespawn_percent = (float(k+1) / float(num_wavespawns));
 
 			for(int j = 0; j < num_wavespawn_mods; ++j) {
 				wavespawn_mods.GetArray(j, mod, sizeof(ModInfo));
@@ -676,17 +685,6 @@ static bool base_expr_pop_var(const char[] name, float &value)
 		return true;
 	} else if(StrEqual(name, "TankHealthMultiplier")) {
 		value = pop_health_multiplier(true);
-		return true;
-	} else if(StrEqual(name, "CurrentWaveIndex")) {
-		value = float(current_wave_index());
-		return true;
-	} else if(StrEqual(name, "CurrentWave")) {
-		CWave wave = current_wave();
-		if(wave != CWave_Null) {
-			value = float(wave.Index);
-		} else {
-			value = 0.0;
-		}
 		return true;
 	} else {
 		ConVar cvar = FindConVar(name);
@@ -973,6 +971,9 @@ static bool expr_pop_wave_var_impl(any user_data, const char[] name, float &valu
 	if(StrEqual(name, "WaitWhenDone")) {
 		value = populator.WaitWhenDone;
 		return true;
+	} else if(StrEqual(name, "WaveIndex")) {
+		value = float(populator.Index);
+		return true;
 	}
 
 	return false;
@@ -1079,5 +1080,10 @@ public Action wavespawn_parse(CWave wave, CWaveSpawnPopulator populator, KeyValu
 
 	delete objs;
 
+	return Plugin_Continue;
+}
+
+public Action spawner_parse(IPopulator populator, IPopulationSpawner spawner, KeyValues data, bool &result)
+{
 	return Plugin_Continue;
 }
