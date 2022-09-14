@@ -56,7 +56,7 @@ public void OnPluginStart()
 
 	ambush_unseen_time = CreateConVar("ambush_unseen_time", "5.0");
 	ambush_teleport_time = CreateConVar("ambush_teleport_time", "0.5");
-	ambush_collect_time = CreateConVar("ambush_collect_time", "1.0");
+	ambush_collect_time = CreateConVar("ambush_collect_time", "0.5");
 
 	ambush_spawn_locations = new ArrayList();
 
@@ -626,12 +626,6 @@ public Action pop_parse(KeyValues data, bool &result)
 									mod_data_expanded.GoBack();
 								}
 
-								if(!mod_data_expanded.JumpToKey("WaitBetweenSpawns")) {
-									mod_data_expanded.SetFloat("WaitBetweenSpawns", wavespawn.WaitBetweenSpawns);
-								} else {
-									mod_data_expanded.GoBack();
-								}
-
 								if(!mod_data_expanded.JumpToKey("WaitBeforeStarting")) {
 									mod_data_expanded.SetFloat("WaitBeforeStarting", wavespawn.WaitBeforeStarting);
 								} else {
@@ -1080,10 +1074,5 @@ public Action wavespawn_parse(CWave wave, CWaveSpawnPopulator populator, KeyValu
 
 	delete objs;
 
-	return Plugin_Continue;
-}
-
-public Action spawner_parse(IPopulator populator, IPopulationSpawner spawner, KeyValues data, bool &result)
-{
 	return Plugin_Continue;
 }

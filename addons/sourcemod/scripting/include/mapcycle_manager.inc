@@ -11,6 +11,10 @@ enum mcm_changed_from
 
 forward void mcm_changed(ArrayList maps, mcm_changed_from from);
 
+native void mcm_read_maps(const char[] config, ArrayList maps);
+
+native void mcm_set_config(const char[] config);
+
 public SharedPlugin __pl_mapcycle_manager =
 {
 	name = "mapcycle_manager",

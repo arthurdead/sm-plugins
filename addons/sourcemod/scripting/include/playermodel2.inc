@@ -3,11 +3,16 @@
 #endif
 #define __playermodel2_inc
 
+#include <tf2>
+
 forward void pm2_model_changed(int client);
 
 native bool pm2_is_thirdperson(int client);
 
 native void pm2_get_model(int client, char[] model, int len);
+
+native void pm2_set_player_loser(int client, bool value);
+native void pm2_set_player_animation(int client, const char[] model, TFClassType class = TFClass_Unknown);
 
 public SharedPlugin __pl_playermodel2 =
 {

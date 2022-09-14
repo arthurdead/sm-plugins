@@ -62,17 +62,17 @@ enum
 	TAUNT_SPECIAL
 };
 
-native void animstate_is_allowed_to_taunt(int client);
-native void animstate_cancel_taunt(int client);
-native void animstate_set_taunt_state(int client, float duration, int index, int concept);
-native bool animstate_play_taunt_from_item(int client, int itemdef);
+native void is_allowed_to_taunt(int client);
+native void cancel_taunt(int client);
+native void set_taunt_state(int client, float duration, int index, int concept);
+native bool play_taunt_from_item(int client, int itemdef);
 
-native void animstate_do_event(int client, PlayerAnimEvent_t event, int data);
-native bool animstate_play_sequence(int client, const char[] name);
-native bool animstate_play_gesture(int client, const char[] name);
+native void do_animation_event(int client, PlayerAnimEvent_t event, any data);
+native bool player_play_sequence(int client, const char[] name);
+native bool player_play_gesture(int client, const char[] name);
 
-native bool animstate_play_taunt_activity(int client, const char[] name, bool long = false);
-native bool animstate_play_taunt_activity_3_stage(int client, const char[] intro, const char[] idle, const char[] outro);
+native bool do_animation_taunt(int client, const char[] name, bool long = false);
+native bool do_animation_taunt_3_stage(int client, const char[] intro, const char[] idle, const char[] outro);
 
 public SharedPlugin __pl_animstate =
 {

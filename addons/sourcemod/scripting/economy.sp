@@ -2471,8 +2471,8 @@ static void on_player_open_inv(int client)
 {
 	playing_shop_music[client] = true;
 
-	if(animstate_is_allowed_to_taunt(client)) {
-		if(animstate_play_taunt_activity_3_stage(client, "ACT_MP_CYOA_PDA_INTRO","ACT_MP_CYOA_PDA_IDLE","ACT_MP_CYOA_PDA_OUTRO")) {
+	if(is_allowed_to_taunt(client)) {
+		if(do_animation_taunt_3_stage(client, "ACT_MP_CYOA_PDA_INTRO","ACT_MP_CYOA_PDA_IDLE","ACT_MP_CYOA_PDA_OUTRO")) {
 			player_taunt_stage[client] = 1;
 			SetEntProp(client, Prop_Send, "m_bViewingCYOAPDA", 1);
 		}
@@ -2493,7 +2493,7 @@ static void on_player_close_inv(int client, bool open_shop = false)
 		if(player_taunt_stage[client] == 1) {
 			player_taunt_stage[client] = 0;
 			SetEntProp(client, Prop_Send, "m_bViewingCYOAPDA", 0);
-			animstate_cancel_taunt(client);
+			cancel_taunt(client);
 		}
 	}
 }

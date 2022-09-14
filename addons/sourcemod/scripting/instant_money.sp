@@ -42,7 +42,12 @@ static Action pop_entity_killed(int entity, CTakeDamageInfo info)
 {
 	int attacker = info.m_hAttacker;
 	if(attacker < 1 || attacker > MaxClients) {
-		return Plugin_Continue;
+		int inflictor = info.m_hInflictor;
+		if(inflictor >= 1 && inflictor <= MaxClients) {
+			attacker = inflictor;
+		} else {
+			return Plugin_Continue;
+		}
 	}
 
 	int userid = GetClientUserId(attacker);

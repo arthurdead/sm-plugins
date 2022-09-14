@@ -205,6 +205,12 @@ enum struct WeaponClassCache
 	int bitmask;
 }
 
+enum struct BaiscModelInfo
+{
+	char model[PLATFORM_MAX_PATH];
+	TFClassType class;
+}
+
 enum struct ThirdpartyModelInfo
 {
 	char model[PLATFORM_MAX_PATH];
@@ -240,6 +246,7 @@ enum struct TauntVarsInfo
 static TauntVarsInfo player_taunt_vars[TF2_MAXPLAYERS+1];
 
 static TFClassType player_weapon_animation_class[TF2_MAXPLAYERS+1];
+static BaiscModelInfo player_custom_animation[TF2_MAXPLAYERS+1];
 
 static ThirdpartyModelInfo player_thirdparty_model[TF2_MAXPLAYERS+1];
 static ThirdpartyModelInfo player_custom_taunt_model[TF2_MAXPLAYERS+1];
@@ -261,7 +268,7 @@ static int player_model_entity[TF2_MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 static int player_viewmodel_entities[TF2_MAXPLAYERS+1][2];
 
 static bool player_tpose[TF2_MAXPLAYERS+1];
-static bool player_loser[TF2_MAXPLAYERS+1];
+static bool player_loser[TF2_MAXPLAYERS+1][2];
 static bool player_swim[TF2_MAXPLAYERS+1];
 
 static bool tf_taunt_first_person[TF2_MAXPLAYERS+1];
@@ -356,7 +363,7 @@ static void get_mvm_model_for_class(TFClassType class, char[] model, int length)
 static void get_model_for_class(TFClassType class, char[] model, int length, int for_client)
 {
 	bool mvm = (GetClientTeam(for_client) == 3 && GameRules_GetProp("m_bPlayingMannVsMachine"));
-	bool hwm = (sv_usehwmmodels.BoolValue || mp_usehwmmodels[for_client]);
+	bool hwm = false;//(sv_usehwmmodels.BoolValue || (mp_usehwmmodels[for_client] == 1));
 
 	switch(class)
 	{
@@ -499,7 +506,33 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	RegPluginLibrary("playermodel2");
 	CreateNative("pm2_get_model", native_pm2_get_model);
 	CreateNative("pm2_is_thirdperson", native_pm2_is_thirdperson);
+	CreateNative("pm2_set_player_loser", native_pm2_set_player_loser);
+	CreateNative("pm2_set_player_animation", native_pm2_set_player_animation);
 	return APLRes_Success;
+}
+
+static int native_pm2_set_player_animation(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	if(!IsNativeParamNullString(2)) {
+		int len;
+		GetNativeStringLength(2, len);
+		char[] path = new char[++len];
+		GetNativeString(2, path, len);
+
+		TFClassType class = GetNativeCell(3);
+
+		strcopy(player_custom_animation[client].model, PLATFORM_MAX_PATH, path);
+		player_custom_animation[client].class = class;
+	} else {
+		player_custom_animation[client].model[0] = '\0';
+		player_custom_animation[client].class = TFClass_Unknown;
+	}
+
+	handle_playermodel(client);
+
+	return 0;
 }
 
 static void unload_configs()
@@ -1064,7 +1097,7 @@ static TFClassType get_class(const char[] name)
 {
 #if defined clsobjhack_included
 	if(clsobj_hack_loaded) {
-		return GetClass(name);
+		return TF2_GetClassEx(name);
 	}
 #endif
 	return TF2_GetClass(name);
@@ -1605,23 +1638,55 @@ static Action sm_civilian(int client, int args)
 	return Plugin_Handled;
 }
 
+static int native_pm2_set_player_loser(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+	bool value = GetNativeCell(2) != 0;
+
+	if(value) {
+		if(!player_loser[client][0]) {
+			if(proxysend_loaded) {
+				proxysend_hook_cond(client, TFCond_Dazed, player_proxysend_loser_cond, false);
+				proxysend_hook(client, "m_iStunFlags", player_proxysend_stunflags, false);
+				proxysend_hook(client, "m_iStunIndex", player_proxysend_stunindex, false);
+			}
+		}
+	} else {
+		if(!player_loser[client][0]) {
+			if(proxysend_loaded) {
+				proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
+				proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+				proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+			}
+		}
+	}
+
+	player_loser[client][1] = value;
+
+	return 0;
+}
+
 static Action sm_loser(int client, int args)
 {
-	player_loser[client] = !player_loser[client];
+	player_loser[client][0] = !player_loser[client][0];
 
-	if(player_loser[client]) {
+	if(player_loser[client][0]) {
 		TF2_RemoveAllWeapons(client);
-		if(proxysend_loaded) {
-			proxysend_hook_cond(client, TFCond_Dazed, player_proxysend_loser_cond, false);
-			proxysend_hook(client, "m_iStunFlags", player_proxysend_stunflags, false);
-			proxysend_hook(client, "m_iStunIndex", player_proxysend_stunindex, false);
+		if(!player_loser[client][1]) {
+			if(proxysend_loaded) {
+				proxysend_hook_cond(client, TFCond_Dazed, player_proxysend_loser_cond, false);
+				proxysend_hook(client, "m_iStunFlags", player_proxysend_stunflags, false);
+				proxysend_hook(client, "m_iStunIndex", player_proxysend_stunindex, false);
+			}
 		}
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are now a loser! Congratulations.");
 	} else {
-		if(proxysend_loaded) {
-			proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
-			proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
-			proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+		if(!player_loser[client][1]) {
+			if(proxysend_loaded) {
+				proxysend_unhook_cond(client, TFCond_Dazed, player_proxysend_loser_cond);
+				proxysend_unhook(client, "m_iStunFlags", player_proxysend_stunflags);
+				proxysend_unhook(client, "m_iStunIndex", player_proxysend_stunindex);
+			}
 		}
 		CReplyToCommand(client, PM2_CHAT_PREFIX ... "You are no longer a loser! Congratulations.");
 	}
@@ -1661,12 +1726,18 @@ static MRESReturn CTFPlayerClassShared_SetCustomModel_detour(Address pThis, DHoo
 		return MRES_Ignored;
 	}
 
-	Address player_addr = view_as<Address>(view_as<int>(pThis) - CTFPlayer_m_PlayerClass_offset);
-	int client = GetEntityFromAddress(player_addr);
-
 	char model[PLATFORM_MAX_PATH];
 	if(!hParams.IsNull(1)) {
 		hParams.GetString(1, model, PLATFORM_MAX_PATH);
+	}
+
+	Address player_addr = view_as<Address>(view_as<int>(pThis) - CTFPlayer_m_PlayerClass_offset);
+	int client = GetEntityFromAddress(player_addr);
+
+	bool mvm = (GetClientTeam(client) == 3 && GameRules_GetProp("m_bPlayingMannVsMachine"));
+
+	if(mvm && (model[0] == '\0' || StrContains(model, "models/bots/") == 0)) {
+		return MRES_Ignored;
 	}
 
 	if(model[0] == '\0') {
@@ -3101,7 +3172,8 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 			SetEntProp(client, Prop_Send, "m_bDrawViewmodel", 1);
 		}
 		player_tpose[client] = false;
-		player_loser[client] = false;
+		player_loser[client][0] = false;
+		player_loser[client][1] = false;
 		player_swim[client] = false;
 
 		remove_playermodel(client);
@@ -3806,7 +3878,7 @@ static int get_or_create_player_viewmodel_entity(int client, int which)
 		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
 		TF2Util_SetWearableAlwaysValid(entity, true);
 		SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable_vm");
-		SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
+		SetEntityOwner(entity, client);
 		SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
 		player_viewmodel_entities[client][which] = EntIndexToEntRef(entity);
 	}
@@ -3857,7 +3929,7 @@ static TFClassType get_player_class_rep(int client)
 {
 #if defined clsobjhack_included
 	if(clsobj_hack_loaded) {
-		return GetPlayerClassRepresentative(client);
+		return TF2_GetPlayerClassEx(client);
 	}
 #endif
 	return TF2_GetPlayerClass(client);
@@ -3869,7 +3941,7 @@ static void get_player_classes(int client, TFClassType &real, TFClassType &rep)
 
 #if defined clsobjhack_included
 	if(clsobj_hack_loaded) {
-		rep = GetPlayerClassRepresentative(client);
+		rep = TF2_GetPlayerClassEx(client);
 	} else {
 #endif
 		rep = real;
@@ -3880,7 +3952,7 @@ static void get_player_classes(int client, TFClassType &real, TFClassType &rep)
 
 static void handle_viewmodel(int client, int weapon)
 {
-	if(weapon == -1) {
+	if(IsFakeClient(client) || weapon == -1 || !is_valid_weapon(weapon)) {
 		delete_player_viewmodel_entities(client);
 		return;
 	}
@@ -4025,8 +4097,33 @@ static void handle_viewmodel(int client, int weapon)
 	}
 }
 
+static bool is_valid_weapon(int weapon)
+{
+	int m_iItemDefinitionIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
+
+	bool valid = true;
+
+	char bool_str[2];
+
+	if(TF2Econ_GetItemDefinitionString(m_iItemDefinitionIndex, "act_as_wearable", bool_str, sizeof(bool_str), "0") && bool_str[0] == '1') {
+		valid = false;
+	}
+
+	if(TF2Econ_GetItemDefinitionString(m_iItemDefinitionIndex, "attach_to_hands", bool_str, sizeof(bool_str), "0") && bool_str[0] == '0') {
+		valid = false;
+	}
+
+	return valid;
+}
+
 static void handle_weapon_switch(int client, int weapon, bool do_playermodel)
 {
+	if(weapon != -1) {
+		if(!is_valid_weapon(weapon)) {
+			return;
+		}
+	}
+
 	TFClassType weapon_class = TFClass_Unknown;
 	if(weapon != -1) {
 		TFClassType real_player_class = TF2_GetPlayerClass(client);
@@ -4137,7 +4234,7 @@ static Action player_proxysend_loser_cond(int entity, const char[] prop, int &va
 	PrintToServer(PM2_CON_PREFIX ... "player_proxysend_loser_cond(%i, %s, %i, %i, %i)", entity, prop, value, element, client);
 #endif
 	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
-	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
+	if((weapon == -1 || (player_loser[entity][0] || player_loser[entity][1])) && !player_tpose[entity]) {
 		value |= get_bit_for_cond(TFCond_Dazed);
 		return Plugin_Changed;
 	}
@@ -4165,7 +4262,7 @@ static Action player_proxysend_swim_cond(int entity, const char[] prop, int &val
 static Action player_proxysend_stunflags(int entity, const char[] prop, int &value, int element, int client)
 {
 	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
-	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
+	if((weapon == -1 || (player_loser[entity][0] || player_loser[entity][1])) && !player_tpose[entity]) {
 		value |= (TF_STUNFLAG_NOSOUNDOREFFECT|TF_STUNFLAG_THIRDPERSON);
 		return Plugin_Changed;
 	}
@@ -4175,7 +4272,7 @@ static Action player_proxysend_stunflags(int entity, const char[] prop, int &val
 static Action player_proxysend_stunindex(int entity, const char[] prop, int &value, int element, int client)
 {
 	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
-	if((weapon == -1 || player_loser[entity]) && !player_tpose[entity]) {
+	if((weapon == -1 || (player_loser[entity][0] || player_loser[entity][1])) && !player_tpose[entity]) {
 		value = 247;
 		return Plugin_Changed;
 	}
@@ -4517,7 +4614,7 @@ static int get_or_create_player_model_entity(int client)
 	SetVariantString("!activator");
 	AcceptEntityInput(entity, "SetParent", client);
 
-	SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
+	SetEntityOwner(entity, client);
 
 	SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
 	SDKHook(client, SDKHook_PostThinkPost, player_think_model);
@@ -4579,7 +4676,8 @@ public void OnClientDisconnect(int client)
 	player_taunt_vars[client].clear();
 
 	player_tpose[client] = false;
-	player_loser[client] = false;
+	player_loser[client][0] = false;
+	player_loser[client][1] = false;
 	player_swim[client] = false;
 
 	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
@@ -4589,6 +4687,8 @@ public void OnClientDisconnect(int client)
 	}
 
 	player_weapon_animation_class[client] = TFClass_Unknown;
+	player_custom_animation[client].model[0] = '\0';
+	player_custom_animation[client].class = TFClass_Unknown;
 
 	if(IsValidEntity(client)) {
 		delete_player_model_entity(client);
@@ -4659,10 +4759,8 @@ static void post_inventory_application_frame(int userid)
 		}
 	}
 
-	handle_playermodel(client);
-
 	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-	handle_viewmodel(client, weapon);
+	handle_weapon_switch(client, weapon, true);
 }
 
 static void player_changeclass(Event event, const char[] name, bool dontBroadcast)
@@ -4687,7 +4785,8 @@ static void post_inventory_application(Event event, const char[] name, bool dont
 		SetEntProp(client, Prop_Send, "m_bDrawViewmodel", 1);
 	}
 	player_tpose[client] = false;
-	player_loser[client] = false;
+	player_loser[client][0] = false;
+	player_loser[client][1] = false;
 
 	RequestFrame(post_inventory_application_frame, userid);
 }
@@ -4880,7 +4979,7 @@ static bool is_player_in_thirdperson(int client)
 	return (TF2_IsPlayerInCondition(client, TFCond_Taunting) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenThriller) ||
 			TF2_IsPlayerInCondition(client, TFCond_Bonked) ||
-			!!(GetEntProp(client, Prop_Send, "m_iStunFlags") & TF_STUNFLAG_THIRDPERSON) ||
+			(!!(GetEntProp(client, Prop_Send, "m_iStunFlags") & TF_STUNFLAG_THIRDPERSON) || (player_loser[client][0] || player_loser[client][1])) ||
 			GetEntProp(client, Prop_Send, "m_bIsReadyToHighFive") > 0 ||
 			GetEntProp(client, Prop_Send, "m_nForceTauntCam") > 0 ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenKart) ||
@@ -4889,7 +4988,7 @@ static bool is_player_in_thirdperson(int client)
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenTiny) ||
 			TF2_IsPlayerInCondition(client, TFCond_HalloweenGhostMode) ||
 			TF2_IsPlayerInCondition(client, TFCond_MeleeOnly) ||
-			TF2_IsPlayerInCondition(client, TFCond_SwimmingCurse) ||
+			(TF2_IsPlayerInCondition(client, TFCond_SwimmingCurse) || player_swim[client]) ||
 			tf_always_loser.BoolValue);
 }
 
@@ -4984,6 +5083,9 @@ static void handle_playermodel(int client)
 			get_model_for_class(player_taunt_vars[client].class, animation_model, PLATFORM_MAX_PATH, client);
 			anim_class = player_taunt_vars[client].class;
 		}
+	} else if(player_custom_animation[client].model[0] != '\0') {
+		strcopy(animation_model, PLATFORM_MAX_PATH, player_custom_animation[client].model);
+		anim_class = player_custom_animation[client].class;
 	} else if(player_weapon_animation_class[client] != TFClass_Unknown &&
 				player_weapon_animation_class[client] != real_player_class) {
 		get_model_for_class(player_weapon_animation_class[client], animation_model, PLATFORM_MAX_PATH, client);

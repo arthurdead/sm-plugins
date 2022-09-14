@@ -5,6 +5,8 @@
 #include <animstate>
 #include <animhelpers>
 
+#define DEBUG
+
 #define TF2_MAXPLAYERS 33
 
 #define INVALID_ITEM_ID_LOW 4294967295
@@ -145,7 +147,20 @@ public void OnPluginStart()
 	TF2Items_SetQuality(dummy_item_view, 0);
 	TF2Items_SetLevel(dummy_item_view, 0);
 	TF2Items_SetNumAttributes(dummy_item_view, 0);
+
+#if defined DEBUG
+	RegAdminCmd("sm_testanim", sm_testanim, ADMFLAG_ROOT);
+#endif
 }
+
+#if defined DEBUG
+static Action sm_testanim(int client, int args)
+{
+	do_animation_taunt_3_stage(client, "ACT_MP_CYOA_PDA_INTRO","ACT_MP_CYOA_PDA_IDLE","ACT_MP_CYOA_PDA_OUTRO");
+
+	return Plugin_Handled;
+}
+#endif
 
 static int native_animstate_play_sequence(Handle plugin, int params)
 {
@@ -320,12 +335,9 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	if(condition == TFCond_Taunting) {
 		OnClientDisconnect(client);
-		animstate_do_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, -1);
+		do_animation_event(client, PLAYERANIMEVENT_SPAWN, 0);
 	}
 }
-
-#define IDLE_ANIM_DURATION_OFF 0.1
-#define INTRO_ANIM_DURATION_OFF 0.1
 
 static Action timer_idle_anim(Handle plugin, DataPack data)
 {
@@ -337,9 +349,34 @@ static Action timer_idle_anim(Handle plugin, DataPack data)
 	}
 
 	int sequence = data.ReadCell();
-	animstate_do_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, sequence);
+	Activity activity = data.ReadCell();
+	if(activity != ACT_INVALID) {
+		sequence = AnimatingSelectWeightedSequence(client, activity);
+	}
+
+	do_animation_event(client, PLAYERANIMEVENT_SPAWN, 0);
+	if(activity != ACT_INVALID) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_GESTURE, activity);
+	} else if(sequence != -1) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, sequence);
+	}
 
 	return Plugin_Continue;
+}
+
+static void anim_name_to_anim(int entity, const char[] anim, int &seq, Activity &act)
+{
+	seq = -1;
+	act = AnimatingLookupActivity(entity, anim);
+
+	if(act == ACT_INVALID) {
+		seq = AnimatingLookupSequence(entity, anim);
+		if(seq != -1) {
+			act = AnimatingGetSequenceActivity(entity, seq);
+		}
+	} else {
+		seq = AnimatingSelectWeightedSequence(entity, act);
+	}
 }
 
 static int native_animstate_play_taunt_activity(Handle plugin, int params)
@@ -353,23 +390,24 @@ static int native_animstate_play_taunt_activity(Handle plugin, int params)
 
 	bool long = GetNativeCell(3);
 
-	Activity activity = view_as<BaseAnimating>(client).LookupActivity(name);
-	if(activity == ACT_INVALID) {
+	int sequence = -1;
+	Activity activity = ACT_INVALID;
+	anim_name_to_anim(client, name, sequence, activity);
+
+	if(sequence == -1 && activity == ACT_INVALID) {
 		return 0;
 	}
 
-	int sequence = view_as<BaseAnimating>(client).SelectWeightedSequence(activity);
-	if(sequence == -1) {
-		return 0;
-	}
+	float duration = AnimatingSequenceDuration(client, sequence);
 
-	float duration = view_as<BaseAnimating>(client).SequenceDuration(sequence);
-	if(duration == 0.0) {
-		return 0;
-	}
+	set_taunt_state(client, long ? TFCondDuration_Infinite : duration, long ? TAUNT_LONG : TAUNT_SPECIAL, -1);
 
-	animstate_set_taunt_state(client, long ? TFCondDuration_Infinite : duration, long ? TAUNT_LONG : TAUNT_SPECIAL, -1);
-	animstate_do_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, sequence);
+	do_animation_event(client, PLAYERANIMEVENT_SPAWN, 0);
+	if(activity != ACT_INVALID) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_GESTURE, activity);
+	} else if(sequence != -1) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, sequence);
+	}
 
 	if(long) {
 		if(player_anim_idle_timer[client] != null) {
@@ -377,9 +415,10 @@ static int native_animstate_play_taunt_activity(Handle plugin, int params)
 		}
 
 		DataPack data;
-		player_anim_idle_timer[client] = CreateDataTimer(duration-IDLE_ANIM_DURATION_OFF, timer_idle_anim, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+		player_anim_idle_timer[client] = CreateDataTimer(duration, timer_idle_anim, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 		data.WriteCell(GetClientUserId(client));
 		data.WriteCell(sequence);
+		data.WriteCell(activity);
 	}
 
 	return 1;
@@ -395,17 +434,28 @@ static Action timer_intro_anim(Handle timer, DataPack data)
 	}
 
 	int sequence = data.ReadCell();
+	Activity activity = data.ReadCell();
 	float duration = data.ReadFloat();
+	if(activity != ACT_INVALID) {
+		sequence = AnimatingSelectWeightedSequence(client, activity);
+		duration = AnimatingSequenceDuration(client, sequence);
+	}
 
-	animstate_do_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, sequence);
+	do_animation_event(client, PLAYERANIMEVENT_SPAWN, 0);
+	if(activity != ACT_INVALID) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_GESTURE, activity);
+	} else if(sequence != -1) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, sequence);
+	}
 
 	if(player_anim_idle_timer[client] != null) {
 		KillTimer(player_anim_idle_timer[client]);
 	}
 
-	player_anim_idle_timer[client] = CreateDataTimer(duration-IDLE_ANIM_DURATION_OFF, timer_idle_anim, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
+	player_anim_idle_timer[client] = CreateDataTimer(duration, timer_idle_anim, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
 	data.WriteCell(GetClientUserId(client));
 	data.WriteCell(sequence);
+	data.WriteCell(activity);
 
 	player_anim_intro_timer[client] = null;
 	return Plugin_Continue;
@@ -430,44 +480,48 @@ static int native_animstate_play_taunt_activity_3_stage(Handle plugin, int param
 	char[] outro = new char[++length];
 	GetNativeString(4, outro, length);
 
-	Activity intro_activity = view_as<BaseAnimating>(client).LookupActivity(intro);
-	Activity idle_activity = view_as<BaseAnimating>(client).LookupActivity(idle);
-	Activity outro_activity = view_as<BaseAnimating>(client).LookupActivity(outro);
-	if(intro_activity == ACT_INVALID ||
-		idle_activity == ACT_INVALID ||
-		outro_activity == ACT_INVALID) {
+	int intro_sequence = -1;
+	Activity intro_activity = ACT_INVALID;
+	anim_name_to_anim(client, intro, intro_sequence, intro_activity);
+	if(intro_sequence == -1 && intro_activity == ACT_INVALID) {
 		return 0;
 	}
 
-	int intro_sequence = view_as<BaseAnimating>(client).SelectWeightedSequence(intro_activity);
-	int idle_sequence = view_as<BaseAnimating>(client).SelectWeightedSequence(idle_activity);
-	int outro_sequence = view_as<BaseAnimating>(client).SelectWeightedSequence(outro_activity);
-	if(intro_sequence == -1 ||
-		idle_sequence == -1 ||
-		outro_sequence == -1) {
+	int idle_sequence = -1;
+	Activity idle_activity = ACT_INVALID;
+	anim_name_to_anim(client, idle, idle_sequence, idle_activity);
+	if(idle_sequence == -1 && idle_activity == ACT_INVALID) {
 		return 0;
 	}
 
-	float intro_duration = view_as<BaseAnimating>(client).SequenceDuration(intro_sequence);
-	float idle_duration = view_as<BaseAnimating>(client).SequenceDuration(idle_sequence);
-	float outro_duration = view_as<BaseAnimating>(client).SequenceDuration(outro_sequence);
-	if(intro_duration == 0.0 ||
-		idle_duration == 0.0 ||
-		outro_duration == 0.0) {
+	int outro_sequence = -1;
+	Activity outro_activity = ACT_INVALID;
+	anim_name_to_anim(client, outro, outro_sequence, outro_activity);
+	if(outro_sequence == -1 && outro_activity == ACT_INVALID) {
 		return 0;
 	}
 
-	animstate_set_taunt_state(client, TFCondDuration_Infinite, TAUNT_LONG, -1);
-	animstate_do_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, intro_sequence);
+	set_taunt_state(client, TFCondDuration_Infinite, TAUNT_LONG, -1);
+
+	do_animation_event(client, PLAYERANIMEVENT_SPAWN, 0);
+	if(intro_activity != ACT_INVALID) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_GESTURE, intro_activity);
+	} else if(intro_sequence != -1) {
+		do_animation_event(client, PLAYERANIMEVENT_CUSTOM_SEQUENCE, intro_sequence);
+	}
+
+	float intro_duration = AnimatingSequenceDuration(client, intro_sequence);
+	float idle_duration = AnimatingSequenceDuration(client, idle_sequence);
 
 	if(player_anim_intro_timer[client] != null) {
 		KillTimer(player_anim_intro_timer[client]);
 	}
 
 	DataPack data;
-	player_anim_intro_timer[client] = CreateDataTimer(intro_duration-INTRO_ANIM_DURATION_OFF, timer_intro_anim, data, TIMER_FLAG_NO_MAPCHANGE);
+	player_anim_intro_timer[client] = CreateDataTimer(intro_duration, timer_intro_anim, data, TIMER_FLAG_NO_MAPCHANGE);
 	data.WriteCell(GetClientUserId(client));
 	data.WriteCell(idle_sequence);
+	data.WriteCell(idle_activity);
 	data.WriteFloat(idle_duration);
 
 	return 1;
@@ -476,14 +530,14 @@ static int native_animstate_play_taunt_activity_3_stage(Handle plugin, int param
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("animstate");
-	CreateNative("animstate_do_event", native_animstate_do_event);
-	CreateNative("animstate_play_sequence", native_animstate_play_sequence);
-	CreateNative("animstate_play_gesture", native_animstate_play_gesture);
-	CreateNative("animstate_set_taunt_state", native_animstate_set_taunt_state);
-	CreateNative("animstate_is_allowed_to_taunt", native_animstate_is_allowed_to_taunt);
-	CreateNative("animstate_cancel_taunt", native_animstate_cancel_taunt);
-	CreateNative("animstate_play_taunt_from_item", native_animstate_play_taunt_from_item);
-	CreateNative("animstate_play_taunt_activity", native_animstate_play_taunt_activity);
-	CreateNative("animstate_play_taunt_activity_3_stage", native_animstate_play_taunt_activity_3_stage);
+	CreateNative("do_animation_event", native_animstate_do_event);
+	CreateNative("player_play_sequence", native_animstate_play_sequence);
+	CreateNative("player_play_gesture", native_animstate_play_gesture);
+	CreateNative("set_taunt_state", native_animstate_set_taunt_state);
+	CreateNative("is_allowed_to_taunt", native_animstate_is_allowed_to_taunt);
+	CreateNative("cancel_taunt", native_animstate_cancel_taunt);
+	CreateNative("play_taunt_from_item", native_animstate_play_taunt_from_item);
+	CreateNative("do_animation_taunt", native_animstate_play_taunt_activity);
+	CreateNative("do_animation_taunt_3_stage", native_animstate_play_taunt_activity_3_stage);
 	return APLRes_Success;
 }

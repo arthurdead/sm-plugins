@@ -4,8 +4,11 @@
 #include <tf2items>
 #include <tf2utils>
 #include <bit>
-#include <economy>
 #include <playermodel2>
+
+#undef REQUIRE_PLUGIN
+#include <economy>
+#define REQUIRE_PLUGIN
 
 //#define DEBUG
 
@@ -36,6 +39,35 @@ static int modelprecache = INVALID_STRING_TABLE;
 
 static StringMap pos_map;
 
+static ConVar sv_backweapons;
+
+#if defined __economy_inc
+static bool economy_loaded;
+#endif
+
+static void sv_backweapons_changed(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	bool value = StringToInt(newValue) != 0;
+
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(!IsClientInGame(i) ||
+			!IsPlayerAlive(i) ||
+			GetClientTeam(i) < 2 ||
+			TF2_GetPlayerClass(i) == TFClass_Unknown) {
+			continue;
+		}
+
+		if(value) {
+			int weapon = GetEntPropEnt(i, Prop_Send, "m_hActiveWeapon");
+			player_weapon_switch(i, weapon);
+		} else {
+			if(!player_has_back_weapons[i]) {
+				delete_player_weapon_entities(i);
+			}
+		}
+	}
+}
+
 public void OnPluginStart()
 {
 	for(int i = 0; i < sizeof(player_wearable_weapons); ++i) {
@@ -43,6 +75,9 @@ public void OnPluginStart()
 			player_wearable_weapons[i][j] = INVALID_ENT_REFERENCE;
 		}
 	}
+
+	sv_backweapons = CreateConVar("sv_backweapons", "0");
+	sv_backweapons.AddChangeHook(sv_backweapons_changed);
 
 	HookEvent("player_death", player_death);
 
@@ -125,6 +160,14 @@ public void OnPluginStart()
 	}
 }
 
+public void OnAllPluginsLoaded()
+{
+#if defined __economy_inc
+	economy_loaded = LibraryExists("economy");
+#endif
+}
+
+#if defined __economy_inc
 static void misc_cat_registered(int idx)
 {
 	econ_get_or_register_item(idx, "Back Weapons", "", "back_weapons", 1200, null);
@@ -157,19 +200,26 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 		}
 	}
 }
+#endif
 
 public void OnLibraryAdded(const char[] name)
 {
+#if defined __economy_inc
 	if(StrEqual(name, "economy")) {
+		economy_loaded = true;
+
 		econ_register_item_class("back_weapons", true);
 	}
+#endif
 }
 
 public void OnLibraryRemoved(const char[] name)
 {
+#if defined __economy_inc
 	if(StrEqual(name, "economy")) {
-		
+		economy_loaded = false;
 	}
+#endif
 }
 
 static int get_player_weapon_entity(int client, int which)
@@ -218,7 +268,7 @@ static int get_or_create_player_weapon_entity(int client, int which)
 		TF2Util_SetWearableAlwaysValid(entity, true);
 		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
 		SetEntPropString(entity, Prop_Data, "m_iClassname", "weapon_wearable");
-		SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
+		SetEntityOwner(entity, client);
 		SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
 		player_wearable_weapons[client][which] = EntIndexToEntRef(entity);
 	}
@@ -234,6 +284,7 @@ public void OnClientDisconnect(int client)
 public void OnClientPutInServer(int client)
 {
 	SDKHook(client, SDKHook_WeaponSwitchPost, player_weapon_switch);
+	SDKHook(client, SDKHook_WeaponEquipPost, player_weapon_equip);
 }
 
 public void OnMapStart()
@@ -376,6 +427,11 @@ public void pm2_model_changed(int client)
 	player_weapon_switch(client, weapon);
 }
 
+static void player_weapon_equip(int client, int weapon)
+{
+	player_weapon_switch(client, weapon);
+}
+
 static void player_weapon_switch(int client, int weapon)
 {
 #if defined DEBUG
@@ -388,7 +444,8 @@ static void player_weapon_switch(int client, int weapon)
 #endif
 
 #if !defined DEBUG
-	if(!player_has_back_weapons[client]) {
+	bool has = (player_has_back_weapons[client] || sv_backweapons.BoolValue);
+	if(!has) {
 		delete_player_weapon_entities(client);
 		return;
 	}

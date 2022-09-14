@@ -30,8 +30,8 @@
 #include <morecolors>
 
 #undef REQUIRE_EXTENSIONS
-#tryinclude <system2>
-#tryinclude <bzip2>
+#include <system2>
+#include <bzip2>
 #define REQUIRE_EXTENSIONS
 
 /* PREPROCESSOR ***************************************************************/
@@ -222,6 +222,7 @@ bool bSystem2 = false;
 bool bBZip2 = false;
 
 bool mapHasCustomManifest = false;
+bool mapHasNoManifest = true;
 
 	
 /* PLUGIN *********************************************************************/
@@ -897,6 +898,7 @@ public void OnMapStart()
 public void OnMapEnd()
 {
 	mapHasCustomManifest = false;
+	mapHasNoManifest = true;
 
 	if (cvManifests.BoolValue) {
 		char nextmap[PLATFORM_MAX_PATH];
@@ -1419,7 +1421,7 @@ void ReadThemeAttributes(KeyValues kv)
 		// Read Particle Name
 		kv.GetString("name", mapParticle, sizeof(mapParticle), mapParticle);
 
-		if(cvParticlesReplaceCustom.BoolValue || !cvManifests.BoolValue || mapHasCustomManifest) {
+		if(cvParticlesReplaceCustom.BoolValue || !cvManifests.BoolValue || mapHasCustomManifest || mapHasNoManifest) {
 			if(StrContains(mapParticle, "env_themes_rain") != -1) {
 				strcopy(mapParticle, sizeof(mapParticle), "env_rain_001");
 			} else if(StrContains(mapParticle, "env_themes_snow") != -1) {
@@ -1630,6 +1632,7 @@ void OnCopyMapTemplate(bool success, const char[] from, const char[] to)
 {
 	if(success) {
 		AddFileToDownloadsTable(to);
+		mapHasNoManifest = false;
 
 		if(cvAutoBZ2.BoolValue) {
 			char bz2[PLATFORM_MAX_PATH];
@@ -1687,6 +1690,8 @@ void HandleMapParticleManifest(const char[] mapname, bool current)
 		}
 	} else {
 		if(current) {
+			mapHasNoManifest = false;
+
 			mapHasCustomManifest = true;
 
 			File file = OpenFile(file_path, "r", true);
@@ -2842,6 +2847,7 @@ void LogTheme()
 	LogMessage("Stageless: %d", mapStageless);
 	LogMessage("Cold: %d", mapCold);
 	LogMessage("Has Custom Manifest: %d", mapHasCustomManifest);
+	LogMessage("Has No Manifest: %d", mapHasNoManifest);
 	#endif
 }
 
