@@ -1571,9 +1571,6 @@ public void OnPluginStart()
 
 		on_player_spawned(i);
 	}
-
-	proxysend_loaded = LibraryExists("proxysend");
-	clsobj_hack_loaded = LibraryExists("clsobj_hack");
 }
 
 static bool is_player_state_valid(int client)
@@ -1803,6 +1800,8 @@ public void OnAllPluginsLoaded()
 {
 	tauntmanager_loaded = LibraryExists("tauntmanager");
 	economy_loaded = LibraryExists("economy");
+	proxysend_loaded = LibraryExists("proxysend");
+	clsobj_hack_loaded = LibraryExists("clsobj_hack");
 
 	randomizer_fix_taunt = FindConVar("randomizer_fix_taunt");
 	if(randomizer_fix_taunt != null) {

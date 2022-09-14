@@ -235,19 +235,10 @@ public Plugin myinfo =
 	url = PLUGIN_URL
 };
 
-public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
+public void OnAllPluginsLoaded()
 {
-	if(LibraryExists("system2") ||
-		GetExtensionFileStatus("system2.ext") == 1) {
-		bSystem2 = true;
-	}
-
-	if(LibraryExists("bzip2") ||
-		GetExtensionFileStatus("smbz2.ext") == 1) {
-		bBZip2 = true;
-	}
-
-	return APLRes_Success;
+	bSystem2 = LibraryExists("system2");
+	bBZip2 = LibraryExists("bzip2");
 }
 
 public void OnLibraryAdded(const char[] name)

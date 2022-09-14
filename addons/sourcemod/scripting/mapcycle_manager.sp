@@ -2,6 +2,7 @@
 #include <tf2>
 #include <mapcycle_manager>
 #include <regex>
+#include <system2>
 
 //#define DEBUG
 
@@ -88,14 +89,19 @@ static holiday_flag get_current_holidays()
 
 #define HOLIDAY_BIT(%1) view_as<holiday_flag>(1 << view_as<int>(%1))
 
+#define CONFIG_NAME_MAX 32
+#define BUILDER_NAME_MAX 32
+
 enum struct BuilderInfo
 {
-	char file_path[PLATFORM_MAX_PATH];
+	char name[BUILDER_NAME_MAX];
 	ArrayList whitelist_regexes;
 	ArrayList blacklist_regexes;
 	File file;
+	int num_workshop_maps;
 }
 
+//TODO!!!!!!! support multiple paths for the same holiday
 enum struct ConfigMapInfo
 {
 	ArrayList paths;
@@ -110,15 +116,15 @@ enum struct ConfigMapInfo
 	bool no_nominate;
 }
 
-static char current_config_name[PLATFORM_MAX_PATH];
+static char current_config_name[CONFIG_NAME_MAX];
 
 static bool configs_executed;
+
+static ConVar mcm_api_key;
 
 static ArrayList config_maps;
 static StringMap config_map_idx_map;
 static int config_maps_raw_begin = -1;
-
-static ArrayList builders;
 
 static ArrayList config_maps_with_playerchange;
 static ArrayList config_maps_without_playerchange;
@@ -186,7 +192,7 @@ static int native_mcm_set_config(Handle plugin, int params)
 				reload_maps();
 			}
 		} else {
-			strcopy(current_config_name, sizeof(current_config_name), name);
+			strcopy(current_config_name, CONFIG_NAME_MAX, name);
 			if(configs_executed) {
 				reload_maps();
 			}
@@ -196,14 +202,247 @@ static int native_mcm_set_config(Handle plugin, int params)
 	return 0;
 }
 
+#define APIKEY_MAX 64
+#define WORKSHOP_ID_MAX 15
+#define WORKSHOP_CMD_MAX (22 + WORKSHOP_ID_MAX)
+
+static ArrayList builders;
+
+enum struct WorkshopRequestInfo
+{
+	char builder_name[BUILDER_NAME_MAX];
+	bool only_download;
+}
+
+static int num_workshop_requests;
+static int num_workshop_metadatas;
+static ArrayList workshop_commands;
+static ArrayList workshop_request_data;
+
+static void get_details(bool success, const char[] error, System2HTTPRequest request, System2HTTPResponse response, HTTPRequestMethod method)
+{
+	BuilderInfo info;
+
+	WorkshopRequestInfo req_info;
+	int data_idx = request.Any;
+	workshop_request_data.GetArray(data_idx, req_info, sizeof(WorkshopRequestInfo));
+
+	int builders_len = builders.Length;
+
+	bool found_builder = false;
+
+	for(int i = 0; i < builders_len; ++i) {
+		builders.GetArray(i, info, sizeof(BuilderInfo));
+
+		if(StrEqual(req_info.builder_name, info.name)) {
+			found_builder = true;
+			break;
+		}
+	}
+
+	if(success && found_builder && !req_info.only_download) {
+		int len = response.ContentLength;
+		char[] text = new char[++len];
+		response.GetContent(text, len);
+
+		KeyValues kv = new KeyValues("response");
+
+		if(kv.ImportFromString(text, "response")) {
+			if(kv.JumpToKey("publishedfiledetails") && kv.GotoFirstSubKey()) {
+				char filename[PLATFORM_MAX_PATH];
+				kv.GetString("metadata", filename, PLATFORM_MAX_PATH);
+
+				int bsp = StrContains(filename, ".bsp");
+				if(bsp != -1 && (strlen(filename)-bsp) == 4) {
+					filename[bsp] = '\0';
+
+					bool found = false;
+
+					int rex_len = info.blacklist_regexes.Length;
+					for(int j = 0; j < rex_len; ++j) {
+						Regex rex = info.blacklist_regexes.Get(j);
+						if(rex.Match(filename) > 0) {
+							found = true;
+						}
+					}
+
+					if(!found) {
+						char workshop_id[WORKSHOP_ID_MAX];
+						kv.GetString("publishedfileid", workshop_id, WORKSHOP_ID_MAX);
+						if(workshop_id[0] != '\0') {
+						#if 0
+							Format(filename, PLATFORM_MAX_PATH, "workshop/%s.ugc%s", filename, workshop_id);
+						#else
+							Format(filename, PLATFORM_MAX_PATH, "workshop/%s", workshop_id);
+						#endif
+						}
+						info.file.WriteString(filename, false);
+						info.file.WriteInt8('\n');
+					}
+				}
+			}
+		}
+
+		delete kv;
+	}
+
+	if(--num_workshop_metadatas == 0) {
+		for(int i = 0; i < builders_len; ++i) {
+			builders.GetArray(i, info, sizeof(BuilderInfo));
+
+			delete info.file;
+			delete info.blacklist_regexes;
+			delete info.whitelist_regexes;
+		}
+
+		delete builders;
+
+		delete workshop_request_data;
+	}
+}
+
+static void collection_details(bool success, const char[] error, System2HTTPRequest request, System2HTTPResponse response, HTTPRequestMethod method)
+{
+	char cmd_line[WORKSHOP_CMD_MAX];
+
+	if(success) {
+		int len = response.ContentLength;
+		char[] text = new char[++len];
+		response.GetContent(text, len);
+
+		KeyValues kv = new KeyValues("response");
+		if(kv.ImportFromString(text, "response")) {
+			if(kv.JumpToKey("collectiondetails") && kv.GotoFirstSubKey()) {
+				int result = kv.GetNum("result");
+
+				char workshop_id[WORKSHOP_ID_MAX];
+
+				WorkshopRequestInfo req_info;
+				int data_idx = request.Any;
+				workshop_request_data.GetArray(data_idx, req_info, sizeof(WorkshopRequestInfo));
+
+				#define URL_FORMAT \
+					"https://api.steampowered.com/IPublishedFileService/GetDetails/v1/?format=vdf" ... \
+					"&key=%s" ... \
+					"&publishedfileids[0]=%s" ... \
+					"&includemetadata=true" ... \
+					"&appid=440" ... \
+					"&includetags=false" ... \
+					"&includeadditionalpreviews=false" ... \
+					"&includechildren=false" ... \
+					"&includekvtags=false" ... \
+					"&includevotes=false" ... \
+					"&short_description=true" ... \
+					"&includeforsaledata=false" ... \
+					"&return_playtime_stats=0" ... \
+					"&strip_description_bbcode=true" ... \
+					"&includereactions=false"
+
+				char api_key[APIKEY_MAX];
+				mcm_api_key.GetString(api_key, APIKEY_MAX);
+
+				switch(result) {
+					case 1: {
+						if(kv.JumpToKey("children")) {
+							if(kv.GotoFirstSubKey()) {
+								do {
+									int filetype = kv.GetNum("filetype");
+									if(filetype != 0) {
+										continue;
+									}
+
+									kv.GetString("publishedfileid", workshop_id, WORKSHOP_ID_MAX);
+									strcopy(cmd_line, WORKSHOP_CMD_MAX, "tf_workshop_map_sync ");
+									StrCat(cmd_line, WORKSHOP_CMD_MAX, workshop_id);
+									workshop_commands.PushString(cmd_line);
+
+									if(!req_info.only_download && api_key[0] != '\0') {
+										//TODO!!!!!!!!!!!!!!! only do a single request
+										System2HTTPRequest post = new System2HTTPRequest(get_details, URL_FORMAT, api_key, workshop_id);
+										post.Any = data_idx;
+										post.GET();
+										++num_workshop_metadatas;
+									}
+								} while(kv.GotoNextKey());
+								kv.GoBack();
+							}
+							kv.GoBack();
+						}
+					}
+					case 9: {
+						kv.GetString("publishedfileid", workshop_id, WORKSHOP_ID_MAX);
+						strcopy(cmd_line, WORKSHOP_CMD_MAX, "tf_workshop_map_sync ");
+						StrCat(cmd_line, WORKSHOP_CMD_MAX, workshop_id);
+						workshop_commands.PushString(cmd_line);
+
+						if(!req_info.only_download && api_key[0] != '\0') {
+							//TODO!!!!!!!!!!!!!!! only do a single request
+							System2HTTPRequest post = new System2HTTPRequest(get_details, URL_FORMAT, api_key, workshop_id);
+							post.Any = data_idx;
+							post.GET();
+							++num_workshop_metadatas;
+						}
+					}
+				}
+			}
+		}
+
+		delete kv;
+	}
+
+	if(--num_workshop_requests == 0) {
+		int len = workshop_commands.Length;
+		for(int i = 0; i < len; ++i) {
+			workshop_commands.GetString(i, cmd_line, WORKSHOP_CMD_MAX);
+			InsertServerCommand("%s", cmd_line);
+		}
+		delete workshop_commands;
+		ServerExecute();
+
+		if(num_workshop_metadatas == 0) {
+			int builders_len = builders.Length;
+
+			BuilderInfo info;
+
+			for(int i = 0; i < builders_len; ++i) {
+				builders.GetArray(i, info, sizeof(BuilderInfo));
+
+				delete info.file;
+				delete info.blacklist_regexes;
+				delete info.whitelist_regexes;
+			}
+
+			delete builders;
+
+			delete workshop_request_data;
+		}
+	}
+}
+
 static void load_builders()
 {
+	if(num_workshop_requests != 0 ||
+		num_workshop_metadatas != 0 ||
+		workshop_commands != null ||
+		workshop_request_data != null ||
+		builders != null) {
+		SetFailState("should never happen");
+	}
+
+	builders = new ArrayList(sizeof(BuilderInfo));
+	workshop_request_data = new ArrayList(sizeof(WorkshopRequestInfo));
+	num_workshop_requests = 0;
+	num_workshop_metadatas = 0;
+	workshop_commands = new ArrayList(ByteCountToCells(WORKSHOP_CMD_MAX));
+
 	char builders_dir_path[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, builders_dir_path, PLATFORM_MAX_PATH, "configs/mcm/builders");
 
 	BuilderInfo info;
 
 	char filename[PLATFORM_MAX_PATH];
+
+	char file_path[PLATFORM_MAX_PATH];
 
 	DirectoryListing builders_dir = OpenDirectory(builders_dir_path);
 	if(builders_dir) {
@@ -224,9 +463,12 @@ static void load_builders()
 				continue;
 			}
 
-			Format(info.file_path, PLATFORM_MAX_PATH, "%s/%s", builders_dir_path, filename);
+			strcopy(info.name, BUILDER_NAME_MAX, filename);
+			info.name[txt] = '\0';
 
-			File mapcycle = OpenFile(info.file_path, "r", false);
+			Format(file_path, PLATFORM_MAX_PATH, "%s/%s", builders_dir_path, filename);
+
+			File mapcycle = OpenFile(file_path, "r", false);
 			if(mapcycle) {
 				info.blacklist_regexes = new ArrayList();
 				info.whitelist_regexes = new ArrayList();
@@ -238,36 +480,55 @@ static void load_builders()
 						ReplaceString(line, PLATFORM_MAX_PATH, "\t", "", false);
 						ReplaceString(line, PLATFORM_MAX_PATH, " ", "", false);
 
-						if(line[0] == '/' && line[1] == '/') {
+						if(line[0] == '/' && line[1] == '/' || line[0] == '\0') {
 							continue;
 						}
 
-						bool blacklist = (line[0] == '!');
+						bool flag = (line[0] == '!');
 
-						RegexError regex_code;
-						Regex regex = new Regex(line[blacklist ? 1 : 0], PCRE_UTF8, regex_str, sizeof(regex_str), regex_code);
-						if(regex_code != REGEX_ERROR_NONE) {
-							delete regex;
+						if(strcmp(line[flag ? 1 : 0], "workshop/") == 1) {
+							++num_workshop_requests;
+							++info.num_workshop_maps;
+							//TODO!!!!!!!!!!!!!!! only do a single request
+							System2HTTPRequest post = new System2HTTPRequest(collection_details, "https://api.steampowered.com/ISteamRemoteStorage/GetCollectionDetails/v1/?format=vdf");
+							post.SetData("collectioncount=1&publishedfileids[0]=%s", line[flag ? 10 : 9]);
+							WorkshopRequestInfo req_info;
+							strcopy(req_info.builder_name, BUILDER_NAME_MAX, info.name);
+							req_info.only_download = flag;
+							post.Any = workshop_request_data.PushArray(req_info, sizeof(WorkshopRequestInfo));
+							post.POST();
 							continue;
-						}
-
-						if(blacklist) {
-							info.blacklist_regexes.Push(regex);
 						} else {
-							info.whitelist_regexes.Push(regex);
+							RegexError regex_code;
+							Regex regex = new Regex(line[flag ? 1 : 0], PCRE_UTF8, regex_str, sizeof(regex_str), regex_code);
+							if(regex_code != REGEX_ERROR_NONE) {
+								delete regex;
+								continue;
+							}
+
+							if(flag) {
+								info.blacklist_regexes.Push(regex);
+							} else {
+								info.whitelist_regexes.Push(regex);
+							}
 						}
 					}
 				}
 			}
 			delete mapcycle;
 
-			BuildPath(Path_SM, info.file_path, PLATFORM_MAX_PATH, "data/mcm/%s", filename);
+			BuildPath(Path_SM, file_path, PLATFORM_MAX_PATH, "data/mcm/%s", filename);
 
-			info.file = OpenFile(info.file_path, "w+", false);
+			info.file = OpenFile(file_path, "w+", false);
 
 			builders.PushArray(info, sizeof(BuilderInfo));
 		}
 		delete builders_dir;
+	}
+
+	if(num_workshop_requests == 0) {
+		delete workshop_commands;
+		delete workshop_request_data;
 	}
 
 	int builders_len = builders.Length;
@@ -322,10 +583,24 @@ static void load_builders()
 		}
 	}
 
-	for(int i = 0; i < builders_len; ++i) {
+	for(int i = 0; i < builders_len;) {
 		builders.GetArray(i, info, sizeof(BuilderInfo));
 
-		delete info.file;
+		if(info.num_workshop_maps == 0) {
+			delete info.file;
+			delete info.blacklist_regexes;
+			delete info.whitelist_regexes;
+
+			--builders_len;
+			builders.Erase(i);
+			continue;
+		}
+
+		++i;
+	}
+
+	if(num_workshop_requests == 0) {
+		delete builders;
 	}
 }
 
@@ -469,7 +744,7 @@ static void load_config()
 					if(kv.JumpToKey("holiday_alternative")) {
 						if(kv.GotoFirstSubKey(false)) {
 							do {
-								kv.GetSectionName(holiday_name, PLATFORM_MAX_PATH);
+								kv.GetSectionName(holiday_name, HOLIDAY_NAME_MAX);
 
 								if(StrEqual(holiday_name, "birthday")) {
 									kv.GetString(NULL_STRING, map_path, PLATFORM_MAX_PATH);
@@ -758,7 +1033,7 @@ static void recompute_mapcycle(mcm_changed_from from)
 	}
 
 	char tmp_mapcyclefile[PLATFORM_MAX_PATH];
-	mapcyclefile.GetString(tmp_mapcyclefile, sizeof(tmp_mapcyclefile));
+	mapcyclefile.GetString(tmp_mapcyclefile, PLATFORM_MAX_PATH);
 
 	if(mapchooser_plugin != null) {
 		if(mapchooser_mcm_changed != INVALID_FUNCTION) {
@@ -796,8 +1071,6 @@ public void OnPluginStart()
 	BuildPath(Path_SM, mapcyclefile_path, PLATFORM_MAX_PATH, "data/mcm/mapcycle.txt");
 	BuildPath(Path_SM, mapcyclefile_nochance_path, PLATFORM_MAX_PATH, "data/mcm/mapcycle_nochance.txt");
 
-	builders = new ArrayList(sizeof(BuilderInfo));
-
 	config_maps_with_playerchange = new ArrayList();
 	config_maps_without_playerchange = new ArrayList();
 	current_mapcycle = new ArrayList();
@@ -807,6 +1080,8 @@ public void OnPluginStart()
 
 	mapcyclefile = FindConVar("mapcyclefile");
 	mp_timelimit = FindConVar("mp_timelimit");
+
+	mcm_api_key = CreateConVar("mcm_api_key", "");
 
 	load_builders();
 

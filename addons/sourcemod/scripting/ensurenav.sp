@@ -18,6 +18,8 @@ static int CNavMesh_m_isAnalyzed_offset = -1;
 
 static float last_walk_seed[TF2_MAXPLAYERS+1];
 
+static char currentmap[PLATFORM_MAX_PATH];
+
 #define SAVE_NAV_MESH 9
 
 #define GENERATE_INCREMENTAL 2
@@ -196,9 +198,9 @@ static Action sm_ensurenav(int client, int args)
 
 	maps = view_as<ArrayList>(ReadMapList(null, _, "default", MAPLIST_FLAG_MAPSFOLDER));
 	for(int i = 0; i < maps.Length;) {
-		maps.GetString(map_idx, nextmap, sizeof(nextmap));
+		maps.GetString(map_idx, nextmap, PLATFORM_MAX_PATH);
 
-		Format(nextmap, sizeof(nextmap), "maps/%s.nav", nextmap);
+		Format(nextmap, PLATFORM_MAX_PATH, "maps/%s.nav", nextmap);
 
 		if(FileExists(nextmap, true)) {
 			maps.Erase(i);
@@ -222,23 +224,25 @@ static Action sm_ensurenav(int client, int args)
 	return Plugin_Handled;
 }
 
+static void nav_done_cycle()
+{
+	if(++map_idx == maps.Length) {
+		delete maps;
+		map_idx = 0;
+	} else {
+		char nextmap[PLATFORM_MAX_PATH];
+		maps.GetString(map_idx, nextmap, PLATFORM_MAX_PATH);
+		SetNextMap(nextmap);
+		ForceChangeLevel(nextmap, "ensurenav");
+	}
+}
+
 static void nav_done()
 {
 	if(maps) {
-		if(++map_idx == maps.Length) {
-			delete maps;
-			map_idx = 0;
-		} else {
-			char nextmap[PLATFORM_MAX_PATH];
-			maps.GetString(map_idx, nextmap, sizeof(nextmap));
-			SetNextMap(nextmap);
-			ForceChangeLevel(nextmap, "ensurenav");
-		}
+		nav_done_cycle();
 	} else {
 		if(sm_ensurenav_restart.BoolValue) {
-			char currentmap[PLATFORM_MAX_PATH];
-			GetCurrentMap(currentmap, sizeof(currentmap));
-
 			SetNextMap(currentmap);
 			ForceChangeLevel(currentmap, "ensurenav");
 		}
@@ -247,12 +251,11 @@ static void nav_done()
 
 public void OnMapStart()
 {
-	if(maps) {
-		char currentmap[PLATFORM_MAX_PATH];
-		GetCurrentMap(currentmap, sizeof(currentmap));
+	GetCurrentMap(currentmap, PLATFORM_MAX_PATH);
 
+	if(maps) {
 		char nextmap[PLATFORM_MAX_PATH];
-		maps.GetString(map_idx, nextmap, sizeof(nextmap));
+		maps.GetString(map_idx, nextmap, PLATFORM_MAX_PATH);
 
 		if(!StrEqual(currentmap, nextmap)) {
 			SetNextMap(nextmap);
@@ -260,15 +263,21 @@ public void OnMapStart()
 			return;
 		}
 
-		Format(nextmap, sizeof(nextmap), "maps/%s.nav", nextmap);
+		Format(nextmap, PLATFORM_MAX_PATH, "maps/%s.nav", nextmap);
 
 		if(!FileExists(nextmap, true)) {
-			SetCommandFlags("nav_generate", GetCommandFlags("nav_generate") & ~FCVAR_CHEAT);
 			InsertServerCommand("nav_generate");
 			ServerExecute();
-			SetCommandFlags("nav_generate", GetCommandFlags("nav_generate") | FCVAR_CHEAT);
 		} else {
-			nav_done();
+			nav_done_cycle();
+		}
+	} else {
+		char nav[PLATFORM_MAX_PATH];
+		Format(nav, PLATFORM_MAX_PATH, "maps/%s.nav", currentmap);
+
+		if(!FileExists(nav, true)) {
+			InsertServerCommand("nav_generate");
+			ServerExecute();
 		}
 	}
 }
