@@ -206,6 +206,8 @@ static int native_mcm_set_config(Handle plugin, int params)
 #define WORKSHOP_ID_MAX 15
 #define WORKSHOP_CMD_MAX (22 + WORKSHOP_ID_MAX)
 
+//#define WORKSHOP_USE_MAPNAME_IN_CYCLE
+
 static ArrayList builders;
 
 enum struct WorkshopRequestInfo
@@ -219,6 +221,7 @@ static int num_workshop_metadatas;
 static ArrayList workshop_commands;
 static ArrayList workshop_request_data;
 
+#if defined WORKSHOP_USE_MAPNAME_IN_CYCLE
 static void get_details(bool success, const char[] error, System2HTTPRequest request, System2HTTPResponse response, HTTPRequestMethod method)
 {
 	BuilderInfo info;
@@ -270,7 +273,7 @@ static void get_details(bool success, const char[] error, System2HTTPRequest req
 						char workshop_id[WORKSHOP_ID_MAX];
 						kv.GetString("publishedfileid", workshop_id, WORKSHOP_ID_MAX);
 						if(workshop_id[0] != '\0') {
-						#if 0
+						#if defined WORKSHOP_USE_MAPNAME_IN_CYCLE
 							Format(filename, PLATFORM_MAX_PATH, "workshop/%s.ugc%s", filename, workshop_id);
 						#else
 							FormatEx(filename, PLATFORM_MAX_PATH, "workshop/%s", workshop_id);
@@ -300,6 +303,7 @@ static void get_details(bool success, const char[] error, System2HTTPRequest req
 		delete workshop_request_data;
 	}
 }
+#endif
 
 static void collection_details(bool success, const char[] error, System2HTTPRequest request, System2HTTPResponse response, HTTPRequestMethod method)
 {
@@ -321,6 +325,7 @@ static void collection_details(bool success, const char[] error, System2HTTPRequ
 				int data_idx = request.Any;
 				workshop_request_data.GetArray(data_idx, req_info, sizeof(WorkshopRequestInfo));
 
+			#if defined WORKSHOP_USE_MAPNAME_IN_CYCLE
 				#define URL_FORMAT \
 					"https://api.steampowered.com/IPublishedFileService/GetDetails/v1/?format=vdf" ... \
 					"&key=%s" ... \
@@ -340,6 +345,22 @@ static void collection_details(bool success, const char[] error, System2HTTPRequ
 
 				char api_key[APIKEY_MAX];
 				mcm_api_key.GetString(api_key, APIKEY_MAX);
+			#else
+				BuilderInfo info;
+
+				int builders_len = builders.Length;
+
+				bool found_builder = false;
+
+				for(int i = 0; i < builders_len; ++i) {
+					builders.GetArray(i, info, sizeof(BuilderInfo));
+
+					if(StrEqual(req_info.builder_name, info.name)) {
+						found_builder = true;
+						break;
+					}
+				}
+			#endif
 
 				switch(result) {
 					case 1: {
@@ -356,6 +377,7 @@ static void collection_details(bool success, const char[] error, System2HTTPRequ
 									StrCat(cmd_line, WORKSHOP_CMD_MAX, workshop_id);
 									workshop_commands.PushString(cmd_line);
 
+								#if defined WORKSHOP_USE_MAPNAME_IN_CYCLE
 									if(!req_info.only_download && api_key[0] != '\0') {
 										//TODO!!!!!!!!!!!!!!! only do a single request
 										System2HTTPRequest post = new System2HTTPRequest(get_details, URL_FORMAT, api_key, workshop_id);
@@ -363,6 +385,13 @@ static void collection_details(bool success, const char[] error, System2HTTPRequ
 										post.GET();
 										++num_workshop_metadatas;
 									}
+								#else
+									if(found_builder) {
+										info.file.WriteString("workshop/", false);
+										info.file.WriteString(workshop_id, false);
+										info.file.WriteInt8('\n');
+									}
+								#endif
 								} while(kv.GotoNextKey());
 								kv.GoBack();
 							}
@@ -375,6 +404,7 @@ static void collection_details(bool success, const char[] error, System2HTTPRequ
 						StrCat(cmd_line, WORKSHOP_CMD_MAX, workshop_id);
 						workshop_commands.PushString(cmd_line);
 
+					#if defined WORKSHOP_USE_MAPNAME_IN_CYCLE
 						if(!req_info.only_download && api_key[0] != '\0') {
 							//TODO!!!!!!!!!!!!!!! only do a single request
 							System2HTTPRequest post = new System2HTTPRequest(get_details, URL_FORMAT, api_key, workshop_id);
@@ -382,6 +412,13 @@ static void collection_details(bool success, const char[] error, System2HTTPRequ
 							post.GET();
 							++num_workshop_metadatas;
 						}
+					#else
+						if(found_builder) {
+							info.file.WriteString("workshop/", false);
+							info.file.WriteString(workshop_id, false);
+							info.file.WriteInt8('\n');
+						}
+					#endif
 					}
 				}
 			}
