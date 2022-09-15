@@ -130,7 +130,7 @@ static void add_category_to_player_inv_menu(int client, int child, const char[] 
 		plrinvcat.menu = new Menu(menuhandler_inv_cat);
 
 		char category_menu_title[15 + ECON_MAX_ITEM_CATEGORY_NAME];
-		Format(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
+		FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
 		plrinvcat.menu.SetTitle(category_menu_title);
 
 		plrinvcat.menu.ExitBackButton = true;
@@ -168,7 +168,7 @@ static void add_item_to_player_inv_menu(int client, int id, int idx)
 		plrinvcat.menu = new Menu(menuhandler_inv_cat);
 
 		char category_menu_title[15 + ECON_MAX_ITEM_CATEGORY_NAME];
-		Format(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
+		FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
 		plrinvcat.menu.SetTitle(category_menu_title);
 
 		plrinvcat.menu.ExitBackButton = true;
@@ -576,11 +576,11 @@ static int menuhandler_rank(Menu menu, MenuAction action, int param1, int param2
 
 			int target = get_client_of_accid(accid);
 			if(target != 0) {
-				Format(display, sizeof(display), "%N: %i", target, player_currency[target]);
+				FormatEx(display, sizeof(display), "%N: %i", target, player_currency[target]);
 			} else {
 				char name[MAX_NAME_LENGTH];
 				sn_get(accid, name, MAX_NAME_LENGTH);
-				Format(display, sizeof(display), "%s: %i", name, amount);
+				FormatEx(display, sizeof(display), "%s: %i", name, amount);
 			}
 
 			return RedrawMenuItem(display);
@@ -1944,7 +1944,7 @@ static int category_loaded(int id, const char[] name, int parent_id)
 	info.shop_menu.ExitBackButton = true;
 
 	char category_menu_title[10 + ECON_MAX_ITEM_CATEGORY_NAME];
-	Format(category_menu_title, sizeof(category_menu_title), "Category: %s", info.name);
+	FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", info.name);
 	info.shop_menu.SetTitle(category_menu_title);
 
 	info.items = new ArrayList();

@@ -790,7 +790,7 @@ Action Timer_Wind(Handle timer)
 		
 		while ((ent = FindEntityByClassname(ent, "move_rope")) != -1) {
 			char force[32];
-			Format(force, sizeof(force), "-%d -%d 0", GetRandomInt(300, 1000), GetRandomInt(300, 1000));
+			FormatEx(force, sizeof(force), "-%d -%d 0", GetRandomInt(300, 1000), GetRandomInt(300, 1000));
 			
 			int endpoint = GetEntPropEnt(ent, Prop_Send, "m_hEndPoint");
 			SetEntPropEnt(ent, Prop_Send, "m_hEndPoint", -1);
@@ -805,7 +805,7 @@ Action Timer_Wind(Handle timer)
 
 		while ((ent = FindEntityByClassname(ent, "keyframe_rope")) != -1) {
 			char force[32];
-			Format(force, sizeof(force), "-%d -%d 0", GetRandomInt(300, 1000), GetRandomInt(300, 1000));
+			FormatEx(force, sizeof(force), "-%d -%d 0", GetRandomInt(300, 1000), GetRandomInt(300, 1000));
 			
 			int endpoint = GetEntPropEnt(ent, Prop_Send, "m_hEndPoint");
 			SetEntPropEnt(ent, Prop_Send, "m_hEndPoint", -1);
@@ -1251,7 +1251,7 @@ void ReadThemeSet(KeyValues kv)
 		kvThemeSets.GoBack();
 		
 		// Check for next theme
-		Format(key, sizeof(key), "theme%i", ++numThemes + 1);
+		FormatEx(key, sizeof(key), "theme%i", ++numThemes + 1);
 	}
 }
 
@@ -1267,7 +1267,7 @@ void ReadMapRegion(KeyValues kv)
 		// Read the region for each stage of the map
 		for (int i = 0; ; i++) {
 			char stage[8];
-			Format(stage, sizeof(stage), "stage%i", i + 1);
+			FormatEx(stage, sizeof(stage), "stage%i", i + 1);
 			
 			if (kv.JumpToKey(stage)) {
 				float n1, n2;
@@ -1342,7 +1342,7 @@ void ReadThemeAttributesNumber(KeyValues kv, int num)
 {
 	char key[8];
 	
-	Format(key, sizeof(key), "theme%i", num + 1);
+	FormatEx(key, sizeof(key), "theme%i", num + 1);
 	
 	if (kv.JumpToKey(key)) {
 		ReadThemeAttributes(kv);
@@ -1518,12 +1518,12 @@ void UpdateDownloadsTable()
 	
 	// Handle Color Correction
 	if (!StrEqual(mapColorCorrection1, "")) {
-		Format(filename, sizeof(filename), "materials/correction/%s", mapColorCorrection1);
+		FormatEx(filename, sizeof(filename), "materials/correction/%s", mapColorCorrection1);
 		AddFileToDownloadsTable(filename);
 	}
 	
 	if (!StrEqual(mapColorCorrection2, "")) {
-		Format(filename, sizeof(filename), "materials/correction/%s", mapColorCorrection2);
+		FormatEx(filename, sizeof(filename), "materials/correction/%s", mapColorCorrection2);
 		AddFileToDownloadsTable(filename);
 	}
 
@@ -1663,7 +1663,7 @@ void OnCopyMapTemplate(bool success, const char[] from, const char[] to)
 void HandleMapParticleManifest(const char[] mapname, bool current)
 {
 	char file_path[96];
-	Format(file_path, sizeof(file_path), "maps/%s_particles.txt", mapname);
+	FormatEx(file_path, sizeof(file_path), "maps/%s_particles.txt", mapname);
 
 	if(!FileExists(file_path, true)) {
 	#if defined _system2_included
@@ -1728,7 +1728,7 @@ void HandleParticleFiles()
 
 	// Add particle files
 	for (int i = 1; i <= NUM_PARTICLE_FILES; i++) {
-		Format(file, sizeof(file), "particles/custom_particles%03i.pcf", i);
+		FormatEx(file, sizeof(file), "particles/custom_particles%03i.pcf", i);
 	
 		if (FileExists(file, true)) {
 			AddFileToDownloadsTable(file);
@@ -1853,16 +1853,16 @@ void ApplyConfigMap()
 		SetLightStyle(0, "m");
 	}
 	
-	/*
+#if 1
 	// Apply Detail Sprites
 	if (!StrEqual(mapDetailSprites, "")) {
-		Format(detailMaterial, sizeof(detailMaterial), "detail/detailsprites_%s", mapDetailSprites);
+		FormatEx(detailMaterial, sizeof(detailMaterial), "detail/detailsprites_%s", mapDetailSprites);
 		DispatchKeyValue(0, "detailmaterial", mapDetailSprites);
 	} else {
 		DispatchKeyValue(0, "detailmaterial", "");
 	}
 	ChangeEdictState(0, m_iszDetailSpriteMaterialOffset);
-	*/
+#endif
 	
 	if(mapCold) {
 		SetEntProp(0, Prop_Send, "m_bColdWorld", 1);
@@ -2456,7 +2456,7 @@ void CreatePrecipitation(int type)
 	int precipitation = CreateEntityByName("func_precipitation");
 
 	char model[PLATFORM_MAX_PATH];
-	Format(model, PLATFORM_MAX_PATH, "maps/%s.bsp", map);
+	FormatEx(model, PLATFORM_MAX_PATH, "maps/%s.bsp", map);
 
 	char intstr[4];
 	IntToString(type, intstr, sizeof(intstr));

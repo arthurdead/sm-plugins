@@ -273,7 +273,7 @@ public void OnMapStart()
 		}
 	} else {
 		char nav[PLATFORM_MAX_PATH];
-		Format(nav, PLATFORM_MAX_PATH, "maps/%s.nav", currentmap);
+		FormatEx(nav, PLATFORM_MAX_PATH, "maps/%s.nav", currentmap);
 
 		if(!FileExists(nav, true)) {
 			InsertServerCommand("nav_generate");

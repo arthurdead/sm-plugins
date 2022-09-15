@@ -149,7 +149,7 @@ int NativeMissi_GiveToPlayerEx(Handle plugin, int args)
 			StrCat(param_values, sizeof(param_values), ",");
 			StrCat(param_values, sizeof(param_values), param_value);
 
-			Format(param_name, PARAM_NAME_MAX, "param_%i", i+1);
+			FormatEx(param_name, PARAM_NAME_MAX, "param_%i", i+1);
 			StrCat(param_names, sizeof(param_names), ",");
 			StrCat(param_names, sizeof(param_names), param_name);
 		}
@@ -232,7 +232,7 @@ int NativeMissi_GiveToPlayer(Handle plugin, int args)
 			StrCat(param_values, sizeof(param_values), ",");
 			StrCat(param_values, sizeof(param_values), param_value);
 
-			Format(param_name, PARAM_NAME_MAX, "param_%i", i+1);
+			FormatEx(param_name, PARAM_NAME_MAX, "param_%i", i+1);
 			StrCat(param_names, sizeof(param_names), ",");
 			StrCat(param_names, sizeof(param_names), param_name);
 		}
@@ -564,7 +564,7 @@ int NativePlrMissi_SetParamValue(Handle plugin, int args)
 	PlayerMissiCache[client].SetParamValue(id, param, value);
 
 	char param_name[PARAM_NAME_MAX];
-	Format(param_name, PARAM_NAME_MAX, "param_%i", param);
+	FormatEx(param_name, PARAM_NAME_MAX, "param_%i", param);
 
 	char query[QUERY_STR_MAX];
 	dbMissi.Format(query, QUERY_STR_MAX,

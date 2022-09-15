@@ -216,7 +216,7 @@ void DisplayAchivMenu(int client, int item = -1)
 	int num_player_achieved = PlayerAchivCache[client].Length;
 
 	char achivstitle[ACHIVS_TITLE_MAX];
-	Format(achivstitle, ACHIVS_TITLE_MAX, "Achievements (%i/%i)", num_player_achieved, num_achivs);
+	FormatEx(achivstitle, ACHIVS_TITLE_MAX, "Achievements (%i/%i)", num_player_achieved, num_achivs);
 	menu.SetTitle(achivstitle);
 
 	char achivdisplay[ACHIV_DISPLAY_MAX];

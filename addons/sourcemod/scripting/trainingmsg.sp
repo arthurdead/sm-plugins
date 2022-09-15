@@ -176,7 +176,7 @@ void DoRSay(int client, int args, bool has_continue)
 	CleanTrainingMessageText(msg, TRAINING_MSG_MAX_LEN);
 
 	char title[TRAINING_MSG_MAX_WIDTH];
-	Format(title, TRAINING_MSG_MAX_WIDTH, "%N", client);
+	FormatEx(title, TRAINING_MSG_MAX_WIDTH, "%N", client);
 
 	TrainingMsgFlags flags = has_continue ? TMSG_CONTINUE_AUTOREMOVE : TMSG_NOFLAGS;
 

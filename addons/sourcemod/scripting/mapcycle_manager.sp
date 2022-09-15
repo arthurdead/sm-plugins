@@ -273,7 +273,7 @@ static void get_details(bool success, const char[] error, System2HTTPRequest req
 						#if 0
 							Format(filename, PLATFORM_MAX_PATH, "workshop/%s.ugc%s", filename, workshop_id);
 						#else
-							Format(filename, PLATFORM_MAX_PATH, "workshop/%s", workshop_id);
+							FormatEx(filename, PLATFORM_MAX_PATH, "workshop/%s", workshop_id);
 						#endif
 						}
 						info.file.WriteString(filename, false);
@@ -466,7 +466,7 @@ static void load_builders()
 			strcopy(info.name, BUILDER_NAME_MAX, filename);
 			info.name[txt] = '\0';
 
-			Format(file_path, PLATFORM_MAX_PATH, "%s/%s", builders_dir_path, filename);
+			FormatEx(file_path, PLATFORM_MAX_PATH, "%s/%s", builders_dir_path, filename);
 
 			File mapcycle = OpenFile(file_path, "r", false);
 			if(mapcycle) {

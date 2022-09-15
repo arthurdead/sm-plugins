@@ -95,7 +95,7 @@ void format_missi_desc(int client, int pidx, int midx, char[] desc, int size)
 			}
 		}
 
-		Format(param, sizeof(param), "$%i", i+1);
+		FormatEx(param, sizeof(param), "$%i", i+1);
 		ReplaceString(desc, size, param, value_str);
 	}
 }

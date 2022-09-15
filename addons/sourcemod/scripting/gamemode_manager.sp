@@ -325,10 +325,10 @@ static void toggle_ff2_folder(bool value)
 
 			plugin_filename[ext] = '\0';
 
-			Format(plugin_path_smx_enabled, PLATFORM_MAX_PATH, "%s/%s", ff2_folder_enabled_path, plugin_filename);
+			FormatEx(plugin_path_smx_enabled, PLATFORM_MAX_PATH, "%s/%s", ff2_folder_enabled_path, plugin_filename);
 			StrCat(plugin_path_smx_enabled, PLATFORM_MAX_PATH, ".smx");
 
-			Format(plugin_path_ff2_enabled, PLATFORM_MAX_PATH, "%s/%s", ff2_folder_enabled_path, plugin_filename);
+			FormatEx(plugin_path_ff2_enabled, PLATFORM_MAX_PATH, "%s/%s", ff2_folder_enabled_path, plugin_filename);
 			StrCat(plugin_path_ff2_enabled, PLATFORM_MAX_PATH, ".ff2");
 
 			if(!value) {
@@ -986,8 +986,8 @@ static void handle_gamemode_plugins(int idx, GamemodeInfo info, bool unload, boo
 			for(int i = info.plugins_disable.Length-1; i >= 0; --i) {
 				info.plugins_disable.GetString(i, plugin_filename, PLATFORM_MAX_PATH);
 
-				Format(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
-				Format(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
+				FormatEx(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
+				FormatEx(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
 
 				if(FileExists(plugin_enabled_path)) {
 					InsertServerCommand("sm plugins unload \"%s\"", plugin_filename);
@@ -1028,8 +1028,8 @@ static void handle_gamemode_plugins(int idx, GamemodeInfo info, bool unload, boo
 
 			info.plugins.GetString(i, plugin_filename, PLATFORM_MAX_PATH);
 
-			Format(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
-			Format(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
+			FormatEx(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
+			FormatEx(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
 
 			bool is_ff2 = StrEqual(plugin_filename[get_filename_pos(plugin_filename)], "freak_fortress_2");
 			bool is_gamemode_plugin = StrEqual(plugin_filename, info.gamemode_plugin.path);
@@ -1090,8 +1090,8 @@ static void handle_gamemode_plugins(int idx, GamemodeInfo info, bool unload, boo
 			for(int i = 0; i < len; ++i) {
 				info.plugins_disable.GetString(i, plugin_filename, PLATFORM_MAX_PATH);
 
-				Format(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
-				Format(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
+				FormatEx(plugin_disabled_path, PLATFORM_MAX_PATH, "%s/disabled/%s", pluginsfolder, plugin_filename);
+				FormatEx(plugin_enabled_path, PLATFORM_MAX_PATH, "%s/%s", pluginsfolder, plugin_filename);
 
 				RenameFile(plugin_enabled_path, plugin_disabled_path);
 				if(FileExists(plugin_enabled_path)) {

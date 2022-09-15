@@ -8,6 +8,7 @@
 #include <stocksoup/memory>
 #include <regex>
 #include <bit>
+#include <animhelpers>
 
 //#define DEBUG_CONFIG
 //#define DEBUG_MODEL
@@ -110,7 +111,7 @@ enum struct ConfigEconInfo
 	int price;
 }
 
-enum struct ModelInfo
+enum struct ConfigModelInfo
 {
 	char model[PLATFORM_MAX_PATH];
 	TFClassType model_class;
@@ -903,9 +904,9 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 		info.models = new StringMap();
 	}
 
-	ModelInfo model_info;
+	ConfigModelInfo model_info;
 
-	info.models.GetArray("", model_info, sizeof(ModelInfo));
+	info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
 
 	kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
 	if(model_info.model[0] != '\0' && is_group) {
@@ -917,7 +918,7 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 		model_info.arm_from_group = true;
 	}
 
-	info.models.SetArray("", model_info, sizeof(ModelInfo));
+	info.models.SetArray("", model_info, sizeof(ConfigModelInfo));
 
 	SoundInfo sound_info;
 	sound_info.from_group = is_group;
@@ -1122,7 +1123,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 		do {
 			ConfigInfo info;
 			ConfigVariationInfo variation;
-			ModelInfo model_info;
+			ConfigModelInfo model_info;
 
 			kv.GetSectionName(info.name, MODEL_NAME_MAX);
 
@@ -1150,7 +1151,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 				}
 			}
 
-			info.models.GetArray("", model_info, sizeof(ModelInfo));
+			info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
 
 			kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
 			model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
@@ -1165,7 +1166,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 				model_info.model_class = only_class;
 			}
 
-			info.models.SetArray("", model_info, sizeof(ModelInfo));
+			info.models.SetArray("", model_info, sizeof(ConfigModelInfo));
 
 			if(kv.JumpToKey("per_class_model")) {
 				if(kv.GotoFirstSubKey()) {
@@ -1189,7 +1190,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 						char str[5];
 						pack_int_in_str(view_as<int>(class), str);
-						info.models.SetArray(str, model_info, sizeof(ModelInfo));
+						info.models.SetArray(str, model_info, sizeof(ConfigModelInfo));
 					} while(kv.GotoNextKey());
 					kv.GoBack();
 				}
@@ -1210,7 +1211,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 						variation.models = new StringMap();
 
-						info.models.GetArray("", model_info, sizeof(ModelInfo));
+						info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
 
 						kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
 						kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
@@ -1224,7 +1225,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 						kv.GetString("skin", int_str, INT_STR_MAX, "-1");
 						model_info.skin = StringToInt(int_str);
 
-						variation.models.SetArray("", model_info, sizeof(ModelInfo));
+						variation.models.SetArray("", model_info, sizeof(ConfigModelInfo));
 
 						if(kv.JumpToKey("per_class_model")) {
 							if(kv.GotoFirstSubKey()) {
@@ -1248,7 +1249,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 									char str[5];
 									pack_int_in_str(view_as<int>(class), str);
-									variation.models.SetArray(str, model_info, sizeof(ModelInfo));
+									variation.models.SetArray(str, model_info, sizeof(ConfigModelInfo));
 								} while(kv.GotoNextKey());
 								kv.GoBack();
 							}
@@ -2053,8 +2054,9 @@ static void clean_file_path(char[] str)
 
 static void load_depfile(const char[] model)
 {
+#if 0
 	char any_file_path[PLATFORM_MAX_PATH];
-	Format(any_file_path, PLATFORM_MAX_PATH, "%s.dep", model);
+	FormatEx(any_file_path, PLATFORM_MAX_PATH, "%s.dep", model);
 	if(FileExists(any_file_path, true)) {
 		File file = OpenFile(any_file_path, "r", true);
 
@@ -2070,6 +2072,9 @@ static void load_depfile(const char[] model)
 
 		delete file;
 	}
+#else
+	AddModelToDownloadsTable(model);
+#endif
 }
 
 public void OnMapStart()
@@ -2091,7 +2096,7 @@ public void OnMapStart()
 	ConfigInfo info;
 	ConfigVariationInfo variation;
 	ConfigGroupInfo group;
-	ModelInfo mdlinfo;
+	ConfigModelInfo mdlinfo;
 
 	SoundReplacementInfo sound_replace_info;
 	SoundInfo sound_info;
@@ -2119,7 +2124,7 @@ public void OnMapStart()
 					} else {
 						if(StrContains(sound_info.path, "$") == -1) {
 							PrecacheSound(sound_info.path);
-							Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+							FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
 							AddFileToDownloadsTable(any_file_path);
 						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from replace", group.name, sound_info.path);
@@ -2138,7 +2143,7 @@ public void OnMapStart()
 			for(int j = 0; j < len; ++j) {
 				snap.GetKey(j, str, sizeof(str));
 
-				if(group.baseline_config.models.GetArray(str, mdlinfo, sizeof(ModelInfo))) {
+				if(group.baseline_config.models.GetArray(str, mdlinfo, sizeof(ConfigModelInfo))) {
 					if(StrContains(mdlinfo.model, "$") == -1) {
 					#if defined DEBUG_CONFIG
 						PrintToServer(PM2_CON_PREFIX ... "group %s precached model %s from model", group.name, mdlinfo.model);
@@ -2187,7 +2192,7 @@ public void OnMapStart()
 				#endif
 				} else {
 					PrecacheSound(sound_info.path);
-					Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+					FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
 					AddFileToDownloadsTable(any_file_path);
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from precache", group.name, sound_info.path);
@@ -2225,7 +2230,7 @@ public void OnMapStart()
 					#endif
 
 						PrecacheSound(sound_file_path);
-						Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
+						FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
 						AddFileToDownloadsTable(any_file_path);
 					}
 				}
@@ -2245,7 +2250,7 @@ public void OnMapStart()
 		for(int j = 0; j < len; ++j) {
 			snap.GetKey(j, str, sizeof(str));
 
-			if(info.models.GetArray(str, mdlinfo, sizeof(ModelInfo))) {
+			if(info.models.GetArray(str, mdlinfo, sizeof(ConfigModelInfo))) {
 				if(!mdlinfo.model_from_group && StrContains(mdlinfo.model, "$") == -1) {
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "config %s precached model %s from model", info.name, mdlinfo.model);
@@ -2277,7 +2282,7 @@ public void OnMapStart()
 				for(int k = 0; k < len; ++k) {
 					snap.GetKey(k, str, sizeof(str));
 
-					if(variation.models.GetArray(str, mdlinfo, sizeof(ModelInfo))) {
+					if(variation.models.GetArray(str, mdlinfo, sizeof(ConfigModelInfo))) {
 						if(!mdlinfo.model_from_group && StrContains(mdlinfo.model, "$") == -1) {
 						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "config %s variation %s precached model %s from model", info.name, variation.name, mdlinfo.model);
@@ -2338,7 +2343,7 @@ public void OnMapStart()
 					} else {
 						if(StrContains(sound_info.path, "$") == -1) {
 							PrecacheSound(sound_info.path);
-							Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+							FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
 							AddFileToDownloadsTable(any_file_path);
 						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from replace", info.name, sound_info.path);
@@ -2364,7 +2369,7 @@ public void OnMapStart()
 				#endif
 				} else {
 					PrecacheSound(sound_info.path);
-					Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+					FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
 					AddFileToDownloadsTable(any_file_path);
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from precache", info.name, sound_info.path);
@@ -2402,7 +2407,7 @@ public void OnMapStart()
 					#endif
 
 						PrecacheSound(sound_file_path);
-						Format(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
+						FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
 						AddFileToDownloadsTable(any_file_path);
 					}
 				}
@@ -2485,11 +2490,11 @@ static void copy_config_vars(TFClassType class, PlayerConfigInfo plrinfo, int id
 
 	plrinfo.idx = idx;
 
-	ModelInfo mdlinfo;
-	if(!info.models.GetArray("", mdlinfo, sizeof(ModelInfo))) {
+	ConfigModelInfo mdlinfo;
+	if(!info.models.GetArray("", mdlinfo, sizeof(ConfigModelInfo))) {
 		char str[5];
 		pack_int_in_str(view_as<int>(class), str);
-		info.models.GetArray(str, mdlinfo, sizeof(ModelInfo));
+		info.models.GetArray(str, mdlinfo, sizeof(ConfigModelInfo));
 	}
 
 	if(mdlinfo.model[0] != '\0') {
@@ -2623,11 +2628,11 @@ static void equip_config_variation(int client, int idx, ConfigInfo info, int var
 
 	player_configs[client][rep_player_class][player_config_custom].variation_idx = variation_idx;
 
-	ModelInfo mdlinfo;
-	if(!variation.models.GetArray("", mdlinfo, sizeof(ModelInfo))) {
+	ConfigModelInfo mdlinfo;
+	if(!variation.models.GetArray("", mdlinfo, sizeof(ConfigModelInfo))) {
 		char str[5];
 		pack_int_in_str(view_as<int>(real_player_class), str);
-		variation.models.GetArray(str, mdlinfo, sizeof(ModelInfo));
+		variation.models.GetArray(str, mdlinfo, sizeof(ConfigModelInfo));
 	}
 
 	player_configs[client][rep_player_class][player_config_custom].flags = variation.flags;
