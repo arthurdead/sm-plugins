@@ -1573,6 +1573,10 @@ public void OnMapStart()
 static void remove_raw_maps()
 {
 	if(config_maps_raw_begin != -1) {
+		if(config_maps_raw_begin >= config_maps.Length) {
+			return;
+		}
+
 		ConfigMapInfo info;
 
 		char path[PLATFORM_MAX_PATH];

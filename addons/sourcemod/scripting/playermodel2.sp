@@ -20,7 +20,9 @@
 
 #undef REQUIRE_EXTENSIONS
 #include <proxysend>
+#undef REQUIRE_PLUGIN
 #tryinclude <clsobj_hack>
+#define REQUIRE_PLUGIN
 #define REQUIRE_EXTENSIONS
 
 #undef REQUIRE_PLUGIN
