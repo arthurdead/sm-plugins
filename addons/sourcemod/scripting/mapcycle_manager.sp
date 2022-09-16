@@ -1574,6 +1574,7 @@ static void remove_raw_maps()
 {
 	if(config_maps_raw_begin != -1) {
 		if(config_maps_raw_begin >= config_maps.Length) {
+			config_maps_raw_begin = -1;
 			return;
 		}
 
