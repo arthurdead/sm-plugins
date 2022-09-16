@@ -1581,7 +1581,7 @@ static void remove_raw_maps()
 
 		char path[PLATFORM_MAX_PATH];
 
-		for(int i = config_maps_raw_begin; i;) {
+		for(int i = config_maps_raw_begin; i < config_maps.Length;) {
 			config_maps.GetArray(i, info, sizeof(ConfigMapInfo));
 
 			int len = info.paths.Length;
