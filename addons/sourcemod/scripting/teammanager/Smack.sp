@@ -13,6 +13,13 @@ int SmackTempEntity = -1;
 
 MRESReturn SmackPre(int pThis)
 {
+	SmackTempEntity = -1;
+	SmackTempTeam = -1;
+
+	if(fwCanHeal.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	int owner = GetEntPropEnt(pThis, Prop_Send, "m_hOwner");
 
 	float eye[3];
@@ -48,9 +55,6 @@ MRESReturn SmackPre(int pThis)
 
 		frac = TR_GetFraction();
 	}
-
-	SmackTempEntity = -1;
-	SmackTempTeam = -1;
 
 	if(frac < 1.0) {
 		int other = TR_GetEntityIndex();

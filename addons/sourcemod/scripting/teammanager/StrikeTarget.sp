@@ -22,9 +22,13 @@ bool IsBuildingBolt(int type)
 
 MRESReturn StrikeTargetPre(int pThis, Handle hReturn, Handle hParams)
 {
-	int projtype = GetEntProp(pThis, Prop_Send, "m_iProjectileType");
-
 	StrikeTargetTempTeam = -1;
+
+	if(fwCanHeal.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
+	int projtype = GetEntProp(pThis, Prop_Send, "m_iProjectileType");
 
 	if(IsHealingBolt(projtype) || IsBuildingBolt(projtype)) {
 		int other = DHookGetParam(hParams, 2);

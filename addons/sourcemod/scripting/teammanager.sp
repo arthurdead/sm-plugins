@@ -65,19 +65,16 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 
 	RegPluginLibrary("teammanager");
 
-#if defined _collisionhook_included
-	if(LibraryExists("collisionhook")) {
-		bCollisionHook = true;
-	} else {
-		if(GetExtensionFileStatus("collisionhook.ext") == 1) {
-			bCollisionHook = true;
-		}
-	}
-#endif
-
 	g_bLateLoaded = late;
 
 	return APLRes_Success;
+}
+
+public void OnAllPluginsLoaded()
+{
+#if defined _collisionhook_included
+	bCollisionHook = LibraryExists("collisionhook");
+#endif
 }
 
 public void OnLibraryAdded(const char[] name)
@@ -188,6 +185,10 @@ public void OnClientPutInServer(int client)
 
 Action ConCommand_JoinTeam(int client, const char[] command, int args)
 {
+	if(fwCanChangeTeam.FunctionCount == 0) {
+		return Plugin_Continue;
+	}
+
 	char arg[32];
 	if(args >= 1) {
 		GetCmdArg(1, arg, sizeof(arg));
@@ -209,6 +210,10 @@ Action ConCommand_JoinTeam(int client, const char[] command, int args)
 
 Action ConCommand_JoinClass(int client, const char[] command, int args)
 {
+	if(fwCanChangeClass.FunctionCount == 0) {
+		return Plugin_Continue;
+	}
+
 	char arg[32];
 	if(args >= 1) {
 		GetCmdArg(1, arg, sizeof(arg));

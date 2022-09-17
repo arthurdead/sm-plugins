@@ -37,6 +37,10 @@ int DoSwingTraceTempEntity = -1;
 
 MRESReturn DoSwingTracePost(int pThis, Handle hReturn, Handle hParams)
 {
+	if(fwCanBackstab.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	if(!InBackstabVMThink && !InPrimaryAttack) {
 		return MRES_Ignored;
 	}

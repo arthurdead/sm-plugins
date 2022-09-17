@@ -17,9 +17,13 @@ int ExplodeTempTeam = -1;
 
 MRESReturn ExplodePre(int pThis, Handle hParams)
 {
-	int other = DHookGetParam(hParams, 2);
-
 	ExplodeTempTeam = -1;
+
+	if(fwCanDamage.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
+	int other = DHookGetParam(hParams, 2);
 
 	Call_StartForward(fwCanDamage);
 	Call_PushCell(pThis);

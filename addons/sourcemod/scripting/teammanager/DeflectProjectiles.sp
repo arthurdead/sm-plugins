@@ -23,6 +23,12 @@ int DeflectPlayerTempTeam = -1;
 
 MRESReturn DeflectPlayerPre(int pThis, Handle hReturn, Handle hParams)
 {
+	DeflectPlayerTempTeam = -1;
+
+	if(fwCanAirblast.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	int owner = DHookGetParam(hParams, 2);
 	int other = DHookGetParam(hParams, 1);
 
@@ -37,8 +43,6 @@ MRESReturn DeflectPlayerPre(int pThis, Handle hReturn, Handle hParams)
 #if defined DEBUG
 	PrintToServer("fwCanAirblast player %i", result);
 #endif
-
-	DeflectPlayerTempTeam = -1;
 
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;
@@ -70,6 +74,12 @@ int DeflectEntityTempTeam = -1;
 
 MRESReturn DeflectEntityPre(int pThis, Handle hReturn, Handle hParams)
 {
+	DeflectEntityTempTeam = -1;
+
+	if(fwCanAirblast.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	int owner = DHookGetParam(hParams, 2);
 	int other = DHookGetParam(hParams, 1);
 
@@ -84,8 +94,6 @@ MRESReturn DeflectEntityPre(int pThis, Handle hReturn, Handle hParams)
 #if defined DEBUG
 	PrintToServer("fwCanAirblast entity %i", result);
 #endif
-
-	DeflectEntityTempTeam = -1;
 
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;

@@ -69,6 +69,15 @@ bool BuildingEnum(int entity)
 
 MRESReturn TryToPickupBuildingPre(int pThis, Handle hReturn)
 {
+	TryToPickupBuildingTempTeam = -1;
+	TryToPickupBuildingTempEntity = -1;
+
+	TryToPickupBuildingDisconnect(pThis);
+
+	if(fwCanPickupBuilding.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	float eye[3];
 	GetClientEyeAngles(pThis, eye);
 
@@ -83,11 +92,6 @@ MRESReturn TryToPickupBuildingPre(int pThis, Handle hReturn)
 	float end[3];
 	AddVectors(end, start, end);
 	AddVectors(end, fwd, end);
-
-	TryToPickupBuildingTempTeam = -1;
-	TryToPickupBuildingTempEntity = -1;
-
-	TryToPickupBuildingDisconnect(pThis);
 
 	TR_EnumerateEntities(start, end, PARTITION_SOLID_EDICTS, RayType_EndPoint, BuildingEnum);
 

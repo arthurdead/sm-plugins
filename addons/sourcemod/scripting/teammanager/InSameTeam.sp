@@ -9,6 +9,14 @@ void InSameTeamCreate(GameData gamedata)
 
 MRESReturn InSameTeamPre(int pThis, Handle hReturn, Handle hParams)
 {
+	if(fwInSameTeam.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
+	if(DHookIsNullParam(hParams, 1)) {
+		return MRES_Ignored;
+	}
+
 	int other = DHookGetParam(hParams, 1);
 
 	Call_StartForward(fwInSameTeam);

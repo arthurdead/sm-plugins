@@ -12,6 +12,12 @@ int AllowedToHealTargetTempTeam = -1;
 
 MRESReturn AllowedToHealTargetPre(int pThis, Handle hReturn, Handle hParams)
 {
+	AllowedToHealTargetTempTeam = -1;
+
+	if(fwCanHeal.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	int other = DHookGetParam(hParams, 1);
 
 	Call_StartForward(fwCanHeal);
@@ -25,8 +31,6 @@ MRESReturn AllowedToHealTargetPre(int pThis, Handle hReturn, Handle hParams)
 #if defined DEBUG && 0
 	PrintToServer("fwCanHeal HEAL_MEDIGUN %i", result);
 #endif
-
-	AllowedToHealTargetTempTeam = -1;
 
 	if(result == Plugin_Continue) {
 		return MRES_Ignored;

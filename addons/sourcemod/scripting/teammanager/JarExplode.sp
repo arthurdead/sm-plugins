@@ -22,9 +22,13 @@ int JarOnHitTempTeam = -1;
 
 MRESReturn JarOnHitPre(int pThis, Handle hParams)
 {
-	int other = DHookGetParam(hParams, 1);
-
 	JarOnHitTempTeam = -1;
+
+	if(fwCanDamage.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
+	int other = DHookGetParam(hParams, 1);
 
 	Call_StartForward(fwCanDamage);
 	Call_PushCell(pThis);
@@ -86,6 +90,10 @@ ArrayList JarExplodeTempPlayers = null;
 
 MRESReturn JarExplodePre(Handle hParams)
 {
+	if(fwCanGetJarated.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	float pos[3];
 	DHookGetParamVector(hParams, 5, pos);
 

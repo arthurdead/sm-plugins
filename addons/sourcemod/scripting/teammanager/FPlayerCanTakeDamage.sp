@@ -14,6 +14,10 @@ void FPlayerCanTakeDamageMapStart()
 
 MRESReturn FPlayerCanTakeDamagePre(Address pThis, Handle hReturn, Handle hParams)
 {
+	if(fwCanDamage.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	if(DHookIsNullParam(hParams, 2)) {
 		return MRES_Ignored;
 	}

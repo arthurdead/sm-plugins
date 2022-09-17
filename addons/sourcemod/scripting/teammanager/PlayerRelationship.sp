@@ -20,6 +20,10 @@ void PlayerRelationshipMapStart()
 
 MRESReturn PlayerRelationshipPre(Address pThis, Handle hReturn, Handle hParams)
 {
+	if(fwInSameTeam.FunctionCount == 0) {
+		return MRES_Ignored;
+	}
+
 	int owner = DHookGetParam(hParams, 2);
 	int other = DHookGetParam(hParams, 1);
 
