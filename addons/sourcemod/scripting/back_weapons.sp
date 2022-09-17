@@ -170,7 +170,7 @@ public void OnAllPluginsLoaded()
 #if defined __economy_inc
 static void misc_cat_registered(int idx)
 {
-	econ_get_or_register_item(idx, "Back Weapons", "", "back_weapons", 1200, null);
+	econ_get_or_register_item(idx, "Back Weapons", "", "back_weapons", 1200, null, 1);
 }
 
 public void econ_loaded()
@@ -279,6 +279,8 @@ static int get_or_create_player_weapon_entity(int client, int which)
 public void OnClientDisconnect(int client)
 {
 	delete_player_weapon_entities(client);
+
+	player_has_back_weapons[client] = false;
 }
 
 public void OnClientPutInServer(int client)
@@ -443,13 +445,11 @@ static void player_weapon_switch(int client, int weapon)
 	PrintToServer("%i - %s", m_iItemDefinitionIndex, classname);
 #endif
 
-#if !defined DEBUG
 	bool has = (player_has_back_weapons[client] || sv_backweapons.BoolValue);
 	if(!has) {
 		delete_player_weapon_entities(client);
 		return;
 	}
-#endif
 
 	if(weapon == -1) {
 		delete_player_weapon_entities(client);
