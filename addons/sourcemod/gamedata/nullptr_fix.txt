@@ -23,7 +23,6 @@
 				"callconv" "thiscall"
 				"return" "vector"
 				"this" "entity"
-				"hooktype" "entity"
 				"arguments"
 				{
 					"pEnemy"

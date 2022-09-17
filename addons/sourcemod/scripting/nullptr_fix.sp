@@ -28,7 +28,7 @@ public void OnPluginStart()
 
 static MRESReturn CObjectSentrygun_GetEnemyAimPosition_detour(int pThis, DHookReturn hReturn, DHookParam hParams)
 {
-	if(hParams.IsNull(1) || hParams.GetAddress(1) == Address_Null || hParams.Get(1) == -1) {
+	if(hParams.IsNull(1)) {
 		hReturn.SetVector(view_as<float>({0.0, 0.0, 0.0}));
 		return MRES_Supercede;
 	}
@@ -38,7 +38,7 @@ static MRESReturn CObjectSentrygun_GetEnemyAimPosition_detour(int pThis, DHookRe
 
 static MRESReturn EconItemInterface_OnOwnerKillEaterEvent_Batched_detour(DHookParam hParams)
 {
-	if(hParams.IsNull(2) || hParams.GetAddress(2) == Address_Null || hParams.Get(2) == -1) {
+	if(hParams.IsNull(2)) {
 		return MRES_Supercede;
 	}
 
