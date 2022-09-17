@@ -9,9 +9,29 @@
 				"library" "server"
 				"linux" "@_Z47EconItemInterface_OnOwnerKillEaterEvent_BatchedP18IEconItemInterfaceP9CTFPlayerS2_18kill_eater_event_ti"
 			}
+			"CObjectSentrygun::GetEnemyAimPosition"
+			{
+				"library" "server"
+				"linux" "@_ZNK16CObjectSentrygun19GetEnemyAimPositionEP11CBaseEntity"
+			}
 		}
 		"Functions"
 		{
+			"CObjectSentrygun::GetEnemyAimPosition"
+			{
+				"signature" "CObjectSentrygun::GetEnemyAimPosition"
+				"callconv" "thiscall"
+				"return" "vector"
+				"this" "entity"
+				"hooktype" "entity"
+				"arguments"
+				{
+					"pEnemy"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
 			"EconItemInterface_OnOwnerKillEaterEvent_Batched"
 			{
 				"signature" "EconItemInterface_OnOwnerKillEaterEvent_Batched"
