@@ -106,11 +106,13 @@ int NativeAchiv_Remove(Handle plugin, int args)
 	}
 
 	if(achieved) {
-		Call_StartForward(hOnAchievementStatusChanged);
-		Call_PushCell(client);
-		Call_PushCell(false);
-		Call_PushCell(id);
-		Call_Finish();
+		if(hOnAchievementStatusChanged.FunctionCount > 0) {
+			Call_StartForward(hOnAchievementStatusChanged);
+			Call_PushCell(client);
+			Call_PushCell(false);
+			Call_PushCell(id);
+			Call_Finish();
+		}
 	}
 
 	return view_as<int>(achieved);
@@ -146,12 +148,14 @@ int NativeAchiv_RemoveProgress(Handle plugin, int args)
 		remove = true;
 	}
 
-	Call_StartForward(hOnAchievementProgressChanged);
-	Call_PushCell(client);
-	Call_PushCell(oldprogress);
-	Call_PushCell(progress);
-	Call_PushCell(id);
-	Call_Finish();
+	if(hOnAchievementProgressChanged.FunctionCount > 0) {
+		Call_StartForward(hOnAchievementProgressChanged);
+		Call_PushCell(client);
+		Call_PushCell(oldprogress);
+		Call_PushCell(progress);
+		Call_PushCell(id);
+		Call_Finish();
+	}
 
 	PlayerAchivCache[client].SetProgress(id, progress, idx);
 
@@ -176,11 +180,13 @@ int NativeAchiv_RemoveProgress(Handle plugin, int args)
 		PlayerAchivCache[client].Erase(id, idx);
 
 		if(PlayerAchivCache[client].HasAchieved(id, idx)) {
-			Call_StartForward(hOnAchievementStatusChanged);
-			Call_PushCell(client);
-			Call_PushCell(false);
-			Call_PushCell(id);
-			Call_Finish();
+			if(hOnAchievementStatusChanged.FunctionCount > 0) {
+				Call_StartForward(hOnAchievementStatusChanged);
+				Call_PushCell(client);
+				Call_PushCell(false);
+				Call_PushCell(id);
+				Call_Finish();
+			}
 		}
 	}
 
@@ -214,11 +220,13 @@ int NativeAchiv_AwardAchievement(Handle plugin, int args)
 
 		AnnouceAchievement(client, id);
 
-		Call_StartForward(hOnAchievementStatusChanged);
-		Call_PushCell(client);
-		Call_PushCell(true);
-		Call_PushCell(id);
-		Call_Finish();
+		if(hOnAchievementStatusChanged.FunctionCount > 0) {
+			Call_StartForward(hOnAchievementStatusChanged);
+			Call_PushCell(client);
+			Call_PushCell(true);
+			Call_PushCell(id);
+			Call_Finish();
+		}
 
 		return 1;
 	} else {
@@ -262,12 +270,14 @@ int NativeAchiv_AwardProgress(Handle plugin, int args)
 		achieved = true;
 	}
 
-	Call_StartForward(hOnAchievementProgressChanged);
-	Call_PushCell(client);
-	Call_PushCell(oldprogress);
-	Call_PushCell(progress);
-	Call_PushCell(id);
-	Call_Finish();
+	if(hOnAchievementProgressChanged.FunctionCount > 0) {
+		Call_StartForward(hOnAchievementProgressChanged);
+		Call_PushCell(client);
+		Call_PushCell(oldprogress);
+		Call_PushCell(progress);
+		Call_PushCell(id);
+		Call_Finish();
+	}
 
 	PlayerAchivCache[client].SetProgress(id, progress, pidx);
 
@@ -303,11 +313,14 @@ int NativeAchiv_AwardProgress(Handle plugin, int args)
 	if(achieved) {
 		AnnouceAchievement(client, id, aidx);
 		PlayerAchivCache[client].SetAchievedTime(id, time, pidx);
-		Call_StartForward(hOnAchievementStatusChanged);
-		Call_PushCell(client);
-		Call_PushCell(true);
-		Call_PushCell(id);
-		Call_Finish();
+
+		if(hOnAchievementStatusChanged.FunctionCount > 0) {
+			Call_StartForward(hOnAchievementStatusChanged);
+			Call_PushCell(client);
+			Call_PushCell(true);
+			Call_PushCell(id);
+			Call_Finish();
+		}
 	}
 
 	return view_as<bool>(achieved);

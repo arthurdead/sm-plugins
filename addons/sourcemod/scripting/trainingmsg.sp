@@ -652,9 +652,11 @@ Action command_continue(int client, const char[] command, int args)
 		} else {
 			has_continued[client] = true;
 
-			Call_StartForward(hOnContinued);
-			Call_PushCell(client);
-			Call_Finish();
+			if(hOnContinued.FunctionCount > 0) {
+				Call_StartForward(hOnContinued);
+				Call_PushCell(client);
+				Call_Finish();
+			}
 		}
 	}
 	return Plugin_Continue;

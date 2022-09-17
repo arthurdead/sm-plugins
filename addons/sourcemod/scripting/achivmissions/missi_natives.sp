@@ -356,12 +356,14 @@ int NativePlrMissi_AwardProgress(Handle plugin, int args)
 
 	progress += value;
 
-	Call_StartForward(hOnMissionProgressChanged);
-	Call_PushCell(client);
-	Call_PushCell(oldprogress);
-	Call_PushCell(progress);
-	Call_PushCell(packed);
-	Call_Finish();
+	if(hOnMissionProgressChanged.FunctionCount > 0) {
+		Call_StartForward(hOnMissionProgressChanged);
+		Call_PushCell(client);
+		Call_PushCell(oldprogress);
+		Call_PushCell(progress);
+		Call_PushCell(packed);
+		Call_Finish();
+	}
 
 	PlayerMissiCache[client].SetProgress(id, progress, pidx);
 
@@ -413,21 +415,25 @@ int NativePlrMissi_RemoveProgress(Handle plugin, int args)
 		remove = true;
 	}
 
-	Call_StartForward(hOnMissionProgressChanged);
-	Call_PushCell(client);
-	Call_PushCell(oldprogress);
-	Call_PushCell(progress);
-	Call_PushCell(packed);
-	Call_Finish();
+	if(hOnMissionProgressChanged.FunctionCount > 0) {
+		Call_StartForward(hOnMissionProgressChanged);
+		Call_PushCell(client);
+		Call_PushCell(oldprogress);
+		Call_PushCell(progress);
+		Call_PushCell(packed);
+		Call_Finish();
+	}
 
 	PlayerMissiCache[client].SetProgress(id, progress, pidx);
 
 	if(completed && remove) {
-		Call_StartForward(hOnMissionStatusChanged);
-		Call_PushCell(client);
-		Call_PushCell(MISSION_UNCOMPLETED);
-		Call_PushCell(packed);
-		Call_Finish();
+		if(hOnMissionStatusChanged.FunctionCount > 0) {
+			Call_StartForward(hOnMissionStatusChanged);
+			Call_PushCell(client);
+			Call_PushCell(MISSION_UNCOMPLETED);
+			Call_PushCell(packed);
+			Call_Finish();
+		}
 	}
 
 	char query[QUERY_STR_MAX];
@@ -474,11 +480,13 @@ int NativePlrMissi_Complete(Handle plugin, int args)
 		return 0;
 	}
 
-	Call_StartForward(hOnMissionStatusChanged);
-	Call_PushCell(client);
-	Call_PushCell(MISSION_COMPLETED);
-	Call_PushCell(packed);
-	Call_Finish();
+	if(hOnMissionStatusChanged.FunctionCount > 0) {
+		Call_StartForward(hOnMissionStatusChanged);
+		Call_PushCell(client);
+		Call_PushCell(MISSION_COMPLETED);
+		Call_PushCell(packed);
+		Call_Finish();
+	}
 
 	int time = GetTime();
 
@@ -511,11 +519,13 @@ int handle_cancel_native(bool cancel)
 		return -1;
 	}
 
-	Call_StartForward(hOnMissionStatusChanged);
-	Call_PushCell(client);
-	Call_PushCell(cancel ? MISSION_CANCELED : MISSION_TURNEDIN);
-	Call_PushCell(packed);
-	Call_Finish();
+	if(hOnMissionStatusChanged.FunctionCount > 0) {
+		Call_StartForward(hOnMissionStatusChanged);
+		Call_PushCell(client);
+		Call_PushCell(cancel ? MISSION_CANCELED : MISSION_TURNEDIN);
+		Call_PushCell(packed);
+		Call_Finish();
+	}
 
 	char query[QUERY_STR_MAX];
 	dbMissi.Format(query, QUERY_STR_MAX,

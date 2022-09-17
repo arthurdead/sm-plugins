@@ -219,8 +219,10 @@ void CacheMissiData(Database db, any data, int numQueries, DBResultSet[] results
 
 	db.Execute(tr, CachePlayersMissiData, OnErrorTransaction);
 
-	Call_StartForward(hOnMissionsLoaded);
-	Call_Finish();
+	if(hOnMissionsLoaded.FunctionCount > 0) {
+		Call_StartForward(hOnMissionsLoaded);
+		Call_Finish();
+	}
 }
 
 void CachePlayersMissiData(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
@@ -293,7 +295,9 @@ void CachePlayerMissiData(Database db, DBResultSet results, const char[] error, 
 		} while(results.FetchMoreResults());
 	}
 
-	Call_StartForward(hOnMissionDataLoaded);
-	Call_PushCell(client);
-	Call_Finish();
+	if(hOnMissionDataLoaded.FunctionCount > 0) {
+		Call_StartForward(hOnMissionDataLoaded);
+		Call_PushCell(client);
+		Call_Finish();
+	}
 }

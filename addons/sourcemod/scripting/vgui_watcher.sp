@@ -40,10 +40,12 @@ static int native_reset_player_vgui(Handle plugin, int params)
 	int client = GetNativeCell(1);
 
 	if(player_vgui[client] != player_vgui_none) {
-		Call_StartForward(fwd_player_closed_vgui);
-		Call_PushCell(client);
-		Call_PushCell(player_vgui[client]);
-		Call_Finish();
+		if(fwd_player_closed_vgui.FunctionCount > 0) {
+			Call_StartForward(fwd_player_closed_vgui);
+			Call_PushCell(client);
+			Call_PushCell(player_vgui[client]);
+			Call_Finish();
+		}
 	}
 
 	player_menu_open_num[client] = 0;
@@ -95,10 +97,12 @@ static Action command_team(int client, const char[] command, int args)
 		player_menu_open_num[client] = 0;
 		player_menu_close_num[client] = 0;
 		player_vgui[client] = player_vgui_none;
-		Call_StartForward(fwd_player_closed_vgui);
-		Call_PushCell(client);
-		Call_PushCell(player_vgui_team);
-		Call_Finish();
+		if(fwd_player_closed_vgui.FunctionCount > 0) {
+			Call_StartForward(fwd_player_closed_vgui);
+			Call_PushCell(client);
+			Call_PushCell(player_vgui_team);
+			Call_Finish();
+		}
 	#if defined DEBUG
 		PrintToServer("closed team menu");
 	#endif
@@ -119,35 +123,43 @@ static Action command_menu(int client, const char[] command, int args)
 			player_menu_close_num[client] = 0;
 			if(player_vgui[client] == player_vgui_class) {
 				player_vgui[client] = player_vgui_none;
-				Call_StartForward(fwd_player_closed_vgui);
-				Call_PushCell(client);
-				Call_PushCell(player_vgui_class);
-				Call_Finish();
+				if(fwd_player_closed_vgui.FunctionCount > 0) {
+					Call_StartForward(fwd_player_closed_vgui);
+					Call_PushCell(client);
+					Call_PushCell(player_vgui_class);
+					Call_Finish();
+				}
 			#if defined DEBUG
 				PrintToServer("closed class menu");
 			#endif
 			} else {
 				player_vgui[client] = player_vgui_team;
-				Call_StartForward(fwd_player_opened_vgui);
-				Call_PushCell(client);
-				Call_PushCell(player_vgui_team);
-				Call_Finish();
+				if(fwd_player_opened_vgui.FunctionCount > 0) {
+					Call_StartForward(fwd_player_opened_vgui);
+					Call_PushCell(client);
+					Call_PushCell(player_vgui_team);
+					Call_Finish();
+				}
 			#if defined DEBUG
 				PrintToServer("opened team menu");
 			#endif
 			}
 		} else if(player_menu_close_num[client] == 1 && player_menu_open_num[client] == 0) {
 			if(player_vgui[client] == player_vgui_none) {
-				Call_StartForward(fwd_player_opening_vgui);
-				Call_PushCell(client);
-				Call_Finish();
+				if(fwd_player_opening_vgui.FunctionCount > 0) {
+					Call_StartForward(fwd_player_opening_vgui);
+					Call_PushCell(client);
+					Call_Finish();
+				}
 			#if defined DEBUG
 				PrintToServer("opening menu");
 			#endif
 			} else if(player_vgui[client] == player_vgui_class) {
-				Call_StartForward(fwd_player_closing_class_vgui);
-				Call_PushCell(client);
-				Call_Finish();
+				if(fwd_player_closing_class_vgui.FunctionCount > 0) {
+					Call_StartForward(fwd_player_closing_class_vgui);
+					Call_PushCell(client);
+					Call_Finish();
+				}
 			#if defined DEBUG
 				PrintToServer("closing class menu");
 			#endif
@@ -159,10 +171,12 @@ static Action command_menu(int client, const char[] command, int args)
 			player_vgui[client] = player_vgui_class;
 			player_menu_open_num[client] = 0;
 			player_menu_close_num[client] = 0;
-			Call_StartForward(fwd_player_opened_vgui);
-			Call_PushCell(client);
-			Call_PushCell(player_vgui_class);
-			Call_Finish();
+			if(fwd_player_opened_vgui.FunctionCount > 0) {
+				Call_StartForward(fwd_player_opened_vgui);
+				Call_PushCell(client);
+				Call_PushCell(player_vgui_class);
+				Call_Finish();
+			}
 		#if defined DEBUG
 			PrintToServer("opened class menu");
 		#endif

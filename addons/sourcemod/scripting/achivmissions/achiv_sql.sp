@@ -138,8 +138,10 @@ void CacheAchivData(Database db, any data, int numQueries, DBResultSet[] results
 
 	db.Execute(tr, CachePlayersAchivData, OnErrorTransaction);
 
-	Call_StartForward(hOnAchievementsLoaded);
-	Call_Finish();
+	if(hOnAchievementsLoaded.FunctionCount > 0) {
+		Call_StartForward(hOnAchievementsLoaded);
+		Call_Finish();
+	}
 }
 
 void CachePlayersAchivData(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
@@ -209,7 +211,9 @@ void CachePlayerAchivData(Database db, DBResultSet results, const char[] error, 
 		} while(results.FetchMoreResults());
 	}
 
-	Call_StartForward(hOnAchievementDataLoaded);
-	Call_PushCell(client);
-	Call_Finish();
+	if(hOnAchievementDataLoaded.FunctionCount > 0) {
+		Call_StartForward(hOnAchievementDataLoaded);
+		Call_PushCell(client);
+		Call_Finish();
+	}
 }
