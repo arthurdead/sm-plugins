@@ -95,6 +95,8 @@ enum struct SoundInfo
 	bool is_script;
 
 	bool from_group;
+
+	bool download;
 }
 
 enum struct SoundReplacementInfo
@@ -113,6 +115,19 @@ enum struct ConfigEconInfo
 	int price;
 }
 
+enum download_flags_t
+{
+	download_none =      0,
+	download_model =     (1 << 0),
+	download_arm_model = (1 << 1)
+};
+
+enum struct BasicPrecacheInfo
+{
+	char path[PLATFORM_MAX_PATH];
+	bool download;
+}
+
 enum struct ConfigModelInfo
 {
 	char model[PLATFORM_MAX_PATH];
@@ -123,6 +138,8 @@ enum struct ConfigModelInfo
 
 	bool model_from_group;
 	bool arm_from_group;
+
+	download_flags_t download_flags;
 }
 
 enum struct ConfigVariationInfo
@@ -920,22 +937,35 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 		model_info.arm_from_group = true;
 	}
 
+	model_info.download_flags = download_none;
+
+	if(kv.GetNum("download") == 1) {
+		model_info.download_flags |= download_model;
+	}
+
+	if(kv.GetNum("download_arm") == 1) {
+		model_info.download_flags |= download_arm_model;
+	}
+
 	info.models.SetArray("", model_info, sizeof(ConfigModelInfo));
 
 	SoundInfo sound_info;
 	sound_info.from_group = is_group;
 
+	BasicPrecacheInfo prec_info;
+
 	if(kv.JumpToKey("precache")) {
 		if(kv.JumpToKey("models")) {
 			if(!info.model_precaches) {
-				info.model_precaches = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+				info.model_precaches = new ArrayList(sizeof(BasicPrecacheInfo));
 			}
 
-			if(kv.GotoFirstSubKey(false)) {
+			if(kv.GotoFirstSubKey()) {
 				do {
-					kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH, "");
-					info.model_precaches.PushString(any_file_path);
-				} while(kv.GotoNextKey(false));
+					kv.GetSectionName(prec_info.path, PLATFORM_MAX_PATH);
+					prec_info.download = kv.GetNum("download") != 0;
+					info.model_precaches.PushArray(prec_info, sizeof(BasicPrecacheInfo));
+				} while(kv.GotoNextKey());
 				kv.GoBack();
 			}
 			kv.GoBack();
@@ -945,29 +975,30 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 				info.sound_precaches = new ArrayList(sizeof(SoundInfo));
 			}
 
-			if(kv.GotoFirstSubKey(false)) {
-				char sound_value[32];
-
+			if(kv.GotoFirstSubKey()) {
 				do {
 					kv.GetSectionName(sound_info.path, PLATFORM_MAX_PATH);
-					kv.GetString(NULL_STRING, sound_value, PLATFORM_MAX_PATH, "");
-					sound_info.is_script = StrEqual(sound_value, "script");
+					sound_info.is_script = kv.GetNum("script") != 0;
+					sound_info.download = kv.GetNum("download") != 0;
 					info.sound_precaches.PushArray(sound_info, sizeof(SoundInfo));
-				} while(kv.GotoNextKey(false));
+				} while(kv.GotoNextKey());
 				kv.GoBack();
 			}
 			kv.GoBack();
 		}
 		if(kv.JumpToKey("sound_folders")) {
 			if(!info.sound_precache_folders) {
-				info.sound_precache_folders = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+				info.sound_precache_folders = new ArrayList(sizeof(BasicPrecacheInfo));
 			}
 
-			if(kv.GotoFirstSubKey(false)) {
+			if(kv.GotoFirstSubKey()) {
 				do {
-					kv.GetString(NULL_STRING, any_file_path, PLATFORM_MAX_PATH);
-					info.sound_precache_folders.PushString(any_file_path);
-				} while(kv.GotoNextKey(false));
+					kv.GetSectionName(prec_info.path, PLATFORM_MAX_PATH);
+
+					prec_info.download = kv.GetNum("download") != 0;
+
+					info.sound_precache_folders.PushArray(prec_info, sizeof(BasicPrecacheInfo));
+				} while(kv.GotoNextKey());
 				kv.GoBack();
 			}
 			kv.GoBack();
@@ -1007,18 +1038,18 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 					PrintToServer(PM2_CON_PREFIX ... "created regex %s", any_file_path);
 				#endif
 
-					if(kv.GotoFirstSubKey(false)) {
+					if(kv.GotoFirstSubKey()) {
 						char value[7];
 
 						sound_replace_info.destinations = new ArrayList(sizeof(SoundInfo));
 
 						do {
 							kv.GetSectionName(sound_info.path, PLATFORM_MAX_PATH);
-							kv.GetString(NULL_STRING, value, 7, "sample");
-							sound_info.is_script = StrEqual(value, "script");
+							sound_info.is_script = kv.GetNum("script") != 0;
+							sound_info.download = kv.GetNum("download") != 0;
 
 							sound_replace_info.destinations.PushArray(sound_info, sizeof(SoundInfo));
-						} while(kv.GotoNextKey(false));
+						} while(kv.GotoNextKey());
 						kv.GoBack();
 					}
 
@@ -1217,6 +1248,16 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 						kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
 						kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
+
+						model_info.download_flags = download_none;
+
+						if(kv.GetNum("download") == 1) {
+							model_info.download_flags |= download_model;
+						}
+
+						if(kv.GetNum("download_arm") == 1) {
+							model_info.download_flags |= download_arm_model;
+						}
 
 						kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
 						model_info.model_class = get_class(classname);
@@ -1836,7 +1877,7 @@ static void on_econ_cat_registered(int cat_idx)
 
 		configs.GetArray(conf_idx, info, sizeof(ConfigInfo));
 
-		econ_get_or_register_item(cat_idx, info.name, info.econ.description, "playermodel", info.econ.price, null);
+		econ_get_or_register_item(cat_idx, info.name, info.econ.description, "playermodel", info.econ.price, null, 1);
 	}
 }
 
@@ -2105,6 +2146,8 @@ public void OnMapStart()
 
 	char any_file_path[PLATFORM_MAX_PATH];
 
+	BasicPrecacheInfo prec_info;
+
 	int groups_len = groups.Length;
 	for(int i = 0; i < groups_len; ++i) {
 		groups.GetArray(i, group, sizeof(ConfigGroupInfo));
@@ -2127,7 +2170,9 @@ public void OnMapStart()
 						if(StrContains(sound_info.path, "$") == -1) {
 							PrecacheSound(sound_info.path);
 							FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
-							AddFileToDownloadsTable(any_file_path);
+							if(sound_info.download) {
+								AddFileToDownloadsTable(any_file_path);
+							}
 						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from replace", group.name, sound_info.path);
 						#endif
@@ -2152,7 +2197,9 @@ public void OnMapStart()
 					#endif
 
 						PrecacheModel(mdlinfo.model);
-						load_depfile(mdlinfo.model);
+						if(mdlinfo.download_flags & download_model) {
+							load_depfile(mdlinfo.model);
+						}
 					}
 
 					if(mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
@@ -2161,7 +2208,9 @@ public void OnMapStart()
 					#endif
 
 						PrecacheModel(mdlinfo.arm_model);
-						load_depfile(mdlinfo.arm_model);
+						if(mdlinfo.download_flags & download_arm_model) {
+							load_depfile(mdlinfo.arm_model);
+						}
 					}
 				}
 			}
@@ -2171,14 +2220,16 @@ public void OnMapStart()
 		if(group.baseline_config.model_precaches != null) {
 			int models_len = group.baseline_config.model_precaches.Length;
 			for(int j = 0; j < models_len; ++j) {
-				group.baseline_config.model_precaches.GetString(j, any_file_path, PLATFORM_MAX_PATH);
+				group.baseline_config.model_precaches.GetArray(j, prec_info, sizeof(BasicPrecacheInfo));
 
 			#if defined DEBUG_CONFIG
-				PrintToServer(PM2_CON_PREFIX ... "group %s precached model %s from precache", group.name, any_file_path);
+				PrintToServer(PM2_CON_PREFIX ... "group %s precached model %s from precache", group.name, prec_info.path);
 			#endif
 
-				PrecacheModel(any_file_path);
-				load_depfile(any_file_path);
+				PrecacheModel(prec_info.path);
+				if(prec_info.download) {
+					load_depfile(prec_info.path);
+				}
 			}
 		}
 
@@ -2194,8 +2245,10 @@ public void OnMapStart()
 				#endif
 				} else {
 					PrecacheSound(sound_info.path);
-					FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
-					AddFileToDownloadsTable(any_file_path);
+					if(sound_info.download) {
+						FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+						AddFileToDownloadsTable(any_file_path);
+					}
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from precache", group.name, sound_info.path);
 				#endif
@@ -2204,20 +2257,19 @@ public void OnMapStart()
 		}
 
 		if(group.baseline_config.sound_precache_folders != null) {
-			char sound_folder_path[PLATFORM_MAX_PATH];
 			char sound_file_path[PLATFORM_MAX_PATH];
 
 			int sounds_len = group.baseline_config.sound_precache_folders.Length;
 			for(int j = 0; j < sounds_len; ++j) {
-				group.baseline_config.sound_precache_folders.GetString(j, sound_folder_path, PLATFORM_MAX_PATH);
+				group.baseline_config.sound_precache_folders.GetArray(j, prec_info, sizeof(BasicPrecacheInfo));
 
-				Format(sound_folder_path, PLATFORM_MAX_PATH, "sound/%s", sound_folder_path);
+				Format(prec_info.path, PLATFORM_MAX_PATH, "sound/%s", prec_info.path);
 
 			#if defined DEBUG_CONFIG
-				PrintToServer(PM2_CON_PREFIX ... "group %s precaching sound folder %s", group.name, sound_folder_path);
+				PrintToServer(PM2_CON_PREFIX ... "group %s precaching sound folder %s", group.name, prec_info.path);
 			#endif
 				
-				DirectoryListing maps_dir = OpenDirectory(sound_folder_path, true);
+				DirectoryListing maps_dir = OpenDirectory(prec_info.path, true);
 				if(maps_dir != null) {
 					FileType filetype;
 					while(maps_dir.GetNext(sound_file_path, PLATFORM_MAX_PATH, filetype)) {
@@ -2225,15 +2277,17 @@ public void OnMapStart()
 							continue;
 						}
 
-						Format(sound_file_path, PLATFORM_MAX_PATH, "%s/%s", sound_folder_path[6], sound_file_path);
+						Format(sound_file_path, PLATFORM_MAX_PATH, "%s/%s", prec_info.path[6], sound_file_path);
 
 					#if defined DEBUG_CONFIG && 0
-						PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from precache folder %s", group.name, sound_file_path, sound_folder_path);
+						PrintToServer(PM2_CON_PREFIX ... "group %s precached sound %s from precache folder %s", group.name, sound_file_path, prec_info.path);
 					#endif
 
 						PrecacheSound(sound_file_path);
-						FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
-						AddFileToDownloadsTable(any_file_path);
+						if(prec_info.download) {
+							FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
+							AddFileToDownloadsTable(any_file_path);
+						}
 					}
 				}
 				delete maps_dir;
@@ -2259,7 +2313,9 @@ public void OnMapStart()
 				#endif
 
 					PrecacheModel(mdlinfo.model);
-					load_depfile(mdlinfo.model);
+					if(mdlinfo.download_flags & download_model) {
+						load_depfile(mdlinfo.model);
+					}
 				}
 
 				if(!mdlinfo.arm_from_group && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
@@ -2268,7 +2324,9 @@ public void OnMapStart()
 				#endif
 
 					PrecacheModel(mdlinfo.arm_model);
-					load_depfile(mdlinfo.arm_model);
+					if(mdlinfo.download_flags & download_arm_model) {
+						load_depfile(mdlinfo.arm_model);
+					}
 				}
 			}
 		}
@@ -2291,7 +2349,9 @@ public void OnMapStart()
 						#endif
 
 							PrecacheModel(mdlinfo.model);
-							load_depfile(mdlinfo.model);
+							if(mdlinfo.download_flags & download_model) {
+								load_depfile(mdlinfo.model);
+							}
 						}
 
 						if(!mdlinfo.arm_from_group && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
@@ -2300,7 +2360,9 @@ public void OnMapStart()
 						#endif
 
 							PrecacheModel(mdlinfo.arm_model);
-							load_depfile(mdlinfo.arm_model);
+							if(mdlinfo.download_flags & download_arm_model) {
+								load_depfile(mdlinfo.arm_model);
+							}
 						}
 					}
 				}
@@ -2311,14 +2373,16 @@ public void OnMapStart()
 		if(info.model_precaches != null) {
 			int models_len = info.model_precaches.Length;
 			for(int j = 0; j < models_len; ++j) {
-				info.model_precaches.GetString(j, any_file_path, PLATFORM_MAX_PATH);
+				info.model_precaches.GetArray(j, prec_info, sizeof(BasicPrecacheInfo));
 
 			#if defined DEBUG_CONFIG
-				PrintToServer(PM2_CON_PREFIX ... "config %s precached model %s from precache", info.name, any_file_path);
+				PrintToServer(PM2_CON_PREFIX ... "config %s precached model %s from precache", info.name, prec_info.path);
 			#endif
 
-				PrecacheModel(any_file_path);
-				load_depfile(any_file_path);
+				PrecacheModel(prec_info.path);
+				if(prec_info.download) {
+					load_depfile(prec_info.path);
+				}
 			}
 		}
 
@@ -2345,8 +2409,10 @@ public void OnMapStart()
 					} else {
 						if(StrContains(sound_info.path, "$") == -1) {
 							PrecacheSound(sound_info.path);
-							FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
-							AddFileToDownloadsTable(any_file_path);
+							if(sound_info.download) {
+								FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+								AddFileToDownloadsTable(any_file_path);
+							}
 						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from replace", info.name, sound_info.path);
 						#endif
@@ -2371,8 +2437,10 @@ public void OnMapStart()
 				#endif
 				} else {
 					PrecacheSound(sound_info.path);
-					FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
-					AddFileToDownloadsTable(any_file_path);
+					if(sound_info.download) {
+						FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_info.path);
+						AddFileToDownloadsTable(any_file_path);
+					}
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from precache", info.name, sound_info.path);
 				#endif
@@ -2381,20 +2449,19 @@ public void OnMapStart()
 		}
 
 		if(info.sound_precache_folders != null) {
-			char sound_folder_path[PLATFORM_MAX_PATH];
 			char sound_file_path[PLATFORM_MAX_PATH];
 
 			int sounds_len = info.sound_precache_folders.Length;
 			for(int j = 0; j < sounds_len; ++j) {
-				info.sound_precache_folders.GetString(j, sound_folder_path, PLATFORM_MAX_PATH);
+				info.sound_precache_folders.GetArray(j, prec_info, sizeof(BasicPrecacheInfo));
 
-				Format(sound_folder_path, PLATFORM_MAX_PATH, "sound/%s", sound_folder_path);
+				Format(prec_info.path, PLATFORM_MAX_PATH, "sound/%s", prec_info.path);
 
 			#if defined DEBUG_CONFIG
-				PrintToServer(PM2_CON_PREFIX ... "config %s precaching sound folder %s", info.name, sound_folder_path);
+				PrintToServer(PM2_CON_PREFIX ... "config %s precaching sound folder %s", info.name, prec_info.path);
 			#endif
 				
-				DirectoryListing maps_dir = OpenDirectory(sound_folder_path, true);
+				DirectoryListing maps_dir = OpenDirectory(prec_info.path, true);
 				if(maps_dir != null) {
 					FileType filetype;
 					while(maps_dir.GetNext(sound_file_path, PLATFORM_MAX_PATH, filetype)) {
@@ -2402,15 +2469,17 @@ public void OnMapStart()
 							continue;
 						}
 
-						Format(sound_file_path, PLATFORM_MAX_PATH, "%s/%s", sound_folder_path[6], sound_file_path);
+						Format(sound_file_path, PLATFORM_MAX_PATH, "%s/%s", prec_info.path[6], sound_file_path);
 
 					#if defined DEBUG_CONFIG && 0
-						PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from precache folder %s", info.name, sound_file_path), sound_folder_path;
+						PrintToServer(PM2_CON_PREFIX ... "config %s precached sound %s from precache folder %s", info.name, sound_file_path), prec_info.path;
 					#endif
 
 						PrecacheSound(sound_file_path);
-						FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
-						AddFileToDownloadsTable(any_file_path);
+						if(prec_info.download) {
+							FormatEx(any_file_path, PLATFORM_MAX_PATH, "sound/%s", sound_file_path);
+							AddFileToDownloadsTable(any_file_path);
+						}
 					}
 				}
 				delete maps_dir;
@@ -3659,9 +3728,7 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 
 			remove_playermodel(client);
 
-			Call_StartForward(fwd_changed);
-			Call_PushCell(client);
-			Call_Finish();
+			call_changed_fwd(client);
 		}
 	}
 }
@@ -5039,6 +5106,15 @@ static void replace_model_variables(int client, TFClassType model_class, char[] 
 	ReplaceString(model, len, "$model_class$", classname);
 }
 
+static void call_changed_fwd(int client)
+{
+	if(fwd_changed.FunctionCount > 0) {
+		Call_StartForward(fwd_changed);
+		Call_PushCell(client);
+		Call_Finish();
+	}
+}
+
 static void handle_playermodel(int client)
 {
 #if defined DEBUG_MODEL
@@ -5054,9 +5130,6 @@ static void handle_playermodel(int client)
 	PrintToServer(PM2_CON_PREFIX ... "  player_custom_taunt_model.model = %s", player_custom_taunt_model[client].model);
 	PrintToServer(PM2_CON_PREFIX ... "  player_custom_taunt_model.class = %i", player_custom_taunt_model[client].class);
 	PrintToServer(PM2_CON_PREFIX ... "  player_custom_taunt_model.bonemerge = %i", player_custom_taunt_model[client].bonemerge);
-
-	PrintToServer(PM2_CON_PREFIX ... "  player_config.model = %s", player_config[client].model);
-	PrintToServer(PM2_CON_PREFIX ... "  player_config.model_class = %i", player_config[client].model_class);
 #endif
 
 	if(TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
@@ -5161,9 +5234,7 @@ static void handle_playermodel(int client)
 
 		remove_playermodel(client);
 
-		Call_StartForward(fwd_changed);
-		Call_PushCell(client);
-		Call_Finish();
+		call_changed_fwd(client);
 	} else if(bonemerge) {
 		if(animation_model[0] == '\0') {
 			get_model_for_class(real_player_class, animation_model, PLATFORM_MAX_PATH, client);
@@ -5216,6 +5287,8 @@ static void handle_playermodel(int client)
 		if(!same_custom_model) {
 			set_player_custom_model(client, animation_model);
 			SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
+
+			call_changed_fwd(client);
 		}
 
 		if(!same_entity_model) {
@@ -5247,10 +5320,6 @@ static void handle_playermodel(int client)
 
 			SetEntityModel(entity, player_model);
 			strcopy(player_entity_model[client], PLATFORM_MAX_PATH, player_model);
-
-			Call_StartForward(fwd_changed);
-			Call_PushCell(client);
-			Call_Finish();
 		}
 	} else {
 		if(player_model[0] == '\0') {
@@ -5266,8 +5335,6 @@ static void handle_playermodel(int client)
 		set_player_custom_model(client, player_model);
 		SetEntProp(client, Prop_Send, "m_bUseClassAnimations", 1);
 
-		Call_StartForward(fwd_changed);
-		Call_PushCell(client);
-		Call_Finish();
+		call_changed_fwd(client);
 	}
 }
