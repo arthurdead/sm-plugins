@@ -247,6 +247,10 @@ static int get_entity_owner(int other)
 	if(other >= 1 && other <= MaxClients) {
 		other_owner = other;
 	} else {
+		if(other == -1) {
+			return -1;
+		}
+
 		char classname[32];
 		GetEntityClassname(other, classname, sizeof(classname));
 
