@@ -46,20 +46,30 @@ stock bool IsEnemy(int entity, int other)
 
 stock void SetEntityTeam(int entity, int team, bool raw)
 {
+	int old_team = GetEntityTeam(entity);
+	if(team == old_team) {
+		return;
+	}
+
 	if(IsPlayer(entity)) {
 		if(raw || (team == 0)) {
-			int old_team = GetEntityTeam(entity);
-
 			SetEntProp(entity, Prop_Send, "m_iTeamNum", team);
 
-			int manager = MaxClients+1;
+			int processed = 0;
+
+			int manager = -1;
 			while((manager = FindEntityByClassname(manager, "tf_team")) != -1) {
+				if(processed & ((1 << 0)|(1 << 1))) {
+					break;
+				}
+
 				int manager_team = GetEntProp(manager, Prop_Send, "m_iTeamNum");
 				if(manager_team == old_team) {
 					SDKCall(hRemovePlayer, manager, entity);
-				}
-				if(manager_team == team) {
+					processed |= (1 << 0);
+				} else if(manager_team == team) {
 					SDKCall(hAddPlayer, manager, entity);
+					processed |= (1 << 1);
 				}
 			}
 		} else if(!raw) {

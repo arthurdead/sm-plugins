@@ -5,6 +5,8 @@
 
 #include <sdktools_functions>
 
+#define MAX_TEAM_NAME_LENGTH 32
+
 enum HealSource
 {
 	HEAL_MEDIGUN,
@@ -70,6 +72,8 @@ forward Action TeamManager_CanGetJarated(int attacker, int victim);
 native int TeamManager_GetEntityTeam(int entity);
 
 native void TeamManager_SetEntityTeam(int entity, int team, bool raw);
+
+native int TeamManager_CreateTeam(const char[] name, int color[4]);
 
 stock int GetTeamIndex(const char[] name)
 {

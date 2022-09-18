@@ -60,6 +60,14 @@
 			{
 				"linux" "@_ZN13CObjectSapper23IsValidRoboSapperTargetEP9CTFPlayer"
 			}
+			"CTFTeamManager::Create"
+			{
+				"linux" "@_ZN14CTFTeamManager6CreateEPKc9color32_s"
+			}
+			"TFTeamMgr"
+			{
+				"linux" "@_Z9TFTeamMgrv"
+			}
 		}
 		"Offsets"
 		{

@@ -4,6 +4,7 @@
 #include <tf2_stocks>
 #include <teammanager>
 #include <sdkhooks>
+#include <bit>
 
 #undef REQUIRE_EXTENSIONS
 #tryinclude <collisionhook>
@@ -14,11 +15,21 @@
 
 //#define DEBUG
 
+#define TF_TEAM_HALLOWEEN 5
+
+#define HALLOWEEN_SCENARIO_LAKESIDE 3
+#define HALLOWEEN_SCENARIO_HIGHTOWER 4
+
 Handle hAddPlayer = null;
 Handle hRemovePlayer = null;
+Handle hTeamMgr = null;
+Handle hCreateTeam = null;
+
 #if defined _collisionhook_included
 bool bCollisionHook = false;
 #endif
+
+int CTFTeam_m_TeamColor_offset = -1;
 
 #include "teammanager/stocks.inc"
 
@@ -62,6 +73,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 
 	CreateNative("TeamManager_GetEntityTeam", Native_TeamManager_GetEntityTeam);
 	CreateNative("TeamManager_SetEntityTeam", Native_TeamManager_SetEntityTeam);
+
+	CreateNative("TeamManager_CreateTeam", Native_TeamManager_CreateTeam);
 
 	RegPluginLibrary("teammanager");
 
@@ -123,6 +136,18 @@ public void OnPluginStart()
 	PrepSDKCall_AddParameter(SDKType_CBasePlayer, SDKPass_Pointer);
 	hRemovePlayer = EndPrepSDKCall();
 
+	StartPrepSDKCall(SDKCall_Raw);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CTFTeamManager::Create");
+	PrepSDKCall_AddParameter(SDKType_String, SDKPass_Pointer);
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+	PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
+	hCreateTeam = EndPrepSDKCall();
+
+	StartPrepSDKCall(SDKCall_Static);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "TFTeamMgr");
+	PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
+	hTeamMgr = EndPrepSDKCall();
+
 	delete gamedata;
 
 	AddCommandListener(ConCommand_JoinTeam, "changeteam");
@@ -135,6 +160,9 @@ public void OnPluginStart()
 	AddCommandListener(ConCommand_JoinClass, "join_class");
 
 	HookEvent("player_death", Event_Death, EventHookMode_Post);
+
+	CTFTeam_m_TeamColor_offset = FindSendPropInfo("CTeam", "m_iTeamNum");
+	CTFTeam_m_TeamColor_offset += 4;
 
 	if(g_bLateLoaded) {
 		for(int i = 1; i <= MaxClients; ++i) {
@@ -150,6 +178,9 @@ public void OnPluginStart()
 			OnEntityCreated(entity, classname);
 		}
 	}
+
+	RegAdminCmd("sm_dumpteams", sm_dumpteams, ADMFLAG_ROOT);
+	RegAdminCmd("sm_setmyteam", sm_setmyteam, ADMFLAG_ROOT);
 }
 
 public void OnPluginEnd()
@@ -176,6 +207,34 @@ int Native_TeamManager_SetEntityTeam(Handle plugin, int params)
 	SetEntityTeam(entity, team, raw);
 
 	return 1;
+}
+
+int Native_TeamManager_CreateTeam(Handle plugin, int params)
+{
+	int len;
+	GetNativeStringLength(1, len);
+	char[] name = new char[++len];
+	GetNativeString(1, name, len);
+
+	char temp_name[MAX_TEAM_NAME_LENGTH];
+
+	int color[4];
+	GetNativeArray(2, color, 4);
+
+	int color32 = pack_4_ints(color[0], color[1], color[2], color[3]);
+
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_team")) != -1) {
+		GetEntPropString(entity, Prop_Send, "m_szTeamname", temp_name, MAX_TEAM_NAME_LENGTH);
+
+		if(StrEqual(name, temp_name)) {
+			SetEntData(entity, CTFTeam_m_TeamColor_offset, color32, 4, false);
+
+			return GetEntProp(entity, Prop_Send, "m_iTeamNum");
+		}
+	}
+
+	return SDKCall(hCreateTeam, SDKCall(hTeamMgr), name, color32);
 }
 
 public void OnClientPutInServer(int client)
@@ -233,11 +292,63 @@ Action ConCommand_JoinClass(int client, const char[] command, int args)
 	return result;
 }
 
+static Action sm_dumpteams(int client, int args)
+{
+	char temp_name[MAX_TEAM_NAME_LENGTH];
+
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_team")) != -1) {
+		GetEntPropString(entity, Prop_Send, "m_szTeamname", temp_name, MAX_TEAM_NAME_LENGTH);
+
+		int team = GetEntProp(entity, Prop_Send, "m_iTeamNum");
+
+		int color32 = GetEntData(entity, CTFTeam_m_TeamColor_offset, 4);
+
+		int r; int g; int b; int a;
+		unpack_4_ints(color32, r, g, b, a);
+
+		PrintToServer("%i - %i - %s - [%i, %i, %i, %i]", entity, team, temp_name, r, g, b, a);
+	}
+
+	return Plugin_Handled;
+}
+
+static Action sm_setmyteam(int client, int args)
+{
+	int team = GetCmdArgInt(1);
+
+	SetEntityTeam(client, team, false);
+
+	return Plugin_Handled;
+}
+
 public void OnMapStart()
 {
 #if defined DEBUG
 	Precache();
 #endif
+
+	TeamManager_CreateTeam("__unused_team__", {255, 255, 255, 0});
+
+	int halloween_color[4];
+	halloween_color[3] = 0;
+
+	int halloween_scenario = GameRules_GetProp("m_halloweenScenario");
+	if(halloween_scenario == HALLOWEEN_SCENARIO_LAKESIDE ||
+		halloween_scenario == HALLOWEEN_SCENARIO_HIGHTOWER) {
+		halloween_color[0] = 112;
+		halloween_color[1] = 176;
+		halloween_color[2] = 74;
+	} else {
+		halloween_color[0] = 134;
+		halloween_color[1] = 80;
+		halloween_color[2] = 172;
+	}
+
+	int halloween_team = TeamManager_CreateTeam("Halloween", halloween_color);
+	if(halloween_team != TF_TEAM_HALLOWEEN) {
+		LogError("expected halloween team to be %i but got %i instead", TF_TEAM_HALLOWEEN, halloween_team);
+	}
 
 	FPlayerCanTakeDamageMapStart();
 	PlayerRelationshipMapStart();

@@ -272,6 +272,7 @@ public void OnMapStart()
 			nav_done_cycle();
 		}
 	} else {
+	#if 0
 		char nav[PLATFORM_MAX_PATH];
 		FormatEx(nav, PLATFORM_MAX_PATH, "maps/%s.nav", currentmap);
 
@@ -279,5 +280,6 @@ public void OnMapStart()
 			InsertServerCommand("nav_generate");
 			ServerExecute();
 		}
+	#endif
 	}
 }
