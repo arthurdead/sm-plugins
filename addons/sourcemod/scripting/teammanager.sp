@@ -5,6 +5,7 @@
 #include <teammanager>
 #include <sdkhooks>
 #include <bit>
+#include <rulestools>
 
 #undef REQUIRE_EXTENSIONS
 #tryinclude <collisionhook>
@@ -14,9 +15,6 @@
 #pragma newdecls required
 
 //#define DEBUG
-
-#define TF_TEAM_COUNT 4
-#define TF_TEAM_HALLOWEEN 5
 
 #define HALLOWEEN_SCENARIO_LAKESIDE 3
 #define HALLOWEEN_SCENARIO_HIGHTOWER 4
@@ -30,7 +28,8 @@ Handle hCreateTeam = null;
 bool bCollisionHook = false;
 #endif
 
-int CTFTeam_m_TeamColor_offset = -1;
+static int CTFTeam_m_TeamColor_offset = -1;
+bool truce_is_active;
 
 #include "teammanager/stocks.inc"
 
@@ -79,6 +78,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 
 	CreateNative("TeamManager_CreateTeam", Native_TeamManager_CreateTeam);
 	CreateNative("TeamManager_RemoveTeam", Native_TeamManager_RemoveTeam);
+	CreateNative("TeamManager_FindTeam", Native_TeamManager_FindTeam);
+	CreateNative("TeamManager_AreTeamsEnemies", Native_TeamManager_AreTeamsEnemies);
+	CreateNative("TeamManager_AreTeamsFriends", Native_TeamManager_AreTeamsFriends);
 
 	RegPluginLibrary("teammanager");
 
@@ -268,6 +270,79 @@ int Native_TeamManager_RemoveTeam(Handle plugin, int params)
 	return 0;
 }
 
+int Native_TeamManager_FindTeam(Handle plugin, int params)
+{
+	int len;
+	GetNativeStringLength(1, len);
+	char[] name = new char[++len];
+	GetNativeString(1, name, len);
+
+	if(StrEqual(name, "red") ||
+		StrEqual(name, "2")) {
+		return 2;
+	} else if(StrEqual(name, "blu") ||
+				StrEqual(name, "blue") ||
+				StrEqual(name, "3")) {
+		return 3;
+	} else if(StrEqual(name, "spectate") ||
+				StrEqual(name, "spec") ||
+				StrEqual(name, "spectator") ||
+				StrEqual(name, "1")) {
+		return 1;
+	} else {
+		int count = GetTeamCount();
+
+		char temp_name[MAX_TEAM_NAME_LENGTH];
+		for(int i = 0; i < count; i++) {
+			GetTeamName(i, temp_name, MAX_TEAM_NAME_LENGTH);
+
+			if(StrEqual(name, temp_name)) {
+				return i;
+			}
+		}
+	}
+
+	return -1;
+}
+
+int Native_TeamManager_AreTeamsEnemies(Handle plugin, int params)
+{
+	int team1 = GetNativeCell(1);
+	int team2 = GetNativeCell(2);
+
+	if(truce_is_active) {
+		return false;
+	}
+
+	if(IsMannVsMachineMode()) {
+		if((team1 == 3 || team1 == 4) &&
+			(team2 == 3 || team2 == 4)) {
+			return false;
+		}
+	}
+
+	return (team1 != team2);
+}
+
+int Native_TeamManager_AreTeamsFriends(Handle plugin, int params)
+{
+	int team1 = GetNativeCell(1);
+	int team2 = GetNativeCell(2);
+
+	if(truce_is_active) {
+		return true;
+	}
+
+	if(IsMannVsMachineMode()) {
+		if((team1 == 3 || team1 == 4) &&
+			(team2 == 3 || team2 == 4)) {
+			return true;
+		}
+	}
+
+	return (team1 == team2);
+}
+
 public void OnClientPutInServer(int client)
 {
 	
@@ -284,9 +359,14 @@ Action ConCommand_JoinTeam(int client, const char[] command, int args)
 		GetCmdArg(1, arg, sizeof(arg));
 	}
 
+	int team = TeamManager_FindTeam(arg);
+	if(team == -1 || team > 3) {
+		team = 2;
+	}
+
 	Call_StartForward(fwCanChangeTeam);
 	Call_PushCell(client);
-	Call_PushCell(GetTeamIndex(arg));
+	Call_PushCell(team);
 
 	Action result = Plugin_Continue;
 	Call_Finish(result);
@@ -353,15 +433,37 @@ static Action sm_setmyteam(int client, int args)
 	return Plugin_Handled;
 }
 
+static void ouput_truce_start(const char[] output, int caller, int activator, float delay)
+{
+	truce_is_active = true;
+}
+
+static void ouput_truce_end(const char[] output, int caller, int activator, float delay)
+{
+	truce_is_active = false;
+}
+
 public void OnMapStart()
 {
 #if defined DEBUG
 	Precache();
 #endif
 
-	int unused_team = TeamManager_CreateTeam("__unused_team__", {0, 0, 0, 0});
-	if(unused_team != TF_TEAM_COUNT) {
-		LogError("expected unused team to be %i but got %i instead", TF_TEAM_COUNT, unused_team);
+	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
+
+	HookSingleEntityOutput(gamerules, "OnTruceStart", ouput_truce_start);
+	HookSingleEntityOutput(gamerules, "OnTruceEnd", ouput_truce_end);
+
+	if(IsMannVsMachineMode()) {
+		int unused_team = TeamManager_CreateTeam("Giant Robots", {0, 0, 255, 0});
+		if(unused_team != TF_TEAM_PVE_INVADERS_GIANTS) {
+			LogError("expected unused team to be %i but got %i instead", TF_TEAM_PVE_INVADERS_GIANTS, unused_team);
+		}
+	} else {
+		int unused_team = TeamManager_CreateTeam("__unused_team__", {0, 0, 0, 0});
+		if(unused_team != TF_TEAM_COUNT) {
+			LogError("expected unused team to be %i but got %i instead", TF_TEAM_COUNT, unused_team);
+		}
 	}
 
 	int halloween_color[4];

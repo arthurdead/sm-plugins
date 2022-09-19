@@ -30,9 +30,11 @@ static int m_bMannVsMachineWaveClassActive2_size = -1;
 static int m_nMannVsMachineWaveClassFlags_size = -1;
 static int m_nMannVsMachineWaveClassFlags2_size = -1;
 
-static bool got_objective_offsets = false;
+static bool got_objective_offsets;
 
-static bool set_as_mvm = false;
+static bool set_as_mvm;
+
+static bool mode_is_mvm;
 
 static ConVar tf_gamemode_arena;
 static ConVar tf_gamemode_cp;
@@ -394,7 +396,14 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 
 	CreateNative("CleanUpMap", native_CleanUpMap);
 
+	CreateNative("IsMannVsMachineMode", native_IsMannVsMachineMode);
+
 	return APLRes_Success;
+}
+
+static int native_IsMannVsMachineMode(Handle plugin, int params)
+{
+	return mode_is_mvm;
 }
 
 public void OnPluginStart()
@@ -574,6 +583,15 @@ public void OnMapStart()
 			got_objective_offsets = true;
 		}
 	}
+
+	char map[PLATFORM_MAX_PATH];
+	GetCurrentMap(map, PLATFORM_MAX_PATH);
+
+	mode_is_mvm = (
+		FindEntityByClassname(-1, "tf_logic_mann_vs_machine") != -1 ||
+		GameRules_GetProp("m_bPlayingMannVsMachine") ||
+		StrContains(map, "mvm_") == 0
+	);
 }
 
 public void OnMapEnd()

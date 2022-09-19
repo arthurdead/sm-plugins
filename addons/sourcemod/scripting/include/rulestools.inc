@@ -89,6 +89,8 @@ native bool is_gamemode_entity(const char[] classname);
 native int get_objective_entity();
 native int get_gamerules_proxy();
 
+native bool IsMannVsMachineMode();
+
 stock void SetHUDType(int type)
 {
 	GameRules_SetProp("m_nHudType", type);

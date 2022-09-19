@@ -7,6 +7,15 @@
 
 #define MAX_TEAM_NAME_LENGTH 32
 
+#define TEAM_UNASSIGNED 0
+#define TF_TEAM_RED 2
+#define TF_TEAM_BLUE 3
+#define TF_TEAM_PVE_INVADERS 3
+#define TF_TEAM_PVE_DEFENDERS 2
+#define TF_TEAM_COUNT 4
+#define TF_TEAM_PVE_INVADERS_GIANTS 4
+#define TF_TEAM_HALLOWEEN 5
+
 enum HealSource
 {
 	HEAL_MEDIGUN,
@@ -78,35 +87,10 @@ native void TeamManager_RemoveTeam(const char[] name);
 
 forward void TeamManager_CreateTeams();
 
-stock int GetTeamIndex(const char[] name)
-{
-	if(StrEqual(name, "red") ||
-		StrEqual(name, "2")) {
-		return 2;
-	} else if(StrEqual(name, "blu") ||
-				StrEqual(name, "blue") ||
-				StrEqual(name, "3")) {
-		return 3;
-	} else if(StrEqual(name, "spectate") ||
-				StrEqual(name, "spec") ||
-				StrEqual(name, "spectator") ||
-				StrEqual(name, "1")) {
-		return 1;
-	} else {
-		int count = GetTeamCount();
+native int TeamManager_FindTeam(const char[] name);
 
-		char temp_name[MAX_TEAM_NAME_LENGTH];
-		for(int i = 0; i < count; i++) {
-			GetTeamName(i, temp_name, MAX_TEAM_NAME_LENGTH);
-
-			if(StrEqual(name, temp_name)) {
-				return i;
-			}
-		}
-
-		return -1;
-	}
-}
+native bool TeamManager_AreTeamsEnemies(int team1, int ream2);
+native bool TeamManager_AreTeamsFriends(int team1, int ream2);
 
 public SharedPlugin __pl_teammanager =
 {
