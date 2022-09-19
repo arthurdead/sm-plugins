@@ -15,10 +15,11 @@ stock bool IsAlive(int player)
 
 stock int GetOppositeTeam(int team)
 {
-	if(team == 2) {
-		return 3;
-	} else if(team == 3) {
-		return 2;
+	switch(team) {
+		case 2: return 3;
+		case 3: return 2;
+		case 0: return 5;
+		case 5: return 0;
 	}
 
 	return 0;
@@ -52,7 +53,7 @@ stock void SetEntityTeam(int entity, int team, bool raw)
 	}
 
 	if(IsPlayer(entity)) {
-		if(raw || (team == 0)) {
+		if(raw) {
 			SetEntProp(entity, Prop_Send, "m_iTeamNum", team);
 
 			int processed = 0;

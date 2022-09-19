@@ -74,6 +74,9 @@ native int TeamManager_GetEntityTeam(int entity);
 native void TeamManager_SetEntityTeam(int entity, int team, bool raw);
 
 native int TeamManager_CreateTeam(const char[] name, int color[4]);
+native void TeamManager_RemoveTeam(const char[] name);
+
+forward void TeamManager_CreateTeams();
 
 stock int GetTeamIndex(const char[] name)
 {
@@ -92,11 +95,11 @@ stock int GetTeamIndex(const char[] name)
 	} else {
 		int count = GetTeamCount();
 
-		char team[32];
+		char temp_name[MAX_TEAM_NAME_LENGTH];
 		for(int i = 0; i < count; i++) {
-			GetTeamName(i, team, sizeof(team));
+			GetTeamName(i, temp_name, MAX_TEAM_NAME_LENGTH);
 
-			if(StrEqual(name, team)) {
+			if(StrEqual(name, temp_name)) {
 				return i;
 			}
 		}
@@ -119,9 +122,7 @@ public SharedPlugin __pl_teammanager =
 #if !defined REQUIRE_PLUGIN
 public void __pl_teammanager_SetNTVOptional()
 {
-	MarkNativeAsOptional("TeamManager_GetEntityFakeTeam");
 	MarkNativeAsOptional("TeamManager_GetEntityTeam");
-	MarkNativeAsOptional("TeamManager_SetEntityFakeTeam");
 	MarkNativeAsOptional("TeamManager_SetEntityTeam");
 }
 #endif

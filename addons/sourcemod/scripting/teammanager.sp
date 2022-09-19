@@ -15,6 +15,7 @@
 
 //#define DEBUG
 
+#define TF_TEAM_COUNT 4
 #define TF_TEAM_HALLOWEEN 5
 
 #define HALLOWEEN_SCENARIO_LAKESIDE 3
@@ -42,6 +43,7 @@ GlobalForward fwCanChangeClass = null;
 GlobalForward fwCanBackstab = null;
 GlobalForward fwCanAirblast = null;
 GlobalForward fwCanGetJarated = null;
+GlobalForward fwCreateTeams = null;
 
 #include "teammanager/AllowedToHealTarget.sp"
 #include "teammanager/CouldHealTarget.sp"
@@ -70,11 +72,13 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 	fwCanBackstab = new GlobalForward("TeamManager_CanBackstab", ET_Hook, Param_Cell, Param_Cell);
 	fwCanAirblast = new GlobalForward("TeamManager_CanAirblast", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
 	fwCanGetJarated = new GlobalForward("TeamManager_CanGetJarated", ET_Hook, Param_Cell, Param_Cell);
+	fwCreateTeams = new GlobalForward("TeamManager_CreateTeams", ET_Ignore);
 
 	CreateNative("TeamManager_GetEntityTeam", Native_TeamManager_GetEntityTeam);
 	CreateNative("TeamManager_SetEntityTeam", Native_TeamManager_SetEntityTeam);
 
 	CreateNative("TeamManager_CreateTeam", Native_TeamManager_CreateTeam);
+	CreateNative("TeamManager_RemoveTeam", Native_TeamManager_RemoveTeam);
 
 	RegPluginLibrary("teammanager");
 
@@ -237,6 +241,33 @@ int Native_TeamManager_CreateTeam(Handle plugin, int params)
 	return SDKCall(hCreateTeam, SDKCall(hTeamMgr), name, color32);
 }
 
+int Native_TeamManager_RemoveTeam(Handle plugin, int params)
+{
+	int len;
+	GetNativeStringLength(1, len);
+	char[] name = new char[++len];
+	GetNativeString(1, name, len);
+
+	char temp_name[MAX_TEAM_NAME_LENGTH];
+
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_team")) != -1) {
+		GetEntPropString(entity, Prop_Send, "m_szTeamname", temp_name, MAX_TEAM_NAME_LENGTH);
+
+		if(StrEqual(name, temp_name)) {
+			int team = GetEntProp(entity, Prop_Send, "m_iTeamNum");
+
+			FormatEx(temp_name, MAX_TEAM_NAME_LENGTH, "__deleted_team_%i__", team);
+
+			SetEntData(entity, CTFTeam_m_TeamColor_offset, 0, 4, false);
+			SetEntPropString(entity, Prop_Send, "m_szTeamname", temp_name);
+			break;
+		}
+	}
+
+	return 0;
+}
+
 public void OnClientPutInServer(int client)
 {
 	
@@ -328,7 +359,10 @@ public void OnMapStart()
 	Precache();
 #endif
 
-	TeamManager_CreateTeam("__unused_team__", {255, 255, 255, 0});
+	int unused_team = TeamManager_CreateTeam("__unused_team__", {0, 0, 0, 0});
+	if(unused_team != TF_TEAM_COUNT) {
+		LogError("expected unused team to be %i but got %i instead", TF_TEAM_COUNT, unused_team);
+	}
 
 	int halloween_color[4];
 	halloween_color[3] = 0;
@@ -348,6 +382,11 @@ public void OnMapStart()
 	int halloween_team = TeamManager_CreateTeam("Halloween", halloween_color);
 	if(halloween_team != TF_TEAM_HALLOWEEN) {
 		LogError("expected halloween team to be %i but got %i instead", TF_TEAM_HALLOWEEN, halloween_team);
+	}
+
+	if(fwCreateTeams.FunctionCount > 0) {
+		Call_StartForward(fwCreateTeams);
+		Call_Finish();
 	}
 
 	FPlayerCanTakeDamageMapStart();
