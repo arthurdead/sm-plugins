@@ -6,8 +6,6 @@
 
 //#define DEBUG
 
-#define TIME_STR_MAX 32
-
 #define MCM_CON_PREFIX "[MCM] "
 
 enum /*holiday_index*/
@@ -111,8 +109,6 @@ enum struct ConfigMapInfo
 	float chance;
 	int timelimit;
 	int player_bounds[2];
-	char time_start[TIME_STR_MAX];
-	char time_end[TIME_STR_MAX];
 	bool no_nominate;
 }
 
@@ -909,10 +905,11 @@ static void get_config_map_path(ConfigMapInfo info, char[] map, int size)
 
 static void add_to_mapcycle(ConfigMapInfo info, int idx)
 {
+	char map_name[PLATFORM_MAX_PATH];
+
 	if(!info.no_nominate) {
 		current_mapcycle_nochance.Push(idx);
 
-		char map_name[PLATFORM_MAX_PATH];
 		get_config_map_path(info, map_name, PLATFORM_MAX_PATH);
 
 		current_mapcycle_nochance_maps.PushString(map_name);
@@ -926,7 +923,6 @@ static void add_to_mapcycle(ConfigMapInfo info, int idx)
 
 	current_mapcycle.Push(idx);
 
-	char map_name[PLATFORM_MAX_PATH];
 	get_config_map_path(info, map_name, PLATFORM_MAX_PATH);
 
 	current_mapcycle_maps.PushString(map_name);

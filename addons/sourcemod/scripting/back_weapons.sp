@@ -168,14 +168,21 @@ public void OnAllPluginsLoaded()
 }
 
 #if defined __economy_inc
-static void misc_cat_registered(int idx)
+static void misc_cat_registered(int idx, any data)
 {
-	econ_get_or_register_item(idx, "Back Weapons", "", "back_weapons", 1200, null, 1);
+	KeyValues item_kv = new KeyValues("");
+	item_kv.SetString("name", "Back Weapons");
+	item_kv.SetString("classname", "back_weapons");
+	item_kv.SetNum("price", 1200);
+
+	econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+
+	delete item_kv;
 }
 
 public void econ_loaded()
 {
-	econ_get_or_register_category("Misc", ECON_INVALID_CATEGORY, misc_cat_registered);
+	econ_get_or_register_category("Misc", ECON_INVALID_CATEGORY, misc_cat_registered, 0);
 }
 
 public Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx)

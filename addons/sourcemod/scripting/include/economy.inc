@@ -46,78 +46,24 @@ native void econ_register_item_class(const char[] classname, bool equipable);
 
 native int econ_find_category(int parent, const char[] name);
 
-typedef econ_category_registered = function void (int idx);
-native void econ_register_category(const char[] name, int parent, econ_category_registered registered);
+typedef econ_category_registered = function void (int idx, any data);
+native void econ_register_category(const char[] name, int parent, econ_category_registered registered, any data);
 
 native int econ_find_item(int category, const char[] name);
-native void econ_register_item(int category, const char[] name, const char[] description, const char[] classname, int price, StringMap settings);
+
+typedef econ_item_registered = function void (int idx, any data);
+native void econ_register_item(KeyValues item_kv, econ_item_registered registered, any data);
 
 native void econ_set_item_price(int idx, int price);
 native void econ_set_item_description(int idx, const char[] description);
 native void econ_set_item_setting(int idx, const char[] name, const char[] value);
 native void econ_set_item_settings(int idx, StringMap settings);
+native void econ_update_item(int idx, KeyValues item_kv);
+native void econ_add_item_to_category(int item_idx, int cat_idx);
 
-stock StringMap econ_single_setting_str(const char[] name, const char[] value)
-{
-	StringMap settings = new StringMap();
-	settings.SetString(name, value);
-	return settings;
-}
+native void econ_get_or_register_item(int category, KeyValues item_kv, econ_item_registered registered, any data);
 
-stock StringMap econ_single_setting_int(const char[] name, int value)
-{
-	StringMap settings = new StringMap();
-
-	int len = 20;
-	char[] str = new char[len];
-	IntToString(value, str, len);
-
-	settings.SetString(name, str);
-	return settings;
-}
-
-stock StringMap econ_single_setting_float(const char[] name, float value)
-{
-	StringMap settings = new StringMap();
-
-	int len = 20;
-	char[] str = new char[len];
-	FloatToString(value, str, len);
-
-	settings.SetString(name, str);
-	return settings;
-}
-
-stock void econ_get_or_register_item(int category, const char[] name, const char[] description, const char[] classname, int price, StringMap settings)
-{
-	int idx = econ_find_item(category, name);
-	if(idx == ECON_INVALID_ITEM) {
-		econ_register_item(category, name, description, classname, price, settings);
-	} else {
-		econ_set_item_price(idx, price);
-		econ_set_item_description(idx, description);
-
-		if(settings != null) {
-			econ_set_item_settings(idx, settings);
-		} else {
-			delete settings;
-		}
-	}
-}
-
-stock void econ_get_or_register_category(const char[] name, int parent, econ_category_registered registered)
-{
-	int idx = econ_find_category(parent, name);
-	if(idx == ECON_INVALID_CATEGORY) {
-		econ_register_category(name, parent, registered);
-	} else {
-		if(registered != INVALID_FUNCTION) {
-			Call_StartFunction(null, registered);
-			Call_PushCell(idx);
-			Call_Finish();
-		}
-	}
-}
+native void econ_get_or_register_category(const char[] name, int parent, econ_category_registered registered, any data);
 
 stock bool econ_player_state_valid(int client)
 {
@@ -156,6 +102,7 @@ public void __pl_economy_SetNTVOptional()
 	MarkNativeAsOptional("econ_set_item_description");
 	MarkNativeAsOptional("econ_set_item_setting");
 	MarkNativeAsOptional("econ_set_item_settings");
+	MarkNativeAsOptional("econ_update_item");
 	MarkNativeAsOptional("econ_menu_add_item");
 }
 #endif

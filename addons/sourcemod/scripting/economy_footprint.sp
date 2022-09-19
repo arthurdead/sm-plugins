@@ -21,10 +21,22 @@ public void OnClientDisconnect(int client)
 
 static void register_footprint(int cat_idx, const char[] name, int price, float value)
 {
-	econ_get_or_register_item(cat_idx, name, "", "footprint", price, econ_single_setting_float("value", value));
+	KeyValues item_kv = new KeyValues("");
+	item_kv.SetString("classname", "footprint");
+	item_kv.SetString("name", name);
+	item_kv.SetNum("price", price);
+
+	if(item_kv.JumpToKey("settings", true)) {
+		item_kv.SetFloat("value", value);
+		item_kv.GoBack();
+	}
+
+	econ_get_or_register_item(cat_idx, item_kv, INVALID_FUNCTION, 0);
+
+	delete item_kv;
 }
 
-static void on_econ_cat_registered(int cat_idx)
+static void on_econ_cat_registered(int cat_idx, any data)
 {
 	register_footprint(cat_idx, "Team Based", 200, 1.0);
 	register_footprint(cat_idx, "Blue", 200, 7777.0);
@@ -47,7 +59,7 @@ static void on_econ_cat_registered(int cat_idx)
 
 public void econ_loaded()
 {
-	econ_get_or_register_category("Footprints", ECON_INVALID_CATEGORY, on_econ_cat_registered);
+	econ_get_or_register_category("Footprints", ECON_INVALID_CATEGORY, on_econ_cat_registered, 0);
 }
 
 public void econ_cache_item(const char[] classname, int item_idx, StringMap settings)

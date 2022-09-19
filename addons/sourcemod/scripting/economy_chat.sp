@@ -152,39 +152,58 @@ static void chat_clr_cat_registered(int idx, int type)
 		int value;
 		GetTrieValue(CTrie, name, value);
 
+		KeyValues item_kv = new KeyValues("");
+
 		switch(type) {
-			case 0: econ_get_or_register_item(idx, name, "", "chat_color_tag", 50, null);
-			case 1: econ_get_or_register_item(idx, name, "", "chat_color", 100, null);
-			case 2: econ_get_or_register_item(idx, name, "", "chat_color_name", 150, null);
+			case 0: {
+				item_kv.SetString("name", name);
+				item_kv.SetString("classname", "chat_color_tag");
+				item_kv.SetNum("price", 50);
+				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+			}
+			case 1: {
+				item_kv.SetString("name", name);
+				item_kv.SetString("classname", "chat_color");
+				item_kv.SetNum("price", 100);
+				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+			}
+			case 2: {
+				item_kv.SetString("name", name);
+				item_kv.SetString("classname", "chat_color_name");
+				item_kv.SetNum("price", 150);
+				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+			}
 		}
+
+		delete item_kv;
 	}
 
 	CloseHandle(snap);
 }
 
-static void chat_clr_tag_cat_registered(int idx)
+static void chat_clr_tag_cat_registered(int idx, any data)
 { chat_clr_cat_registered(idx, 0); }
-static void chat_clr_txt_cat_registered(int idx)
+static void chat_clr_txt_cat_registered(int idx, any data)
 { chat_clr_cat_registered(idx, 1); }
-static void chat_clr_name_cat_registered(int idx)
+static void chat_clr_name_cat_registered(int idx, any data)
 { chat_clr_cat_registered(idx, 2); }
 
-static void chat_clrs_cat_registered(int idx)
+static void chat_clrs_cat_registered(int idx, any data)
 {
-	econ_get_or_register_category("Tag", idx, chat_clr_tag_cat_registered);
-	econ_get_or_register_category("Chat", idx, chat_clr_txt_cat_registered);
-	econ_get_or_register_category("Name", idx, chat_clr_name_cat_registered);
+	econ_get_or_register_category("Tag", idx, chat_clr_tag_cat_registered, 0);
+	econ_get_or_register_category("Chat", idx, chat_clr_txt_cat_registered, 0);
+	econ_get_or_register_category("Name", idx, chat_clr_name_cat_registered, 0);
 }
 
-static void chat_cat_registered(int idx)
+static void chat_cat_registered(int idx, any data)
 {
-	econ_get_or_register_category("Tag", idx, INVALID_FUNCTION);
-	econ_get_or_register_category("Colors", idx, chat_clrs_cat_registered);
+	econ_get_or_register_category("Tag", idx, INVALID_FUNCTION, 0);
+	econ_get_or_register_category("Colors", idx, chat_clrs_cat_registered, 0);
 }
 
 public void econ_loaded()
 {
-	econ_get_or_register_category("Chat", ECON_INVALID_CATEGORY, chat_cat_registered);
+	econ_get_or_register_category("Chat", ECON_INVALID_CATEGORY, chat_cat_registered, 0);
 }
 
 public void OnLibraryAdded(const char[] name)

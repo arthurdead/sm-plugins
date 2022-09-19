@@ -173,21 +173,65 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 	}
 }
 
-static void tracer_cat_registered(int idx)
+static void tracer_cat_registered(int idx, any data)
 {
-	econ_get_or_register_item(idx, "Machina", "", "weapon_tracer", 1200, econ_single_setting_str("particle", "dxhr_sniper_rail"));
-	econ_get_or_register_item(idx, "Merasmus", "", "weapon_tracer", 1200, econ_single_setting_str("particle", "merasmus_zap"));
-	econ_get_or_register_item(idx, "Classic", "", "weapon_tracer", 1200, econ_single_setting_str("particle", "tfc_sniper_distortion_trail"));
+	{
+		KeyValues item_kv = new KeyValues("");
+		item_kv.SetString("name", "Machina");
+		item_kv.SetString("classname", "weapon_tracer");
+		item_kv.SetNum("price", 1200);
+
+		if(item_kv.JumpToKey("settings", true)) {
+			item_kv.SetString("particle", "dxhr_sniper_rail");
+			item_kv.GoBack();
+		}
+
+		econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+
+		delete item_kv;
+	}
+
+	{
+		KeyValues item_kv = new KeyValues("");
+		item_kv.SetString("name", "Merasmus");
+		item_kv.SetString("classname", "weapon_tracer");
+		item_kv.SetNum("price", 1200);
+
+		if(item_kv.JumpToKey("settings", true)) {
+			item_kv.SetString("particle", "merasmus_zap");
+			item_kv.GoBack();
+		}
+
+		econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+
+		delete item_kv;
+	}
+
+	{
+		KeyValues item_kv = new KeyValues("");
+		item_kv.SetString("name", "Classic");
+		item_kv.SetString("classname", "weapon_tracer");
+		item_kv.SetNum("price", 1200);
+
+		if(item_kv.JumpToKey("settings", true)) {
+			item_kv.SetString("particle", "tfc_sniper_distortion_trail");
+			item_kv.GoBack();
+		}
+
+		econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+
+		delete item_kv;
+	}
 }
 
-static void misc_cat_registered(int idx)
+static void misc_cat_registered(int idx, any data)
 {
-	econ_get_or_register_category("Weapon Tracer", idx, tracer_cat_registered);
+	econ_get_or_register_category("Weapon Tracer", idx, tracer_cat_registered, 0);
 }
 
 public void econ_loaded()
 {
-	econ_get_or_register_category("Misc", ECON_INVALID_CATEGORY, misc_cat_registered);
+	econ_get_or_register_category("Misc", ECON_INVALID_CATEGORY, misc_cat_registered, 0);
 }
 
 public void OnLibraryAdded(const char[] name)

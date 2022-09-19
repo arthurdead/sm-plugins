@@ -111,8 +111,7 @@ enum struct SoundReplacementInfo
 
 enum struct ConfigEconInfo
 {
-	char description[ECON_MAX_ITEM_DESCRIPTION];
-	int price;
+	KeyValues item_kv;
 }
 
 enum download_flags_t
@@ -608,6 +607,7 @@ static void unload_configs()
 		delete config_info.sound_precaches;
 		delete config_info.model_precaches;
 		delete config_info.sound_variables;
+		delete config_info.econ.item_kv;
 	}
 	delete configs;
 	delete chat_triggers;
@@ -1039,8 +1039,6 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 				#endif
 
 					if(kv.GotoFirstSubKey()) {
-						char value[7];
-
 						sound_replace_info.destinations = new ArrayList(sizeof(SoundInfo));
 
 						do {
@@ -1137,7 +1135,7 @@ static TFClassType get_class(const char[] name)
 	return TF2_GetClass(name);
 }
 
-static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_baseline, bool econ = false)
+static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_baseline, bool is_econ = false)
 {
 	KeyValues kv = new KeyValues("playermodel2_config");
 	kv.ImportFromFile(path);
@@ -1166,10 +1164,14 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 				continue;
 			}
 
-			if(econ) {
-				info.econ.price = kv.GetNum("price");
-
-				kv.GetString("description", info.econ.description, ECON_MAX_ITEM_DESCRIPTION, "");
+			if(is_econ) {
+				if(kv.JumpToKey("econ_item")) {
+					info.econ.item_kv = new KeyValues("");
+					info.econ.item_kv.Import(kv);
+					info.econ.item_kv.SetString("name", info.name);
+					info.econ.item_kv.SetString("classname", "playermodel");
+					kv.GoBack();
+				}
 			}
 
 			kv.GetString("classes_whitelist", classes_str, sizeof(classes_str), "all");
@@ -1178,10 +1180,8 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 			TFClassType only_class = TFClass_Unknown;
 
-			if(classes_str[0] != '\0') {
-				if(!parse_classes_str(info.classes_allowed, classes_str, info.name, only_class)) {
-					continue;
-				}
+			if(!parse_classes_str(info.classes_allowed, classes_str, info.name, only_class)) {
+				continue;
 			}
 
 			info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
@@ -1370,7 +1370,7 @@ static void load_configs()
 				if(FileExists(any_file_path)) {
 					parse_config_kv_basic(kv, info.baseline_config, config_flags_none, true);
 
-					parse_config_kv(any_file_path, info, info.baseline_config);
+					parse_config_kv(any_file_path, info, info.baseline_config, false);
 				}
 
 				groups.PushArray(info, sizeof(ConfigGroupInfo));
@@ -1382,6 +1382,7 @@ static void load_configs()
 		delete kv;
 	}
 
+	//TODO!!!!!! make this a folder
 	BuildPath(Path_SM, any_file_path, PLATFORM_MAX_PATH, "configs/playermodels2/econ.txt");
 	if(FileExists(any_file_path)) {
 		ConfigGroupInfo info;
@@ -1394,7 +1395,7 @@ static void load_configs()
 	if(FileExists(any_file_path)) {
 		ConfigGroupInfo info;
 		info.hidden = true;
-		parse_config_kv(any_file_path, info, info.baseline_config, true);
+		parse_config_kv(any_file_path, info, info.baseline_config, false);
 		thirdparty_group_idx = groups.PushArray(info, sizeof(ConfigGroupInfo));
 	}
 
@@ -1402,7 +1403,7 @@ static void load_configs()
 	if(FileExists(any_file_path)) {
 		ConfigGroupInfo info;
 		info.hidden = true;
-		parse_config_kv(any_file_path, info, info.baseline_config, true);
+		parse_config_kv(any_file_path, info, info.baseline_config, false);
 		main_group_idx = groups.PushArray(info, sizeof(ConfigGroupInfo));
 	}
 }
@@ -1860,30 +1861,59 @@ public void OnConfigsExecuted()
 	}
 }
 
-static void on_econ_cat_registered(int cat_idx)
+static void on_econ_class_cat_registered(int cat_idx, int item_idx)
 {
-	if(econ_group_idx == -1) {
-		return;
+	econ_add_item_to_category(item_idx, cat_idx);
+}
+
+static void on_item_registered(int item_idx, DataPack data)
+{
+	data.Reset();
+
+	int parent_cat = data.ReadCell();
+	int config_idx = data.ReadCell();
+
+	delete data;
+
+	char class_name[CLASS_NAME_MAX];
+
+	int classes_allowed = configs.Get(config_idx, ConfigInfo::classes_allowed);
+
+	for(TFClassType k = TFClass_Scout; k <= TFClass_Engineer; ++k) {
+		if(!(classes_allowed & BIT_FOR_CLASS(k))) {
+			continue;
+		}
+
+		get_class_name(k, class_name, CLASS_NAME_MAX, false);
+		class_name[0] = CharToUpper(class_name[0]);
+
+		econ_get_or_register_category(class_name, parent_cat, on_econ_class_cat_registered, item_idx);
 	}
+}
 
-	ConfigGroupInfo group;
-	groups.GetArray(econ_group_idx, group, sizeof(ConfigGroupInfo));
+static void on_econ_cat_registered(int cat_idx, any ignore)
+{
+	ConfigGroupInfo econ_group;
+	groups.GetArray(econ_group_idx, econ_group, sizeof(ConfigGroupInfo));
 
-	ConfigInfo info;
-
-	int len = group.configs.Length;
+	int len = econ_group.configs.Length;
 	for(int i = 0; i < len; ++i) {
-		int conf_idx = group.configs.Get(i);
+		int idx = econ_group.configs.Get(i);
 
-		configs.GetArray(conf_idx, info, sizeof(ConfigInfo));
+		int block = ConfigInfo::econ;
+		block += ConfigEconInfo::item_kv;
+		KeyValues item_kv = configs.Get(idx, block);
 
-		econ_get_or_register_item(cat_idx, info.name, info.econ.description, "playermodel", info.econ.price, null, 1);
+		DataPack data = new DataPack();
+		data.WriteCell(cat_idx);
+		data.WriteCell(idx);
+		econ_get_or_register_item(ECON_INVALID_CATEGORY, item_kv, on_item_registered, data);
 	}
 }
 
 public void econ_loaded()
 {
-	econ_get_or_register_category("Playermodels", ECON_INVALID_CATEGORY, on_econ_cat_registered);
+	econ_get_or_register_category("Playermodels", ECON_INVALID_CATEGORY, on_econ_cat_registered, 0);
 }
 
 public Action econ_items_conflict(const char[] classname1, int item1_idx, const char[] classname2, int item2_idx)

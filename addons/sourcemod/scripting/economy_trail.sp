@@ -72,7 +72,7 @@ static Action trail_transmit(int entity, int client)
 	int owner = GetEntPropEnt(entity, Prop_Send, "m_hAttachedToEntity");
 
 	if(client == owner) {
-		if(!is_player_in_thirdperson(client)) {
+		if(!pm2_is_thirdperson(client)) {
 			return Plugin_Handled;
 		}
 	}
@@ -202,19 +202,28 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 	}
 }
 
-static void plr_cat_registered(int idx)
+static void plr_cat_registered(int idx, any data)
 {
-	econ_get_or_register_item(idx, "Phase", "", "phase_trail", 600, null);
+	{
+		KeyValues item_kv = new KeyValues("");
+		item_kv.SetString("name", "Phase");
+		item_kv.SetString("classname", "phase_trail");
+		item_kv.SetNum("price", 600);
+
+		econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+
+		delete item_kv;
+	}
 }
 
-static void trail_cat_registered(int idx)
+static void trail_cat_registered(int idx, any data)
 {
-	econ_get_or_register_category("Player", idx, plr_cat_registered);
+	econ_get_or_register_category("Player", idx, plr_cat_registered, 0);
 }
 
 public void econ_loaded()
 {
-	econ_get_or_register_category("Trails", ECON_INVALID_CATEGORY, trail_cat_registered);
+	econ_get_or_register_category("Trails", ECON_INVALID_CATEGORY, trail_cat_registered, 0);
 }
 
 public void OnLibraryAdded(const char[] name)
