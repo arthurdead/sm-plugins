@@ -894,7 +894,7 @@ static void get_config_map_path(ConfigMapInfo info, char[] map, int size)
 
 	int len = supported_holidays.Length;
 	if(len > 0) {
-		holiday = supported_holidays.Get(GetRandomInt(0, len-1));
+		holiday = supported_holidays.Get(GetURandomInt() % len);
 	}
 
 	delete supported_holidays;
@@ -1532,7 +1532,7 @@ static Action timer_configsexecuted(Handle timer, any data)
 			{
 				int len = current_mapcycle_nochance.Length;
 				if(len > 0) {
-					int i = GetRandomInt(0, len-1);
+					int i = GetURandomInt() % len;
 					int idx = current_mapcycle_nochance.Get(i);
 					config_maps.GetArray(idx, info, sizeof(ConfigMapInfo));
 					char map_name[PLATFORM_MAX_PATH];
@@ -1648,12 +1648,12 @@ static void remove_raw_maps()
 
 public void OnMapEnd()
 {
+	configs_executed = false;
+
 	ignore_playerchange = true;
 
 	mapcyclefile.SetString(original_mapcyclefile);
 	mp_timelimit.IntValue = original_timelimit;
-
-	configs_executed = false;
 
 	remove_raw_maps();
 }
