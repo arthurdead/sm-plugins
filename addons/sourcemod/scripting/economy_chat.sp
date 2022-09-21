@@ -141,7 +141,7 @@ static void chat_clr_cat_registered(int idx, int type)
 {
 	CCheckTrie();
 
-	char name[64];
+	char name[ECON_MAX_ITEM_NAME];
 
 	Handle snap = CreateTrieSnapshot(CTrie);
 

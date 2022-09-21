@@ -1018,6 +1018,8 @@ static void recompute_mapcycle_clean_playerchange(int begin, ArrayList mapcycle,
 	}
 }
 
+#define ALWAYS_WRITE_FILES
+
 static void recompute_mapcycle(mcm_changed_from from)
 {
 	ConfigMapInfo info;
@@ -1073,11 +1075,17 @@ static void recompute_mapcycle(mcm_changed_from from)
 		add_to_mapcycle(info, idx);
 	}
 
-	if(mapchooser_mcm_changed == INVALID_FUNCTION) {
+#if !defined ALWAYS_WRITE_FILES
+	if(mapchooser_mcm_changed == INVALID_FUNCTION)
+#endif
+	{
 		recompute_mapcycle_write_file(from, mapcyclefile_path, mapcycle_playerchange_begin, mapcycle_playerchange_offset, current_mapcycle);
 	}
 
-	if(nominations_mcm_changed == INVALID_FUNCTION) {
+#if !defined ALWAYS_WRITE_FILES
+	if(nominations_mcm_changed == INVALID_FUNCTION)
+#endif
+	{
 		recompute_mapcycle_write_file(from, mapcyclefile_nochance_path, mapcycle_nochance_playerchange_begin, mapcycle_nochance_playerchange_offset, current_mapcycle_nochance);
 	}
 
@@ -1117,8 +1125,8 @@ public void OnPluginStart()
 {
 	BuildPath(Path_SM, mapcyclefile_path, PLATFORM_MAX_PATH, "data/mcm");
 	CreateDirectory(mapcyclefile_path, FPERM_U_READ|FPERM_U_WRITE|FPERM_U_EXEC);
-	BuildPath(Path_SM, mapcyclefile_path, PLATFORM_MAX_PATH, "data/mcm/mapcycle.txt");
-	BuildPath(Path_SM, mapcyclefile_nochance_path, PLATFORM_MAX_PATH, "data/mcm/mapcycle_nochance.txt");
+	BuildPath(Path_SM, mapcyclefile_path, PLATFORM_MAX_PATH, "data/mcm/__current_mapcycle.txt");
+	BuildPath(Path_SM, mapcyclefile_nochance_path, PLATFORM_MAX_PATH, "data/mcm/__current_mapcycle_nochance.txt");
 
 	config_maps_with_playerchange = new ArrayList();
 	config_maps_without_playerchange = new ArrayList();
@@ -1393,7 +1401,7 @@ static void load_maps()
 	}
 
 	if(current_config_name[0] == '\0') {
-		BuildPath(Path_SM, tmp_mapcyclefile_path, PLATFORM_MAX_PATH, "data/mcm/default.txt");
+		BuildPath(Path_SM, tmp_mapcyclefile_path, PLATFORM_MAX_PATH, "data/mcm/mapcycle.txt");
 	} else {
 		BuildPath(Path_SM, tmp_mapcyclefile_path, PLATFORM_MAX_PATH, "data/mcm/%s.txt", current_config_name);
 	}
@@ -1476,7 +1484,10 @@ static void load_maps()
 
 	recompute_mapcycle(mcm_changed_initial);
 
-	if(mapchooser_mcm_changed == INVALID_FUNCTION || nominations_mcm_changed == INVALID_FUNCTION) {
+#if !defined ALWAYS_WRITE_FILES
+	if(mapchooser_mcm_changed == INVALID_FUNCTION || nominations_mcm_changed == INVALID_FUNCTION)
+#endif
+	{
 		mapcyclefile.SetString(mapcyclefile_path);
 	}
 }
@@ -1494,29 +1505,49 @@ public void OnConfigsExecuted()
 
 	current_holiday_flags = get_current_holidays();
 
-	load_maps();
+	if(num_workshop_requests > 0 || num_workshop_metadatas > 0) {
+	#if !defined ALWAYS_WRITE_FILES
+		if(mapchooser_mcm_changed == INVALID_FUNCTION || nominations_mcm_changed == INVALID_FUNCTION)
+	#endif
+		{
+			mapcyclefile.SetString(mapcyclefile_path);
+		}
 
-	ignore_playerchange = false;
+		CreateTimer(0.1, timer_configsexecuted, 0, TIMER_FLAG_NO_MAPCHANGE);
+	} else {
+		timer_configsexecuted(null, 0);
+	}
+}
+
+static Action timer_configsexecuted(Handle timer, any data)
+{
+	load_maps();
 
 	ConfigMapInfo info;
 
 	if(!late_loaded) {
 		if(!initial_map_loaded) {
 			initial_map_loaded = true;
-			if(FindCommandLineParam("+randommap")) {
-				int i = GetRandomInt(0, current_mapcycle_nochance.Length-1);
-				int idx = current_mapcycle_nochance.Get(i);
-				config_maps.GetArray(idx, info, sizeof(ConfigMapInfo));
-				char map_name[PLATFORM_MAX_PATH];
-				get_config_map_path(info, map_name, PLATFORM_MAX_PATH);
-				if(!StrEqual(map_name, current_map)) {
-					SetNextMap(map_name);
-					ForceChangeLevel(map_name, "MCM");
-					return;
+			//if(FindCommandLineParam("+randommap"))
+			{
+				int len = current_mapcycle_nochance.Length;
+				if(len > 0) {
+					int i = GetRandomInt(0, len-1);
+					int idx = current_mapcycle_nochance.Get(i);
+					config_maps.GetArray(idx, info, sizeof(ConfigMapInfo));
+					char map_name[PLATFORM_MAX_PATH];
+					get_config_map_path(info, map_name, PLATFORM_MAX_PATH);
+					if(!StrEqual(map_name, current_map)) {
+						SetNextMap(map_name);
+						ForceChangeLevel(map_name, "MCM");
+						return Plugin_Continue;
+					}
 				}
 			}
 		}
 	}
+
+	ignore_playerchange = false;
 
 	int idx = -1;
 	if(config_map_idx_map.GetValue(current_map, idx)) {
@@ -1543,6 +1574,8 @@ public void OnConfigsExecuted()
 	}
 
 	configs_executed = true;
+
+	return Plugin_Continue;
 }
 
 public void OnClientPutInServer(int client)

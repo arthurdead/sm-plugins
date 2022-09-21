@@ -894,7 +894,7 @@ public void OnMapEnd()
 	if (cvManifests.BoolValue) {
 		char nextmap[PLATFORM_MAX_PATH];
 		if(GetNextMap(nextmap, PLATFORM_MAX_PATH)) {
-			HandleMapParticleManifest(nextmap, true);
+			HandleMapParticleManifest(nextmap, false);
 		}
 	}
 }
@@ -1412,24 +1412,32 @@ void ReadThemeAttributes(KeyValues kv)
 		// Read Particle Name
 		kv.GetString("name", mapParticle, sizeof(mapParticle), mapParticle);
 
-		if(cvParticlesReplaceCustom.BoolValue || !cvManifests.BoolValue || mapHasCustomManifest || mapHasNoManifest) {
-			if(StrContains(mapParticle, "env_themes_rain") != -1) {
-				strcopy(mapParticle, sizeof(mapParticle), "env_rain_001");
-			} else if(StrContains(mapParticle, "env_themes_snow") != -1) {
-				strcopy(mapParticle, sizeof(mapParticle), "env_snow_light_001");
-			} else if(StrContains(mapParticle, "env_themes_mist") != -1) {
-				strcopy(mapParticle, sizeof(mapParticle), "env_rain_001_mist");
-			} else if(StrContains(mapParticle, "env_themes_wind") != -1) {
-				strcopy(mapParticle, sizeof(mapParticle), "env_snow_stormfront_mist");
-			} else {
-				mapParticle[0] = '\0';
+		if(mapParticle[0] != '\0') {
+			mapParticleIndex = FindStringIndex(ParticleEffectNames, mapParticle);
+
+			bool replaced = false;
+
+			if(cvParticlesReplaceCustom.BoolValue || !cvManifests.BoolValue || mapHasCustomManifest || mapHasNoManifest || mapParticleIndex == INVALID_STRING_INDEX) {
+				if(StrContains(mapParticle, "env_themes_rain") != -1) {
+					strcopy(mapParticle, sizeof(mapParticle), "env_rain_001");
+					replaced = true;
+				} else if(StrContains(mapParticle, "env_themes_snow") != -1) {
+					strcopy(mapParticle, sizeof(mapParticle), "env_snow_light_001");
+					replaced = true;
+				} else if(StrContains(mapParticle, "env_themes_mist") != -1) {
+					strcopy(mapParticle, sizeof(mapParticle), "env_rain_001_mist");
+					replaced = true;
+				} else if(StrContains(mapParticle, "env_themes_wind") != -1) {
+					strcopy(mapParticle, sizeof(mapParticle), "env_snow_stormfront_mist");
+					replaced = true;
+				}
+			}
+
+			if(replaced) {
+				mapParticleIndex = FindStringIndex(ParticleEffectNames, mapParticle);
 			}
 		}
 
-		if(mapParticle[0] != '\0') {
-			mapParticleIndex = FindStringIndex(ParticleEffectNames, mapParticle);
-		}
-		
 	#if defined DEBUG
 		PrintToServer("mpi = %i, %s", mapParticleIndex, mapParticle);
 	#endif
@@ -1683,6 +1691,7 @@ void HandleMapParticleManifest(const char[] mapname, bool current)
 		if(current) {
 			mapHasNoManifest = false;
 
+		#if 0
 			mapHasCustomManifest = true;
 
 			File file = OpenFile(file_path, "r", true);
@@ -1698,6 +1707,9 @@ void HandleMapParticleManifest(const char[] mapname, bool current)
 			}
 
 			delete file;
+		#else
+			mapHasCustomManifest = false;
+		#endif
 		}
 
 		AddFileToDownloadsTable(file_path);

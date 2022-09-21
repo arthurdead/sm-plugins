@@ -164,7 +164,7 @@ static void add_category_to_player_inv_menu(int client, int child, const char[] 
 
 	PlayerInventoryCategory plrinvcat;
 	if(!plr_categories.GetArray(str, plrinvcat, sizeof(PlayerInventoryCategory))) {
-		plrinvcat.menu = new Menu(menuhandler_inv_cat);
+		plrinvcat.menu = new Menu(menuhandler_inv_cat, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem|MenuAction_DisplayItem);
 
 		char category_menu_title[15 + ECON_MAX_ITEM_CATEGORY_NAME];
 		FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
@@ -217,7 +217,7 @@ static void add_item_to_player_inv_menu(int client, int id, int idx)
 		pack_int_in_str(category, str);
 
 		if(!plr_categories.GetArray(str, plrinvcat, sizeof(PlayerInventoryCategory))) {
-			plrinvcat.menu = new Menu(menuhandler_inv_cat);
+			plrinvcat.menu = new Menu(menuhandler_inv_cat, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem|MenuAction_DisplayItem);
 
 			FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
 			plrinvcat.menu.SetTitle(category_menu_title);
@@ -600,6 +600,10 @@ static void modify_player_currency(int client, int amount)
 static void player_death(Event event, const char[] name, bool dontBroadcast)
 {
 	int victim = GetClientOfUserId(event.GetInt("userid"));
+	if(victim == 0) {
+		return;
+	}
+
 	if(!IsFakeClient(victim)) {
 		handle_player_inventory(victim, econ_item_remove);
 	} else {
@@ -1837,7 +1841,7 @@ static int native_econ_update_item(Handle plugin, int params)
 						info.settings.SetValue(sett_name, sett_value_int);
 					}
 					case KvData_Float: {
-						int sett_value_float = item_kv.GetFloat(NULL_STRING);
+						float sett_value_float = item_kv.GetFloat(NULL_STRING);
 						info.settings.SetValue(sett_name, sett_value_float);
 					}
 				}
@@ -2990,6 +2994,54 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 				}
 			}
 		}
+		case MenuAction_DrawItem: {
+			if(param2 == 0) {
+				return ITEMDRAW_IGNORE;
+			} else {
+				char str[15];
+				menu.GetItem(param2, str, sizeof(str));
+
+				bool is_sub_cat = (unpack_int_in_str(str, 0) != 0);
+				if(is_sub_cat) {
+					return ITEMDRAW_DEFAULT;
+				}
+
+				int idx = unpack_int_in_str(str, 4);
+
+				if(!item_state_valid(idx)) {
+					return ITEMDRAW_DISABLED;
+				}
+
+				return ITEMDRAW_DEFAULT;
+			}
+		}
+		case MenuAction_DisplayItem: {
+			if(param2 == 0) {
+				return 0;
+			} else {
+				char str[15];
+				menu.GetItem(param2, str, sizeof(str));
+
+				bool is_sub_cat = (unpack_int_in_str(str, 0) != 0);
+				if(is_sub_cat) {
+					return 0;
+				}
+
+				int idx = unpack_int_in_str(str, 4);
+
+				ItemInfo info;
+				items.GetArray(idx, info, sizeof(ItemInfo));
+
+				if(!item_state_valid_ex(info)) {
+					char display[ECON_MAX_ITEM_NAME + 18];
+					strcopy(display, sizeof(display), info.name);
+					StrCat(display, sizeof(display), " [Plugin Unloaded]");
+					return RedrawMenuItem(display);
+				}
+
+				return 0;
+			}
+		}
 		case MenuAction_Cancel: {
 			if(param2 == MenuCancel_ExitBack) {
 				char str[5];
@@ -3128,6 +3180,33 @@ static void on_player_close_shop(int client, bool inv = false)
 	}
 }
 
+static bool item_state_valid_ex(ItemInfo info)
+{
+	if(info.classname[0] == '\0') {
+		return true;
+	}
+
+	int hndlr_idx = -1;
+	if(!item_handlers_map.GetValue(info.classname, hndlr_idx)) {
+		return false;
+	}
+
+	PrivateForward handle_fwd = item_handlers.Get(hndlr_idx, ItemHandler::handle_fwd);
+	if(handle_fwd.FunctionCount == 0) {
+		return false;
+	}
+
+	return true;
+}
+
+static bool item_state_valid(int idx)
+{
+	ItemInfo info;
+	items.GetArray(idx, info, sizeof(ItemInfo));
+
+	return item_state_valid_ex(info);
+}
+
 static bool can_player_buy(int client, int idx, int price)
 {
 	if(price < 0 || player_inventory[client].currency < price) {
@@ -3163,7 +3242,7 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 			int idx = unpack_int_in_str(str);
 			int price = items.Get(idx, ItemInfo::price);
 
-			if(!can_player_buy(param1, idx, price)) {
+			if(!item_state_valid(idx) || !can_player_buy(param1, idx, price)) {
 				menu.DisplayAt(param1, menu.Selection, MENU_TIME_FOREVER);
 				return 0;
 			}
@@ -3187,6 +3266,8 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 
 				Menu cat_shop_menu = categories.Get(cat_idx, ItemCategoryInfo::shop_menu);
 				cat_shop_menu.Display(param1, MENU_TIME_FOREVER);
+			#else
+				on_player_close_shop(param1);
 			#endif
 			} else {
 				on_player_close_shop(param1);
@@ -3200,7 +3281,12 @@ static int menuhandler_shop_cat_item(Menu menu, MenuAction action, int param1, i
 				int idx = unpack_int_in_str(str);
 				int price = items.Get(idx, ItemInfo::price);
 
-				return (can_player_buy(param1, idx, price) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+				if(!item_state_valid(idx) ||
+					!can_player_buy(param1, idx, price)) {
+					return ITEMDRAW_DISABLED;
+				}
+
+				return ITEMDRAW_DEFAULT;
 			}
 
 			return ITEMDRAW_DISABLED;
@@ -3243,6 +3329,10 @@ static int menuhandler_shop_cat(Menu menu, MenuAction action, int param1, int pa
 					if(cat_shop_menu.ItemCount < 2) {
 						return ITEMDRAW_DISABLED;
 					}
+				} else {
+					if(!item_state_valid(idx)) {
+						return ITEMDRAW_DISABLED;
+					}
 				}
 
 				return ITEMDRAW_DEFAULT;
@@ -3270,7 +3360,18 @@ static int menuhandler_shop_cat(Menu menu, MenuAction action, int param1, int pa
 					}
 
 					return RedrawMenuItem(info.name);
+				} else {
+					ItemInfo info;
+					items.GetArray(idx, info, sizeof(ItemInfo));
+
+					if(!item_state_valid_ex(info)) {
+						char display[ECON_MAX_ITEM_NAME + 18];
+						strcopy(display, sizeof(display), info.name);
+						StrCat(display, sizeof(display), " [Plugin Unloaded]");
+						return RedrawMenuItem(display);
+					}
 				}
+
 				return 0;
 			}
 		}
