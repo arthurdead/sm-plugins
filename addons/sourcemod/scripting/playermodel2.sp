@@ -47,7 +47,7 @@ support for hiding hats in specific equip regions
 #define PM2_CON_PREFIX "[PM2] "
 #define PM2_CHAT_PREFIX "{dodgerblue}[PM2]{default} "
 
-#define CLASS_NAME_MAX 10
+#define CLASS_NAME_MAX 15
 #if !defined clsobjhack_included
 #define TF_CLASS_COUNT_ALL 10
 #endif
@@ -150,6 +150,8 @@ enum struct ConfigVariationInfo
 	StringMap models;
 }
 
+#define MAX_SCENE_TOKEN 64
+
 enum struct ConfigInfo
 {
 	config_flags flags;
@@ -160,6 +162,8 @@ enum struct ConfigInfo
 
 	ArrayList sound_replacements;
 	StringMap sound_variables;
+	StringMap scene_variables;
+	char scene_token[MAX_SCENE_TOKEN];
 
 	char name[MODEL_NAME_MAX];
 
@@ -194,6 +198,8 @@ enum struct PlayerConfigInfo
 
 	ArrayList sound_replacements;
 	StringMap sound_variables;
+	StringMap scene_variables;
+	char scene_token[MAX_SCENE_TOKEN];
 
 	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
@@ -207,6 +213,8 @@ enum struct PlayerConfigInfo
 		this.variation_idx = -1;
 		this.sound_replacements = null;
 		this.sound_variables = null;
+		this.scene_variables = null;
+		this.scene_token[0] = '\0';
 		this.flags = config_flags_none;
 		this.arm_model[0] = '\0';
 		this.model[0] = '\0';
@@ -581,6 +589,7 @@ static void unload_configs()
 		delete group_info.baseline_config.sound_precaches;
 		delete group_info.baseline_config.model_precaches;
 		delete group_info.baseline_config.sound_variables;
+		delete group_info.baseline_config.scene_variables;
 	}
 
 	ConfigVariationInfo variation;
@@ -607,6 +616,7 @@ static void unload_configs()
 		delete config_info.sound_precaches;
 		delete config_info.model_precaches;
 		delete config_info.sound_variables;
+		delete config_info.scene_variables;
 		delete config_info.econ.item_kv;
 	}
 	delete configs;
@@ -1089,6 +1099,33 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 		kv.GoBack();
 	}
 
+	if(kv.JumpToKey("scene_variables")) {
+		if(kv.GotoFirstSubKey(false)) {
+			if(!info.scene_variables) {
+				info.scene_variables = new StringMap();
+			}
+
+			char sound_var_name[MAX_SOUND_VAR_NAME];
+			char sound_var_value[MAX_SOUND_VAR_VALUE];
+
+			do {
+				kv.GetSectionName(sound_var_name, MAX_SOUND_VAR_NAME);
+				kv.GetString(NULL_STRING, sound_var_value, MAX_SOUND_VAR_VALUE);
+
+				//TODO!!!! very sad
+				if(StrEqual(sound_var_name, "PlayerClass")) {
+					strcopy(sound_var_name, MAX_SOUND_VAR_NAME, "playerclass");
+				}
+
+				info.scene_variables.SetString(sound_var_name, sound_var_value);
+			} while(kv.GotoNextKey(false));
+			kv.GoBack();
+		}
+		kv.GoBack();
+	}
+
+	kv.GetString("scene_token", info.scene_token, MAX_SCENE_TOKEN, info.scene_token);
+
 	return true;
 }
 
@@ -1122,6 +1159,18 @@ void clone_config_baseline(ConfigInfo info, ConfigInfo other)
 		info.sound_variables = other.sound_variables.Clone();
 	} else {
 		info.sound_variables = null;
+	}
+
+	if(other.scene_variables != null) {
+		info.scene_variables = other.scene_variables.Clone();
+	} else {
+		info.scene_variables = null;
+	}
+
+	if(other.scene_token[0] != '\0') {
+		strcopy(info.scene_token, MAX_SCENE_TOKEN, other.scene_token);
+	} else {
+		info.scene_token[0] = '\0';
 	}
 }
 
@@ -1366,6 +1415,8 @@ static void load_configs()
 				info.baseline_config.sound_precache_folders = null;
 				info.baseline_config.sound_replacements = null;
 				info.baseline_config.sound_variables = null;
+				info.baseline_config.scene_variables = null;
+				info.baseline_config.scene_token[0] = '\0';
 
 				if(FileExists(any_file_path)) {
 					parse_config_kv_basic(kv, info.baseline_config, config_flags_none, true);
@@ -1884,8 +1935,7 @@ static void on_item_registered(int item_idx, DataPack data)
 			continue;
 		}
 
-		get_class_name(k, class_name, CLASS_NAME_MAX, false);
-		class_name[0] = CharToUpper(class_name[0]);
+		get_class_name(k, class_name, CLASS_NAME_MAX, class_name_nonlocalized);
 
 		econ_get_or_register_category(class_name, parent_cat, on_econ_class_cat_registered, item_idx);
 	}
@@ -1984,7 +2034,7 @@ public void econ_modify_menu(const char[] classname, int item_idx)
 		char tmp_classname[CLASS_NAME_MAX];
 		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
 			if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
-				get_class_name(i, tmp_classname, CLASS_NAME_MAX, false);
+				get_class_name(i, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
 
 				StrCat(classes_str, classes_str_len, tmp_classname);
 				StrCat(classes_str, classes_str_len, "|");
@@ -2617,7 +2667,13 @@ static void copy_config_vars(TFClassType class, PlayerConfigInfo plrinfo, int id
 	plrinfo.model_class = mdlinfo.model_class;
 
 	plrinfo.sound_variables = info.sound_variables;
+	plrinfo.scene_variables = info.scene_variables;
 	plrinfo.sound_replacements = info.sound_replacements;
+
+	if(info.scene_token[0] != '\0') {
+		strcopy(plrinfo.scene_token, MAX_SCENE_TOKEN, info.scene_token);
+	}
+
 	plrinfo.flags = info.flags;
 }
 
@@ -2980,7 +3036,7 @@ static int handle_group_menu(Menu menu, MenuAction action, int param1, int param
 			char tmp_classname[CLASS_NAME_MAX];
 			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
 				if(info.classes_allowed & BIT_FOR_CLASS(i)) {
-					get_class_name(i, tmp_classname, CLASS_NAME_MAX, false);
+					get_class_name(i, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
 
 					StrCat(display, display_len, tmp_classname);
 					StrCat(display, display_len, "|");
@@ -3142,7 +3198,7 @@ static int handle_groups_menu(Menu menu, MenuAction action, int param1, int para
 				char tmp_classname[CLASS_NAME_MAX];
 				for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
 					if(info.classes_allowed & BIT_FOR_CLASS(i)) {
-						get_class_name(i, tmp_classname, CLASS_NAME_MAX, false);
+						get_class_name(i, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
 
 						StrCat(display, display_len, tmp_classname);
 						StrCat(display, display_len, "|");
@@ -3352,26 +3408,80 @@ public void OnEntityCreated(int entity, const char[] classname)
 	}
 }
 
-static void get_class_name(TFClassType type, char[] name, int length, bool short)
+enum class_name_type_t
 {
-	switch(type)
-	{
-		case TFClass_Unknown: { strcopy(name, length, "unknown"); }
-		case TFClass_Scout: { strcopy(name, length, "scout"); }
-		case TFClass_Soldier: { strcopy(name, length, "soldier"); }
-		case TFClass_Sniper: { strcopy(name, length, "sniper"); }
-		case TFClass_Spy: { strcopy(name, length, "spy"); }
-		case TFClass_Medic: { strcopy(name, length, "medic"); }
-		case TFClass_DemoMan: {
-			if(!short) {
-				strcopy(name, length, "demoman");
-			} else {
-				strcopy(name, length, "demo");
+	class_name_raw,
+	class_name_short,
+	class_name_nonlocalized,
+	class_name_usability,
+	class_name_vo,
+};
+
+static void get_class_name(TFClassType type, char[] name, int length, class_name_type_t name_type)
+{
+	switch(type) {
+		case TFClass_Unknown: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "undefined");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Undefined");
 			}
 		}
-		case TFClass_Pyro: { strcopy(name, length, "pyro"); }
-		case TFClass_Engineer: { strcopy(name, length, "engineer"); }
-		case TFClass_Heavy: { strcopy(name, length, "heavy"); }
+		case TFClass_Scout: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "scout");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Scout");
+			}
+		}
+		case TFClass_Soldier: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "soldier");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Soldier");
+			}
+		}
+		case TFClass_Sniper: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "sniper");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Sniper");
+			}
+		}
+		case TFClass_Spy: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "spy");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Spy");
+			}
+		}
+		case TFClass_Medic: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "medic");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Medic");
+			}
+		}
+		case TFClass_DemoMan: {
+			switch(name_type) {
+				case class_name_raw, class_name_vo: strcopy(name, length, "demoman");
+				case class_name_short: strcopy(name, length, "demo");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Demoman");
+			}
+		}
+		case TFClass_Pyro: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "pyro");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Pyro");
+			}
+		}
+		case TFClass_Engineer: {
+			switch(name_type) {
+				case class_name_raw, class_name_short, class_name_vo: strcopy(name, length, "engineer");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Engineer");
+			}
+		}
+		case TFClass_Heavy: {
+			switch(name_type) {
+				case class_name_raw: strcopy(name, length, "heavyweapons");
+				case class_name_short, class_name_vo: strcopy(name, length, "heavy");
+				case class_name_nonlocalized, class_name_usability: strcopy(name, length, "Heavy");
+			}
+		}
 	#if defined clsobjhack_included
 		default: {
 			if(clsobj_hack_loaded) {
@@ -3392,7 +3502,7 @@ static ArrayList get_classes_for_taunt(int id)
 	char int_str[INT_STR_MAX];
 
 	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		get_class_name(i, class_name, CLASS_NAME_MAX, false);
+		get_class_name(i, class_name, CLASS_NAME_MAX, class_name_usability);
 
 		FormatEx(key, sizeof(key), "used_by_classes/%s", class_name);
 
@@ -3415,7 +3525,7 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 	bool has_intro = false;
 
 	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		get_class_name(i, class_name, CLASS_NAME_MAX, false);
+		get_class_name(i, class_name, CLASS_NAME_MAX, class_name_usability);
 
 		FormatEx(key, sizeof(key), "taunt/custom_taunt_prop_scene_per_class/%s", class_name);
 
@@ -3430,7 +3540,7 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 		classes = new ArrayList();
 
 		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-			get_class_name(i, class_name, CLASS_NAME_MAX, false);
+			get_class_name(i, class_name, CLASS_NAME_MAX, class_name_usability);
 
 			FormatEx(key, sizeof(key), "taunt/custom_taunt_prop_per_class/%s", class_name);
 
@@ -3504,7 +3614,7 @@ static void handle_taunt_attempt(int client, ArrayList supported_classes)
 		} else if(supported_classes.FindValue(real_player_class) != -1) {
 			desired_class = real_player_class;
 		} else {
-			desired_class = supported_classes.Get(GetRandomInt(0, len-1));
+			desired_class = supported_classes.Get(GetURandomInt() % len);
 		}
 		player_taunt_vars[client].class = desired_class;
 		handle_playermodel(client);
@@ -3599,7 +3709,7 @@ static MRESReturn CTFPlayer_PlayTauntSceneFromItem_detour(int pThis, DHookReturn
 
 			int idx = supported_classes.FindValue(real_player_class);
 			if(idx == -1) {
-				idx = GetRandomInt(0, supported_classes.Length-1);
+				idx = GetURandomInt() % supported_classes.Length;
 			}
 
 			char model[PLATFORM_MAX_PATH];
@@ -3912,7 +4022,7 @@ static TFClassType get_class_for_weapon(int weapon, TFClassType real_player_clas
 			}
 
 			if(weapon_class == TFClass_Unknown) {
-				weapon_class = info.classes.Get(GetRandomInt(0, len-1));
+				weapon_class = info.classes.Get(GetURandomInt() % len);
 			}
 		}
 	}
@@ -4505,11 +4615,10 @@ static Action handle_config_sound(int entity, PlayerConfigInfo info, int &numCli
 		char sound_var_value[MAX_SOUND_VAR_VALUE];
 
 		char player_class_name[CLASS_NAME_MAX + MAX_SOUND_VAR_VALUE];
+		TFClassType real_player_class = TF2_GetPlayerClass(entity);
+		get_class_name(real_player_class, player_class_name, sizeof(player_class_name), class_name_vo);
 
 		if(info.sound_variables.GetString("player_class", sound_var_value, MAX_SOUND_VAR_VALUE)) {
-			TFClassType real_player_class = TF2_GetPlayerClass(entity);
-			get_class_name(real_player_class, player_class_name, sizeof(player_class_name), false);
-
 			TFClassType target_class = TFClass_Unknown;
 
 			if(StrEqual(sound_var_value, "model_class")) {
@@ -4522,7 +4631,7 @@ static Action handle_config_sound(int entity, PlayerConfigInfo info, int &numCli
 
 			if(target_class != TFClass_Unknown) {
 				char model_class_name[CLASS_NAME_MAX];
-				get_class_name(target_class, model_class_name, CLASS_NAME_MAX, false);
+				get_class_name(target_class, model_class_name, CLASS_NAME_MAX, class_name_vo);
 				ReplaceString(sample, PLATFORM_MAX_PATH, player_class_name, model_class_name);
 				anything_changed = true;
 			#if defined DEBUG_CONFIG
@@ -4567,7 +4676,7 @@ static Action handle_config_sound(int entity, PlayerConfigInfo info, int &numCli
 				matched = 2;
 			}
 			if(matched > 0) {
-				int destination_idx = GetRandomInt(0, sound_replace_info.destinations.Length-1);
+				int destination_idx = GetURandomInt() % sound_replace_info.destinations.Length;
 				sound_replace_info.destinations.GetArray(destination_idx, sound_info, sizeof(SoundInfo));
 				if(sound_info.is_script) {
 				#if defined DEBUG_CONFIG
@@ -4624,6 +4733,52 @@ static Action sound_hook(int clients[MAXPLAYERS], int &numClients, char sample[P
 
 static MRESReturn CBaseEntity_ModifyOrAppendCriteria_detour_post(int pThis, DHookParam hParams)
 {
+	Address criteriaSet = hParams.GetAddress(1);
+
+	TFClassType rep_player_class = get_player_class_rep(pThis);
+
+	char sound_var_name[MAX_SOUND_VAR_NAME];
+	char sound_var_value[MAX_SOUND_VAR_VALUE];
+
+	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+		if(player_configs[pThis][rep_player_class][i].model[0] != '\0') {
+			if(player_configs[pThis][rep_player_class][i].scene_variables != null) {
+				StringMapSnapshot snap = player_configs[pThis][rep_player_class][i].scene_variables.Snapshot();
+				int len = snap.Length;
+				for(int j = 0; j < len; ++j) {
+					snap.GetKey(j, sound_var_name, MAX_SOUND_VAR_NAME);
+
+					if(sound_var_name[0] == '-') {
+						SDKCall(AI_CriteriaSet_RemoveCriteria, criteriaSet, sound_var_name[1]);
+					} else {
+						if(player_configs[pThis][rep_player_class][i].scene_variables.GetString(sound_var_name, sound_var_value, MAX_SOUND_VAR_VALUE)) {
+							bool add = (sound_var_name[0] == '+');
+
+							if(StrEqual(sound_var_value, "remove")) {
+								SDKCall(AI_CriteriaSet_RemoveCriteria, criteriaSet, sound_var_name[add ? 1 : 0]);
+							} else {
+								if(StrEqual(sound_var_name[add ? 1 : 0], "playerclass")) {
+									if(StrEqual(sound_var_value, "model_class")) {
+										if(player_configs[pThis][rep_player_class][i].model_class != TFClass_Unknown) {
+											get_class_name(player_configs[pThis][rep_player_class][i].model_class, sound_var_value, MAX_SOUND_VAR_VALUE, class_name_nonlocalized);
+										} else {
+											sound_var_name[0] = '\0';
+										}
+									}
+								}
+
+								if(sound_var_name[0] != '\0') {
+									SDKCall(AI_CriteriaSet_AppendCriteria, criteriaSet, sound_var_name[add ? 1 : 0], sound_var_value, 1.0);
+								}
+							}
+						}
+					}
+				}
+			}
+			break;
+		}
+	}
+
 	return MRES_Ignored;
 }
 
@@ -4633,14 +4788,9 @@ static MRESReturn CBasePlayer_GetSceneSoundToken_detour(int pThis, DHookReturn h
 
 	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
 		if(player_configs[pThis][rep_player_class][i].model[0] != '\0') {
-			if(player_configs[pThis][rep_player_class][i].sound_variables != null) {
-				char sound_var_value[MAX_SOUND_VAR_VALUE];
-				if(player_configs[pThis][rep_player_class][i].sound_variables.GetString("token", sound_var_value, MAX_SOUND_VAR_VALUE)) {
-				#if 0
-					hReturn.SetString(sound_var_value);
-					return MRES_Supercede;
-				#endif
-				}
+			if(player_configs[pThis][rep_player_class][i].scene_token[0] != '\0') {
+				hReturn.SetString(player_configs[pThis][rep_player_class][i].scene_token);
+				return MRES_Supercede;
 			}
 			break;
 		}
@@ -5127,11 +5277,11 @@ static void replace_model_variables(int client, TFClassType model_class, char[] 
 	TFClassType real_player_class = TF2_GetPlayerClass(client);
 
 	char classname[CLASS_NAME_MAX];
-	get_class_name(real_player_class, classname, CLASS_NAME_MAX, true);
+	get_class_name(real_player_class, classname, CLASS_NAME_MAX, class_name_short);
 
 	ReplaceString(model, len, "$player_class$", classname);
 
-	get_class_name(model_class, classname, CLASS_NAME_MAX, true);
+	get_class_name(model_class, classname, CLASS_NAME_MAX, class_name_short);
 
 	ReplaceString(model, len, "$model_class$", classname);
 }
