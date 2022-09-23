@@ -1865,16 +1865,18 @@ void ApplyConfigMap()
 		SetLightStyle(0, "m");
 	}
 	
-#if 1
 	// Apply Detail Sprites
 	if (!StrEqual(mapDetailSprites, "")) {
 		FormatEx(detailMaterial, sizeof(detailMaterial), "detail/detailsprites_%s", mapDetailSprites);
+	#if 0
 		DispatchKeyValue(0, "detailmaterial", mapDetailSprites);
+	#else
+		DispatchKeyValue(0, "detailmaterial", "");
+	#endif
 	} else {
 		DispatchKeyValue(0, "detailmaterial", "");
 	}
 	ChangeEdictState(0, m_iszDetailSpriteMaterialOffset);
-#endif
 	
 	if(mapCold) {
 		SetEntProp(0, Prop_Send, "m_bColdWorld", 1);

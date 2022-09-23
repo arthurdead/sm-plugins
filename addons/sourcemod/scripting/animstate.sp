@@ -321,12 +321,12 @@ static int native_animstate_play_taunt_from_item(Handle plugin, int params)
 public void OnClientDisconnect(int client)
 {
 	if(player_anim_idle_timer[client] != null) {
-		KillTimer(player_anim_idle_timer[client]);
+		KillTimer(player_anim_idle_timer[client], true);
 		player_anim_idle_timer[client] = null;
 	}
 
 	if(player_anim_intro_timer[client] != null) {
-		KillTimer(player_anim_intro_timer[client]);
+		KillTimer(player_anim_intro_timer[client], true);
 		player_anim_intro_timer[client] = null;
 	}
 }
@@ -411,7 +411,7 @@ static int native_animstate_play_taunt_activity(Handle plugin, int params)
 
 	if(long) {
 		if(player_anim_idle_timer[client] != null) {
-			KillTimer(player_anim_idle_timer[client]);
+			KillTimer(player_anim_idle_timer[client], true);
 		}
 
 		DataPack data;
@@ -449,7 +449,7 @@ static Action timer_intro_anim(Handle timer, DataPack data)
 	}
 
 	if(player_anim_idle_timer[client] != null) {
-		KillTimer(player_anim_idle_timer[client]);
+		KillTimer(player_anim_idle_timer[client], true);
 	}
 
 	player_anim_idle_timer[client] = CreateDataTimer(duration, timer_idle_anim, data, TIMER_REPEAT|TIMER_FLAG_NO_MAPCHANGE);
@@ -514,7 +514,7 @@ static int native_animstate_play_taunt_activity_3_stage(Handle plugin, int param
 	float idle_duration = AnimatingSequenceDuration(client, idle_sequence);
 
 	if(player_anim_intro_timer[client] != null) {
-		KillTimer(player_anim_intro_timer[client]);
+		KillTimer(player_anim_intro_timer[client], true);
 	}
 
 	DataPack data;

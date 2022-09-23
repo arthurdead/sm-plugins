@@ -49,15 +49,19 @@ public void OnPluginStart()
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_utility", throwable_allocate, CTFThrowable_size);
 	table = CustomSendtable.from_factory(factory);
 	table.set_network_name("CTFThrowableUtility");
+}
 
+static void precache_throwable(const char[] path)
+{
 	TFWeaponInfo info = new TFWeaponInfo();
-	info.ImportFromFile("scripts/tf_weapon_spellbook.txt");
 
-	precache_weapon_kv(info.__kv, "scripts/tf_weapon_throwable.txt", false);
-	precache_weapon_kv(info.__kv, "scripts/tf_weapon_throwable_primary.txt", false);
-	precache_weapon_kv(info.__kv, "scripts/tf_weapon_throwable_secondary.txt", false);
-	precache_weapon_kv(info.__kv, "scripts/tf_weapon_throwable_melee.txt", false);
-	precache_weapon_kv(info.__kv, "scripts/tf_weapon_throwable_utility.txt", false);
+	if(FileExists(path, true)) {
+		info.ImportFromFile(path);
+	} else {
+		info.ImportFromFile("scripts/tf_weapon_spellbook.txt");
+	}
+
+	precache_weapon_kv(info.__kv, path, false);
 
 	delete info;
 }
@@ -65,4 +69,10 @@ public void OnPluginStart()
 public void OnMapStart()
 {
 	PrecacheModel("models/weapons/c_models/c_balloon_default.mdl");
+
+	precache_throwable("scripts/tf_weapon_throwable.txt");
+	precache_throwable("scripts/tf_weapon_throwable_primary.txt");
+	precache_throwable("scripts/tf_weapon_throwable_secondary.txt");
+	precache_throwable("scripts/tf_weapon_throwable_melee.txt");
+	precache_throwable("scripts/tf_weapon_throwable_utility.txt");
 }

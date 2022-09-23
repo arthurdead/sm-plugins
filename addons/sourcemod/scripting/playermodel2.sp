@@ -4395,14 +4395,19 @@ static Action player_weapon_equip(int client, int weapon)
 
 static Action player_weapon_switch(int client, int weapon)
 {
+#if defined DEBUG_WEAPONSWITCH
+	PrintToServer(PM2_CON_PREFIX ... "player_weapon_switch(%i, %i)", client, weapon);
+#endif
+
 	if(player_weapon_switch_timer[client] != null) {
-		KillTimer(player_weapon_switch_timer[client]);
+		KillTimer(player_weapon_switch_timer[client], true);
 	}
 
 	DataPack data;
 	player_weapon_switch_timer[client] = CreateDataTimer(0.1, timer_handle_weapon_switch, data, TIMER_FLAG_NO_MAPCHANGE);
 	data.WriteCell(GetClientUserId(client));
 	data.WriteCell(weapon == -1 ? INVALID_ENT_REFERENCE : EntIndexToEntRef(weapon));
+
 	return Plugin_Continue;
 }
 
@@ -4953,7 +4958,7 @@ public void OnClientDisconnect(int client)
 	mp_usehwmmodels[client] = -1;
 
 	if(player_weapon_switch_timer[client] != null) {
-		KillTimer(player_weapon_switch_timer[client]);
+		KillTimer(player_weapon_switch_timer[client], true);
 		player_weapon_switch_timer[client] = null;
 	}
 }

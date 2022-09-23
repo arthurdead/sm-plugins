@@ -1411,6 +1411,8 @@ static void query_item_category_added(Database db, DBResultSet results, const ch
 
 	any user_data = data.ReadCell();
 
+	bool threaded = data.ReadCell() != 0;
+
 	delete data;
 
 	int id = results.InsertId;
@@ -1421,11 +1423,19 @@ static void query_item_category_added(Database db, DBResultSet results, const ch
 		category_handle_parent(idx, name, parent_id);
 	}
 
+	if(!threaded) {
+		SQL_UnlockDatabase(db);
+	}
+
 	if(registered != INVALID_FUNCTION) {
 		Call_StartFunction(plugin, registered);
 		Call_PushCell(idx);
 		Call_PushCell(user_data);
 		Call_Finish();
+	}
+
+	if(!threaded) {
+		SQL_LockDatabase(db);
 	}
 }
 
@@ -1461,15 +1471,17 @@ static void econ_register_category_impl(Handle plugin, const char[] name, int pa
 	data.WriteCell(user_data);
 
 #if 0
+	data.WriteCell(1);
 	econ_db.Query(query_item_category_added, query, data);
 #else
+	data.WriteCell(0);
 	SQL_LockDatabase(econ_db);
 	DBResultSet results = SQL_Query(econ_db, query);
-	SQL_UnlockDatabase(econ_db);
 	char error[128];
 	SQL_GetError(econ_db, error, sizeof(error));
 	query_item_category_added(econ_db, results, error, data);
 	delete results;
+	SQL_UnlockDatabase(econ_db);
 #endif
 }
 

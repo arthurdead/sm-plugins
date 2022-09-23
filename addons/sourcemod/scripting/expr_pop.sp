@@ -143,7 +143,7 @@ static bool get_random_ambush(float pos[3])
 	}
 
 	for(int i = 0; i < 5; ++i) {
-		int idx = GetRandomInt(0, len-1);
+		int idx = GetURandomInt() % len;
 		CNavArea area = last_ambush_areas.Get(idx);
 
 		for(int j = 0; j < 3; ++j) {
