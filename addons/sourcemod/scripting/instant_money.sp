@@ -2,6 +2,7 @@
 #include <damagerules>
 #include <datamaps>
 #include <popspawner>
+#include <teammanager>
 
 static ArrayList last_killed_data;
 
@@ -44,13 +45,47 @@ static void frame_currency_spawn(int entity)
 			}
 
 			if(target != -1) {
-			#if 1
+				if(GetClientTeam(target) != TF_TEAM_PVE_DEFENDERS) {
+					target = -1;
+				}
+			}
+
+			if(target == -1) {
+				float my_pos[3];
+				GetEntPropVector(entity, Prop_Data, "m_vecAbsOrigin", my_pos);
+
+				int closest_player = -1;
+				float last_distance = 99999999.0;
+
+				for(int i = 1; i <= MaxClients; ++i) {
+					if(!IsClientInGame(i) ||
+						IsClientSourceTV(i) ||
+						IsClientReplay(i)) {
+						continue;
+					}
+
+					if(GetClientTeam(i) != TF_TEAM_PVE_DEFENDERS ||
+						!IsPlayerAlive(i)) {
+						continue;
+					}
+
+					float plr_pos[3];
+					GetClientAbsOrigin(i, plr_pos);
+
+					float distance = GetVectorDistance(my_pos, plr_pos);
+					if(distance < last_distance) {
+						closest_player = i;
+						last_distance = distance;
+					}
+				}
+
+				if(closest_player != -1) {
+					target = closest_player;
+				}
+			}
+
+			if(target != -1) {
 				claim_currency_pack(target, entity, 1.0);
-			#else
-				float pos[3];
-				GetClientAbsOrigin(target, pos);
-				TeleportEntity(entity, pos);
-			#endif
 			}
 		}
 	}
@@ -74,6 +109,8 @@ static Action pop_entity_killed(int entity, CTakeDamageInfo info)
 	if(inflictor >= 1 && inflictor <= MaxClients) {
 		inflictor_userid = GetClientUserId(inflictor);
 	}
+
+	//^^^ TODO!!! call CTFGameRules::GetDeathScorer / CTFGameRules::GetAssister
 
 	int ref = EntIndexToEntRef(entity);
 	int idx = last_killed_data.FindValue(ref);
@@ -110,10 +147,7 @@ public void OnEntityDestroyed(int entity)
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if(StrEqual(classname, "item_currencypack_large") ||
-		StrEqual(classname, "item_currencypack_medium") ||
-		StrEqual(classname, "item_currencypack_small") ||
-		StrEqual(classname, "item_currencypack_custom")) {
+	if(StrContains(classname, "item_currencypack") != -1) {
 		SDKHook(entity, SDKHook_SpawnPost, currency_spawn);
 	}
 }
