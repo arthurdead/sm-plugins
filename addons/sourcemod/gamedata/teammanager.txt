@@ -68,6 +68,10 @@
 			{
 				"linux" "@_Z9TFTeamMgrv"
 			}
+			"CTFGameRules::GetTeamAssignmentOverride"
+			{
+				"linux" "@_ZN12CTFGameRules25GetTeamAssignmentOverrideEP9CTFPlayerib"
+			}
 		}
 		"Offsets"
 		{
@@ -560,6 +564,29 @@
 					"info"
 					{
 						"type" "objectptr"
+					}
+				}
+			}
+			"CTFGameRules::GetTeamAssignmentOverride"
+			{
+				"signature" "CTFGameRules::GetTeamAssignmentOverride"
+				"callconv" "thiscall"
+				"return" "int"
+				"this" "address"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"pTFPlayer"
+					{
+						"type" "cbaseentity"
+					}
+					"iDesiredTeam"
+					{
+						"type" "int"
+					}
+					"bAutoBalance"
+					{
+						"type" "bool"
 					}
 				}
 			}

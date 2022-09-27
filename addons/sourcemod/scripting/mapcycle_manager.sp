@@ -218,6 +218,11 @@ static int num_workshop_metadatas;
 static ArrayList workshop_commands;
 static ArrayList workshop_request_data;
 
+static void workshop_information_finished()
+{
+	handle_maps();
+}
+
 #if defined WORKSHOP_GET_MAPNAME
 static void get_details(bool success, const char[] error, System2HTTPRequest request, System2HTTPResponse response, HTTPRequestMethod method)
 {
@@ -298,6 +303,10 @@ static void get_details(bool success, const char[] error, System2HTTPRequest req
 		delete builders;
 
 		delete workshop_request_data;
+
+		if(num_workshop_requests == 0) {
+			workshop_information_finished();
+		}
 	}
 }
 #endif
@@ -459,6 +468,8 @@ static void collection_details(bool success, const char[] error, System2HTTPRequ
 			delete builders;
 
 			delete workshop_request_data;
+
+			workshop_information_finished();
 		}
 	}
 }
@@ -1483,13 +1494,6 @@ static void load_maps()
 	}
 
 	recompute_mapcycle(mcm_changed_initial);
-
-#if !defined ALWAYS_WRITE_FILES
-	if(mapchooser_mcm_changed == INVALID_FUNCTION || nominations_mcm_changed == INVALID_FUNCTION)
-#endif
-	{
-		mapcyclefile.SetString(mapcyclefile_path);
-	}
 }
 
 static void reload_maps()
@@ -1505,42 +1509,53 @@ public void OnConfigsExecuted()
 
 	current_holiday_flags = get_current_holidays();
 
-	if(num_workshop_requests > 0 || num_workshop_metadatas > 0) {
-	#if !defined ALWAYS_WRITE_FILES
-		if(mapchooser_mcm_changed == INVALID_FUNCTION || nominations_mcm_changed == INVALID_FUNCTION)
-	#endif
-		{
-			mapcyclefile.SetString(mapcyclefile_path);
-		}
+#if !defined ALWAYS_WRITE_FILES
+	if(mapchooser_mcm_changed == INVALID_FUNCTION || nominations_mcm_changed == INVALID_FUNCTION)
+#endif
+	{
+		mapcyclefile.SetString(mapcyclefile_path);
+	}
 
-		CreateTimer(0.1, timer_configsexecuted, 0, TIMER_FLAG_NO_MAPCHANGE);
-	} else {
-		timer_configsexecuted(null, 0);
+	if(num_workshop_requests == 0 && num_workshop_metadatas == 0) {
+		handle_maps();
 	}
 }
 
-static Action timer_configsexecuted(Handle timer, any data)
+static bool change_to_randommap()
+{
+	int len = current_mapcycle_nochance.Length;
+	if(len > 0) {
+		int i = GetURandomInt() % len;
+		int idx = current_mapcycle_nochance.Get(i);
+		ConfigMapInfo info;
+		config_maps.GetArray(idx, info, sizeof(ConfigMapInfo));
+		char map_name[PLATFORM_MAX_PATH];
+		get_config_map_path(info, map_name, PLATFORM_MAX_PATH);
+		initial_map_loaded = true;
+		if(!StrEqual(map_name, current_map)) {
+			SetNextMap(map_name);
+			ForceChangeLevel(map_name, "MCM");
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static void handle_maps()
 {
 	load_maps();
 
 	ConfigMapInfo info;
 
-	if(!late_loaded) {
+	//if(!late_loaded)
+	{
 		if(!initial_map_loaded) {
-			initial_map_loaded = true;
 			//if(FindCommandLineParam("+randommap"))
 			{
-				int len = current_mapcycle_nochance.Length;
-				if(len > 0) {
-					int i = GetURandomInt() % len;
-					int idx = current_mapcycle_nochance.Get(i);
-					config_maps.GetArray(idx, info, sizeof(ConfigMapInfo));
-					char map_name[PLATFORM_MAX_PATH];
-					get_config_map_path(info, map_name, PLATFORM_MAX_PATH);
-					if(!StrEqual(map_name, current_map)) {
-						SetNextMap(map_name);
-						ForceChangeLevel(map_name, "MCM");
-						return Plugin_Continue;
+				if(num_workshop_requests == 0 && num_workshop_metadatas == 0) {
+					if(change_to_randommap()) {
+						return;
 					}
 				}
 			}
@@ -1574,8 +1589,6 @@ static Action timer_configsexecuted(Handle timer, any data)
 	}
 
 	configs_executed = true;
-
-	return Plugin_Continue;
 }
 
 public void OnClientPutInServer(int client)

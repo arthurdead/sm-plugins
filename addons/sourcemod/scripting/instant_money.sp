@@ -7,7 +7,7 @@ static ArrayList last_killed_data;
 
 public void OnPluginStart()
 {
-	last_killed_data = new ArrayList(2);
+	last_killed_data = new ArrayList(3);
 }
 
 static void frame_currency_spawn(int entity)
@@ -23,11 +23,34 @@ static void frame_currency_spawn(int entity)
 	if(owner != -1) {
 		int idx = last_killed_data.FindValue(EntIndexToEntRef(owner));
 		if(idx != -1) {
-			int attacker = GetClientOfUserId(last_killed_data.Get(idx, 1));
-			if(attacker != 0) {
+			int target = -1;
+
+			int attacker_userid = last_killed_data.Get(idx, 1);
+			if(attacker_userid != -1) {
+				int attacker = GetClientOfUserId(attacker_userid);
+				if(attacker != 0) {
+					target = attacker;
+				}
+			}
+
+			if(target == -1) {
+				int inflictor_userid = last_killed_data.Get(idx, 1);
+				if(inflictor_userid != -1) {
+					int inflictor = GetClientOfUserId(inflictor_userid);
+					if(inflictor != 0) {
+						target = inflictor;
+					}
+				}
+			}
+
+			if(target != -1) {
+			#if 1
+				claim_currency_pack(target, entity, 1.0);
+			#else
 				float pos[3];
-				GetClientAbsOrigin(attacker, pos);
+				GetClientAbsOrigin(target, pos);
 				TeleportEntity(entity, pos);
+			#endif
 			}
 		}
 	}
@@ -40,17 +63,17 @@ static void currency_spawn(int entity)
 
 static Action pop_entity_killed(int entity, CTakeDamageInfo info)
 {
+	int attacker_userid = -1;
 	int attacker = info.m_hAttacker;
-	if(attacker < 1 || attacker > MaxClients) {
-		int inflictor = info.m_hInflictor;
-		if(inflictor >= 1 && inflictor <= MaxClients) {
-			attacker = inflictor;
-		} else {
-			return Plugin_Continue;
-		}
+	if(attacker >= 1 && attacker <= MaxClients) {
+		attacker_userid = GetClientUserId(attacker);
 	}
 
-	int userid = GetClientUserId(attacker);
+	int inflictor_userid = -1;
+	int inflictor = info.m_hInflictor;
+	if(inflictor >= 1 && inflictor <= MaxClients) {
+		inflictor_userid = GetClientUserId(inflictor);
+	}
 
 	int ref = EntIndexToEntRef(entity);
 	int idx = last_killed_data.FindValue(ref);
@@ -58,7 +81,8 @@ static Action pop_entity_killed(int entity, CTakeDamageInfo info)
 		idx = last_killed_data.Push(ref);
 	}
 
-	last_killed_data.Set(idx, userid, 1);
+	last_killed_data.Set(idx, attacker_userid, 1);
+	last_killed_data.Set(idx, inflictor_userid, 2);
 
 	return Plugin_Continue;
 }

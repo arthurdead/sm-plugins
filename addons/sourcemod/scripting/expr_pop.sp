@@ -281,8 +281,6 @@ public Action spawnlocation_parse(IPopulator populator, SpawnLocation location, 
 		data.GoBack();
 	}
 
-	data.GoBack();
-
 	return Plugin_Continue;
 }
 
@@ -506,11 +504,14 @@ static void expand_mod_ifs(KeyValues data, KeyValues expanded, expand_type_t typ
 	}
 }
 
-public Action pop_parse(KeyValues data, bool &result)
+public void pop_pre_parse()
 {
 	ambush_spawn_locations.Clear();
 	ambush_entities.Clear();
+}
 
+public Action pop_parse(KeyValues data, bool &result)
+{
 	ModInfo mod;
 
 	free_mods(manager_mods, mod);

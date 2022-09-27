@@ -166,9 +166,7 @@ static void add_category_to_player_inv_menu(int client, int child, const char[] 
 	if(!plr_categories.GetArray(str, plrinvcat, sizeof(PlayerInventoryCategory))) {
 		plrinvcat.menu = new Menu(menuhandler_inv_cat, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem|MenuAction_DisplayItem);
 
-		char category_menu_title[15 + ECON_MAX_ITEM_CATEGORY_NAME];
-		FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
-		plrinvcat.menu.SetTitle(category_menu_title);
+		plrinvcat.menu.SetTitle("Category: %s", catinfo.name);
 
 		plrinvcat.menu.ExitBackButton = true;
 
@@ -204,8 +202,6 @@ static void add_item_to_player_inv_menu(int client, int id, int idx)
 
 	char str[15];
 
-	char category_menu_title[15 + ECON_MAX_ITEM_CATEGORY_NAME];
-
 	ArrayList item_categories = info.categories;
 
 	int num_cats = item_categories.Length;
@@ -219,8 +215,7 @@ static void add_item_to_player_inv_menu(int client, int id, int idx)
 		if(!plr_categories.GetArray(str, plrinvcat, sizeof(PlayerInventoryCategory))) {
 			plrinvcat.menu = new Menu(menuhandler_inv_cat, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem|MenuAction_DisplayItem);
 
-			FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", catinfo.name);
-			plrinvcat.menu.SetTitle(category_menu_title);
+			plrinvcat.menu.SetTitle("Category: %s", catinfo.name);
 
 			plrinvcat.menu.ExitBackButton = true;
 
@@ -2012,24 +2007,16 @@ static int native_econ_menu_add_item(Handle plugin, int params)
 
 	if(current_menu_type == 1) {
 		int title_len = (ECON_SHOP_ITEM_TITLE_LEN + 6 + (++length) + 2);
-		char[] new_title = new char[title_len];
-		current_menu.GetTitle(new_title, title_len);
+		char[] old_title = new char[title_len];
+		current_menu.GetTitle(old_title, title_len);
 
-		StrCat(new_title, title_len, "\n    ");
-		StrCat(new_title, title_len, user_display);
-		StrCat(new_title, title_len, "\n ");
-
-		current_menu.SetTitle(new_title);
+		current_menu.SetTitle("%s\n    %s\n ", old_title, user_display);
 	} else if(current_menu_type == 2) {
 		int title_len = (ECON_INV_ITEM_TITLE_LEN + 6 + (++length) + 2);
-		char[] new_title = new char[title_len];
-		current_menu.GetTitle(new_title, title_len);
+		char[] old_title = new char[title_len];
+		current_menu.GetTitle(old_title, title_len);
 
-		StrCat(new_title, title_len, "\n    ");
-		StrCat(new_title, title_len, user_display);
-		StrCat(new_title, title_len, "\n ");
-
-		current_menu.SetTitle(new_title);
+		current_menu.SetTitle("%s\n    %s\n ", old_title, user_display);
 	}
 
 	return 0;
@@ -2183,13 +2170,13 @@ public void OnMapStart()
 	PrecacheScriptSound("music.mvm_upgrade_machine");
 }
 
-static int follow_category_path(const char[] xpath)
+static int follow_category_path(const char[] path)
 {
 	//TODO!!!!!!!!
 	return -2;
 }
 
-#define ECON_MAX_XPATH_NEST 10
+#define ECON_MAX_CAT_PATH_NEST 10
 
 static void read_categories_kv_impl(const char[] dir_path)
 {
@@ -2219,12 +2206,12 @@ static void read_categories_kv_impl(const char[] dir_path)
 			if(categories_kv.ImportFromFile(file_path)) {
 				if(categories_kv.GotoFirstSubKey()) {
 					char name[ECON_MAX_ITEM_CATEGORY_NAME];
-					char category_xpath[ECON_MAX_ITEM_CATEGORY_NAME * ECON_MAX_XPATH_NEST];
+					char category_path[ECON_MAX_ITEM_CATEGORY_NAME * ECON_MAX_CAT_PATH_NEST];
 
 					do {
-						categories_kv.GetString("parent", category_xpath, sizeof(category_xpath));
+						categories_kv.GetString("parent", category_path, sizeof(category_path));
 
-						int parent = follow_category_path(category_xpath);
+						int parent = follow_category_path(category_path);
 						if(parent == -2) {
 							continue;
 						}
@@ -2269,7 +2256,7 @@ static void read_items_kv_impl(const char[] dir_path)
 			if(items_kv.ImportFromFile(file_path)) {
 				if(items_kv.GotoFirstSubKey()) {
 					char name[ECON_MAX_ITEM_NAME];
-					char category_xpath[ECON_MAX_ITEM_CATEGORY_NAME * ECON_MAX_XPATH_NEST];
+					char category_path[ECON_MAX_ITEM_CATEGORY_NAME * ECON_MAX_CAT_PATH_NEST];
 
 					do {
 						items_kv.GetSectionName(name, ECON_MAX_ITEM_NAME);
@@ -2540,9 +2527,7 @@ static int category_loaded(int id, const char[] name, int parent_id)
 	info.shop_menu = new Menu(menuhandler_shop_cat, MENU_ACTIONS_DEFAULT|MenuAction_DrawItem|MenuAction_DisplayItem);
 	info.shop_menu.ExitBackButton = true;
 
-	char category_menu_title[10 + ECON_MAX_ITEM_CATEGORY_NAME];
-	FormatEx(category_menu_title, sizeof(category_menu_title), "Category: %s", info.name);
-	info.shop_menu.SetTitle(category_menu_title);
+	info.shop_menu.SetTitle("Category: %s", info.name);
 
 	info.items = new ArrayList();
 
@@ -2605,26 +2590,26 @@ static int item_loaded(int id, KeyValues item_kv)
 	int display_price = get_item_display_price(info.price);
 
 	char item_menu_title[ECON_SHOP_ITEM_TITLE_LEN];
-	StrCat(item_menu_title, sizeof(item_menu_title), "Item: ");
-	StrCat(item_menu_title, sizeof(item_menu_title), info.name);
-	StrCat(item_menu_title, sizeof(item_menu_title), "\n ");
+	StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, "Item: ");
+	StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, info.name);
+	StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, "\n ");
 
 	if(info.desc[0] != '\0') {
-		StrCat(item_menu_title, sizeof(item_menu_title), "\n    ");
-		StrCat(item_menu_title, sizeof(item_menu_title), info.desc);
-		StrCat(item_menu_title, sizeof(item_menu_title), "\n ");
+		StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, "\n    ");
+		StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, info.desc);
+		StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, "\n ");
 	}
 
 	if(display_price >= 0) {
-		StrCat(item_menu_title, sizeof(item_menu_title), "\n    ");
-		StrCat(item_menu_title, sizeof(item_menu_title), "Price: ");
+		StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, "\n    ");
+		StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, "Price: ");
 
 		char price_str[ECON_SHOP_PRICE_STR_LEN];
-		IntToString(display_price, price_str, sizeof(price_str));
+		IntToString(display_price, price_str, ECON_SHOP_PRICE_STR_LEN);
 
-		StrCat(item_menu_title, sizeof(item_menu_title), price_str);
+		StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, price_str);
 
-		StrCat(item_menu_title, sizeof(item_menu_title), "\n ");
+		StrCat(item_menu_title, ECON_SHOP_ITEM_TITLE_LEN, "\n ");
 	}
 
 	info.shop_menu.SetTitle(item_menu_title);
@@ -2949,14 +2934,14 @@ static int menuhandler_inv_cat(Menu menu, MenuAction action, int param1, int par
 				inv_menu.ExitBackButton = true;
 
 				char item_menu_title[ECON_INV_ITEM_TITLE_LEN];
-				StrCat(item_menu_title, sizeof(item_menu_title), "Item: ");
-				StrCat(item_menu_title, sizeof(item_menu_title), info.name);
-				StrCat(item_menu_title, sizeof(item_menu_title), "\n ");
+				StrCat(item_menu_title, ECON_INV_ITEM_TITLE_LEN, "Item: ");
+				StrCat(item_menu_title, ECON_INV_ITEM_TITLE_LEN, info.name);
+				StrCat(item_menu_title, ECON_INV_ITEM_TITLE_LEN, "\n ");
 
 				if(info.desc[0] != '\0') {
-					StrCat(item_menu_title, sizeof(item_menu_title), "\n    ");
-					StrCat(item_menu_title, sizeof(item_menu_title), info.desc);
-					StrCat(item_menu_title, sizeof(item_menu_title), "\n ");
+					StrCat(item_menu_title, ECON_INV_ITEM_TITLE_LEN, "\n    ");
+					StrCat(item_menu_title, ECON_INV_ITEM_TITLE_LEN, info.desc);
+					StrCat(item_menu_title, ECON_INV_ITEM_TITLE_LEN, "\n ");
 				}
 
 				inv_menu.SetTitle(item_menu_title);
@@ -3091,19 +3076,7 @@ static int menuhandler_inv(Menu menu, MenuAction action, int param1, int param2)
 {
 	switch(action) {
 		case MenuAction_Display: {
-			char inventory_menu_title[ECON_INV_TITLE_LEN];
-			strcopy(inventory_menu_title, sizeof(inventory_menu_title), "Inventory\n    ");
-
-			StrCat(inventory_menu_title, sizeof(inventory_menu_title), "Credits: ");
-
-			char credits_str[ECON_SHOP_CREDITS_STR_LEN];
-			IntToString(player_inventory[param1].currency, credits_str, sizeof(credits_str));
-
-			StrCat(inventory_menu_title, sizeof(inventory_menu_title), credits_str);
-
-			StrCat(inventory_menu_title, sizeof(inventory_menu_title), "\n ");
-
-			menu.SetTitle(inventory_menu_title);
+			menu.SetTitle("Inventory\n    Credits: %i\n ", player_inventory[param1].currency);
 
 			if(!playing_shop_music[param1]) {
 				on_player_open_inv(param1);
@@ -3414,19 +3387,7 @@ static int menuhandler_shop(Menu menu, MenuAction action, int param1, int param2
 {
 	switch(action) {
 		case MenuAction_Display: {
-			char shop_menu_title[ECON_SHOP_TITLE_LEN];
-			strcopy(shop_menu_title, sizeof(shop_menu_title), "Shop\n    ");
-
-			StrCat(shop_menu_title, sizeof(shop_menu_title), "Credits: ");
-
-			char credits_str[ECON_SHOP_CREDITS_STR_LEN];
-			IntToString(player_inventory[param1].currency, credits_str, sizeof(credits_str));
-
-			StrCat(shop_menu_title, sizeof(shop_menu_title), credits_str);
-
-			StrCat(shop_menu_title, sizeof(shop_menu_title), "\n ");
-
-			menu.SetTitle(shop_menu_title);
+			menu.SetTitle("Shop\n    Credits: %i\n ", player_inventory[param1].currency);
 
 			if(!playing_shop_music[param1]) {
 				on_player_open_shop(param1);

@@ -30,6 +30,7 @@ bool bCollisionHook = false;
 
 static int CTFTeam_m_TeamColor_offset = -1;
 bool truce_is_active;
+bool ignore_team_override;
 
 #include "teammanager/stocks.inc"
 
@@ -43,6 +44,10 @@ GlobalForward fwCanBackstab = null;
 GlobalForward fwCanAirblast = null;
 GlobalForward fwCanGetJarated = null;
 GlobalForward fwCreateTeams = null;
+GlobalForward fwFindTeams = null;
+GlobalForward fwGetTeamAssignmentOverride = null;
+
+Handle dhGetTeamAssignmentOverride = null;
 
 #include "teammanager/AllowedToHealTarget.sp"
 #include "teammanager/CouldHealTarget.sp"
@@ -72,6 +77,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 	fwCanAirblast = new GlobalForward("TeamManager_CanAirblast", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
 	fwCanGetJarated = new GlobalForward("TeamManager_CanGetJarated", ET_Hook, Param_Cell, Param_Cell);
 	fwCreateTeams = new GlobalForward("TeamManager_CreateTeams", ET_Ignore);
+	fwFindTeams = new GlobalForward("TeamManager_FindTeams", ET_Ignore);
+	fwGetTeamAssignmentOverride = new GlobalForward("TeamManager_GetTeamAssignmentOverride", ET_Hook, Param_Cell, Param_CellByRef);
 
 	CreateNative("TeamManager_GetEntityTeam", Native_TeamManager_GetEntityTeam);
 	CreateNative("TeamManager_SetEntityTeam", Native_TeamManager_SetEntityTeam);
@@ -131,6 +138,9 @@ public void OnPluginStart()
 	ExplodeCreate(gamedata);
 	CanPerformBackstabAgainstTargetCreate(gamedata);
 	DeflectProjectilesCreate(gamedata);
+
+	dhGetTeamAssignmentOverride = DHookCreateFromConf(gamedata, "CTFGameRules::GetTeamAssignmentOverride");
+	DHookEnableDetour(dhGetTeamAssignmentOverride, false, GetTeamAssignmentOverride);
 
 	StartPrepSDKCall(SDKCall_Entity);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CTeam::AddPlayer");
@@ -204,6 +214,34 @@ int Native_TeamManager_GetEntityTeam(Handle plugin, int params)
 	return GetEntityTeam(entity);
 }
 
+MRESReturn GetTeamAssignmentOverride(int pThis, Handle hReturn, Handle hParams)
+{
+	if(ignore_team_override) {
+		int team = DHookGetParam(hParams, 2);
+		DHookSetReturn(hReturn, team);
+		return MRES_Supercede;
+	}
+
+	if(fwGetTeamAssignmentOverride.FunctionCount > 0) {
+		Call_StartForward(fwGetTeamAssignmentOverride);
+		int client = DHookGetParam(hParams, 1);
+		int team = DHookGetParam(hParams, 2);
+		Call_PushCell(client);
+		Call_PushCellRef(team);
+		Action res = Plugin_Continue;
+		Call_Finish(res);
+
+		if(res == Plugin_Continue) {
+			return MRES_Ignored;
+		} else if(res == Plugin_Changed) {
+			DHookSetReturn(hReturn, team);
+			return MRES_Supercede;
+		}
+	}
+
+	return MRES_Ignored;
+}
+
 int Native_TeamManager_SetEntityTeam(Handle plugin, int params)
 {
 	int entity = GetNativeCell(1);
@@ -214,6 +252,9 @@ int Native_TeamManager_SetEntityTeam(Handle plugin, int params)
 
 	return 1;
 }
+
+static bool creating_internal_teams;
+static bool created_internal_teams;
 
 int Native_TeamManager_CreateTeam(Handle plugin, int params)
 {
@@ -240,7 +281,15 @@ int Native_TeamManager_CreateTeam(Handle plugin, int params)
 		}
 	}
 
-	return SDKCall(hCreateTeam, SDKCall(hTeamMgr), name, color32);
+	int team = SDKCall(hCreateTeam, SDKCall(hTeamMgr), name, color32);
+
+	if(!created_internal_teams && !creating_internal_teams) {
+		if(team <= TF_TEAM_HALLOWEEN) {
+			return ThrowNativeError(SP_ERROR_NATIVE, "internal game teams have not been created yet");
+		}
+	}
+
+	return team;
 }
 
 int Native_TeamManager_RemoveTeam(Handle plugin, int params)
@@ -449,10 +498,7 @@ public void OnMapStart()
 	Precache();
 #endif
 
-	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
-
-	HookSingleEntityOutput(gamerules, "OnTruceStart", ouput_truce_start);
-	HookSingleEntityOutput(gamerules, "OnTruceEnd", ouput_truce_end);
+	creating_internal_teams = true;
 
 	if(IsMannVsMachineMode()) {
 		int unused_team = TeamManager_CreateTeam("Giant Robots", {0, 0, 255, 0});
@@ -486,13 +532,31 @@ public void OnMapStart()
 		LogError("expected halloween team to be %i but got %i instead", TF_TEAM_HALLOWEEN, halloween_team);
 	}
 
+	creating_internal_teams = false;
+	created_internal_teams = true;
+
 	if(fwCreateTeams.FunctionCount > 0) {
 		Call_StartForward(fwCreateTeams);
 		Call_Finish();
 	}
 
+	if(fwFindTeams.FunctionCount > 0) {
+		Call_StartForward(fwFindTeams);
+		Call_Finish();
+	}
+
+	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
+
+	HookSingleEntityOutput(gamerules, "OnTruceStart", ouput_truce_start);
+	HookSingleEntityOutput(gamerules, "OnTruceEnd", ouput_truce_end);
+
 	FPlayerCanTakeDamageMapStart();
 	PlayerRelationshipMapStart();
+}
+
+public void OnMapEnd()
+{
+	created_internal_teams = false;
 }
 
 public void OnEntityCreated(int entity, const char[] classname)

@@ -109,9 +109,21 @@ enum
 	WINPANEL_MVM
 };
 
+stock void EndGame()
+{
+	int entity = FindEntityByClassname(-1, "game_end");
+	if(entity == -1) {
+		entity = CreateEntityByName("game_end");
+	}
+	AcceptEntityInput(entity, "EndGame");
+}
+
 stock void SetWinningTeam(int team, int iWinReason, bool bForceMapReset = false, bool bSwitchTeams = false, int winpanel = WINPANEL_DEFAULT)
 {
-	int entity = CreateEntityByName("game_round_win");
+	int entity = FindEntityByClassname(-1, "game_round_win");
+	if(entity == -1) {
+		entity = CreateEntityByName("game_round_win");
+	}
 	SetEntProp(entity, Prop_Data, "m_iWinReason", iWinReason);
 	SetEntProp(entity, Prop_Data, "m_bForceMapReset", bForceMapReset);
 	SetEntProp(entity, Prop_Data, "m_bSwitchTeamsOnWin", bSwitchTeams);
@@ -135,7 +147,6 @@ stock void SetWinningTeam(int team, int iWinReason, bool bForceMapReset = false,
 	}
 	SetEntProp(entity, Prop_Data, "m_iTeamNum", team);
 	AcceptEntityInput(entity, "RoundWin");
-	RemoveEntity(entity);
 	GameRules_SetProp("m_nGameType", old_gametype);
 	GameRules_SetProp("m_bPlayingMannVsMachine", was_mvm);
 }

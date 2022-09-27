@@ -76,7 +76,9 @@ stock void SetEntityTeam(int entity, int team, bool raw)
 		} else if(!raw) {
 			int life = GetEntProp(entity, Prop_Send, "m_lifeState");
 			SetEntProp(entity, Prop_Send, "m_lifeState", 2);
+			ignore_team_override = true;
 			ChangeClientTeam(entity, team);
+			ignore_team_override = false;
 			SetEntProp(entity, Prop_Send, "m_lifeState", life);
 		}
 	} else {

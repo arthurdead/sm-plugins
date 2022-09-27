@@ -14,6 +14,9 @@ native void pm2_get_model(int client, char[] model, int len);
 native void pm2_set_player_loser(int client, bool value);
 native void pm2_set_player_animation(int client, const char[] model, TFClassType class = TFClass_Unknown);
 
+native void pm2_unequip_config(int client);
+native void pm2_equip_config(int client, const char[] name);
+
 public SharedPlugin __pl_playermodel2 =
 {
 	name = "playermodel2",
