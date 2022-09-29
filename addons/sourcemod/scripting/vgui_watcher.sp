@@ -78,10 +78,63 @@ public void OnPluginStart()
 	AddCommandListener(command_menu, "menuopen");
 	AddCommandListener(command_menu, "menuclosed");
 
+	AddCommandListener(command_class, "changeclass");
+	AddCommandListener(command_class, "joinclass");
+	AddCommandListener(command_class, "join_class");
+
 	AddCommandListener(command_team, "changeteam");
 	AddCommandListener(command_team, "jointeam");
 	AddCommandListener(command_team, "jointeam_nomenus");
 	AddCommandListener(command_team, "join_team");
+
+	HookUserMessage(GetUserMessageId("VGUIMenu"), VGUIMenu);
+
+	//TODO!!!! CTFPlayer::m_bIsClassMenuOpen
+}
+
+#define PANEL_CLASS_BLUE "class_blue"
+#define PANEL_CLASS_RED "class_red"
+#define PANEL_CLASS "class"
+#define PANEL_TEAM "team"
+
+static Action VGUIMenu(UserMsg msg_id, Handle msg, const int[] players, int playersNum, bool reliable, bool init)
+{
+	BfRead read = view_as<BfRead>(msg);
+
+	char name[32];
+	read.ReadString(name, sizeof(name));
+
+	bool show = read.ReadByte() != 0;
+
+#if defined DEBUG
+	PrintToServer("VGUIMenu %s %i", name, show);
+#endif
+
+	if(StrEqual(name, PANEL_TEAM)) {
+		for(int i = 0; i < playersNum; ++i) {
+			int client = players[i];
+
+			if(show) {
+				
+			} else {
+				
+			}
+		}
+	} else if(StrEqual(name, PANEL_CLASS_BLUE) ||
+				StrEqual(name, PANEL_CLASS_RED) ||
+				StrEqual(name, PANEL_CLASS)) {
+		for(int i = 0; i < playersNum; ++i) {
+			int client = players[i];
+
+			if(show) {
+				
+			} else {
+				
+			}
+		}
+	}
+
+	return Plugin_Continue;
 }
 
 public void OnClientDisconnect(int client)
@@ -91,8 +144,21 @@ public void OnClientDisconnect(int client)
 	player_vgui[client] = player_vgui_none;
 }
 
+static Action command_class(int client, const char[] command, int args)
+{
+#if defined DEBUG
+	PrintToServer("command_class %s", command);
+#endif
+
+	return Plugin_Continue;
+}
+
 static Action command_team(int client, const char[] command, int args)
 {
+#if defined DEBUG
+	PrintToServer("command_team %s", command);
+#endif
+
 	if(player_vgui[client] == player_vgui_team) {
 		player_menu_open_num[client] = 0;
 		player_menu_close_num[client] = 0;
@@ -103,17 +169,15 @@ static Action command_team(int client, const char[] command, int args)
 			Call_PushCell(player_vgui_team);
 			Call_Finish();
 		}
-	#if defined DEBUG
-		PrintToServer("closed team menu");
-	#endif
 	}
+
 	return Plugin_Continue;
 }
 
 static Action command_menu(int client, const char[] command, int args)
 {
 #if defined DEBUG
-	PrintToServer("%s", command);
+	PrintToServer("command_menu %s", command);
 #endif
 
 	if(StrEqual(command, "menuclosed")) {
@@ -129,9 +193,6 @@ static Action command_menu(int client, const char[] command, int args)
 					Call_PushCell(player_vgui_class);
 					Call_Finish();
 				}
-			#if defined DEBUG
-				PrintToServer("closed class menu");
-			#endif
 			} else {
 				player_vgui[client] = player_vgui_team;
 				if(fwd_player_opened_vgui.FunctionCount > 0) {
@@ -140,9 +201,6 @@ static Action command_menu(int client, const char[] command, int args)
 					Call_PushCell(player_vgui_team);
 					Call_Finish();
 				}
-			#if defined DEBUG
-				PrintToServer("opened team menu");
-			#endif
 			}
 		} else if(player_menu_close_num[client] == 1 && player_menu_open_num[client] == 0) {
 			if(player_vgui[client] == player_vgui_none) {
@@ -151,18 +209,12 @@ static Action command_menu(int client, const char[] command, int args)
 					Call_PushCell(client);
 					Call_Finish();
 				}
-			#if defined DEBUG
-				PrintToServer("opening menu");
-			#endif
 			} else if(player_vgui[client] == player_vgui_class) {
 				if(fwd_player_closing_class_vgui.FunctionCount > 0) {
 					Call_StartForward(fwd_player_closing_class_vgui);
 					Call_PushCell(client);
 					Call_Finish();
 				}
-			#if defined DEBUG
-				PrintToServer("closing class menu");
-			#endif
 			}
 		}
 	} else if(StrEqual(command, "menuopen")) {
@@ -177,9 +229,6 @@ static Action command_menu(int client, const char[] command, int args)
 				Call_PushCell(player_vgui_class);
 				Call_Finish();
 			}
-		#if defined DEBUG
-			PrintToServer("opened class menu");
-		#endif
 		}
 	}
 

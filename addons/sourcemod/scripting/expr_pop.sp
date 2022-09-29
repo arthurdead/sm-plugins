@@ -43,6 +43,8 @@ static ConVar tf_populator_active_buffer_range;
 static ConVar ambush_unseen_time;
 static ConVar ambush_teleport_time;
 static ConVar ambush_collect_time;
+static ConVar ambush_max_pos_attempts;
+static ConVar ambush_max_area_attempts;
 
 static ArrayList manager_mods;
 static ArrayList wave_mods;
@@ -57,6 +59,9 @@ public void OnPluginStart()
 	ambush_unseen_time = CreateConVar("ambush_unseen_time", "5.0");
 	ambush_teleport_time = CreateConVar("ambush_teleport_time", "0.5");
 	ambush_collect_time = CreateConVar("ambush_collect_time", "0.5");
+
+	ambush_max_area_attempts = CreateConVar("ambush_max_area_attempts", "5");
+	ambush_max_pos_attempts = CreateConVar("ambush_max_pos_attempts", "5");
 
 	ambush_spawn_locations = new ArrayList();
 
@@ -135,21 +140,46 @@ static void collect_ambush_areas()
 	next_ambush_calc = GetGameTime() + ambush_collect_time.FloatValue;
 }
 
-static bool get_random_ambush(float pos[3])
+stock bool can_spawn_here(const float mins[3], float maxs[3], const float pos[3])
+{
+	TR_TraceHull(pos, pos, mins, maxs, MASK_NPCSOLID);
+	return TR_GetFraction() >= 0.8;
+}
+
+static bool get_random_ambush(int entity, const float mins[3], float maxs[3], float pos[3])
 {
 	int len = last_ambush_areas.Length;
 	if(len == 0) {
 		return false;
 	}
 
-	for(int i = 0; i < 5; ++i) {
+	int num_areas_attempts = ambush_max_area_attempts.IntValue;
+	int num_pos_attempts = ambush_max_pos_attempts.IntValue;
+
+	for(int i = 0; i < num_areas_attempts; ++i) {
 		int idx = GetURandomInt() % len;
 		CNavArea area = last_ambush_areas.Get(idx);
 
-		for(int j = 0; j < 3; ++j) {
+		for(int j = 0; j < num_pos_attempts; ++j) {
 			area.GetRandomPoint(pos);
 
-			if(IsSpaceToSpawnHere(pos)) {
+			float height = STEP_HEIGHT;
+
+			if(entity != -1) {
+				INextBot bot = INextBot(entity);
+				ILocomotion locomotion = bot.LocomotionInterface;
+				if(locomotion.Type == Locomotion_FlyingCustom) {
+					height = view_as<NextBotFlyingLocomotion>(locomotion).DesiredAltitude;
+				} else {
+					height = locomotion.StepHeight;
+				}
+			}
+
+			height += -mins[2];
+
+			pos[2] += height;
+
+			if(can_spawn_here(mins, maxs, pos)) {
 				return true;
 			}
 		}
@@ -237,8 +267,14 @@ public void OnGameFrame()
 			float last_seen = entity_seen_time.Get(seen_idx, 1);
 
 			if((GetGameTime() - last_seen) > ambush_unseen_time.FloatValue) {
+				float mins[3];
+				GetEntPropVector(entity, Prop_Send, "m_vecMins", mins);
+
+				float maxs[3];
+				GetEntPropVector(entity, Prop_Send, "m_vecMaxs", maxs);
+
 				float pos[3];
-				if(get_random_ambush(pos)) {
+				if(get_random_ambush(entity, mins, maxs, pos)) {
 					TeleportEntity(entity, pos);
 				}
 			}
@@ -253,7 +289,17 @@ public void OnGameFrame()
 public Action find_spawn_location(IPopulator populator, SpawnLocation location, float pos[3])
 {
 	if(ambush_spawn_locations.FindValue(location) != -1) {
-		if(get_random_ambush(pos)) {
+		float mins[3];
+		mins[0] = -66.0;
+		mins[1] = -66.0;
+		mins[2] = -13.0;
+
+		float maxs[3];
+		maxs[0] = 66.0;
+		maxs[1] = 66.0;
+		maxs[2] = 20.0;
+
+		if(get_random_ambush(-1, mins, maxs, pos)) {
 			return Plugin_Changed;
 		}
 	}

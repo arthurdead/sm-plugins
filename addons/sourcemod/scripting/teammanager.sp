@@ -89,6 +89,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 	CreateNative("TeamManager_AreTeamsEnemies", Native_TeamManager_AreTeamsEnemies);
 	CreateNative("TeamManager_AreTeamsFriends", Native_TeamManager_AreTeamsFriends);
 
+	CreateNative("TeamManager_IsTruceActive", Native_TeamManager_IsTruceActive);
+
 	RegPluginLibrary("teammanager");
 
 	g_bLateLoaded = late;
@@ -390,6 +392,11 @@ int Native_TeamManager_AreTeamsFriends(Handle plugin, int params)
 	}
 
 	return (team1 == team2);
+}
+
+int Native_TeamManager_IsTruceActive(Handle plugin, int params)
+{
+	return truce_is_active;
 }
 
 public void OnClientPutInServer(int client)

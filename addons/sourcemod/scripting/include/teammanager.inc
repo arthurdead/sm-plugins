@@ -92,6 +92,8 @@ native int TeamManager_FindTeam(const char[] name);
 native bool TeamManager_AreTeamsEnemies(int team1, int ream2);
 native bool TeamManager_AreTeamsFriends(int team1, int ream2);
 
+native bool TeamManager_IsTruceActive();
+
 public SharedPlugin __pl_teammanager =
 {
 	name = "teammanager",
