@@ -9,6 +9,7 @@
 #include <playermodel2>
 #include <clsobj_hack>
 #include <vgui_watcher>
+#include <cwx>
 
 #define TF2_MAXPLAYERS 33
 
@@ -25,6 +26,7 @@ static Handle dummy_item_view;
 
 static TFPlayerClassData TF_CLASS_SKELETON;
 
+static float player_death_pos[TF2_MAXPLAYERS+1][3];
 static TFClassType player_alive_class[TF2_MAXPLAYERS+1] = {TFClass_Unknown, ...};
 
 static ConVar tf_gamemode_mvm;
@@ -32,6 +34,9 @@ static ConVar tf_mvm_preallocate_bots;
 static ConVar mp_tournament;
 
 static int info_populator = INVALID_ENT_REFERENCE;
+static int tf_gamerules = INVALID_ENT_REFERENCE;
+
+static int m_nLastEventFiredTime = -1;
 
 static bool game_ended;
 
@@ -75,6 +80,13 @@ public void OnPluginStart()
 
 	mp_tournament_redteamname = FindConVar("mp_tournament_redteamname");
 	mp_tournament_redteamname.Flags &= ~FCVAR_NOTIFY;
+
+	RegConsoleCmd("sm_mva", sm_mva);
+}
+
+static Action sm_mva(int client, int args)
+{
+	return Plugin_Continue;
 }
 
 static bool filter_class_base_melee(int itemdef, TFClassType class)
@@ -133,6 +145,17 @@ public Action should_cleanup_entity(int entity, bool &should)
 	if(StrEqual(classname, "tf_logic_mann_vs_machine")) {
 		should = true;
 		return Plugin_Changed;
+	} else if(StrEqual(classname, "prop_dynamic") ||
+				StrEqual(classname, "prop_dynamic_override") ||
+				StrEqual(classname, "dynamic_prop")) {
+		char model[PLATFORM_MAX_PATH];
+		GetEntPropString(entity, Prop_Data, "m_ModelName", model, PLATFORM_MAX_PATH);
+		if(StrEqual(model, "models/props_mvm/robot_hologram.mdl") ||
+			StrEqual(model, "models/bots/boss_bot/carrier_parts.mdl") ||
+			StrEqual(model, "models/bots/boss_bot/static_boss_tank.mdl")) {
+			should = true;
+			return Plugin_Changed;
+		}
 	}
 
 	return Plugin_Continue;
@@ -167,17 +190,19 @@ public Action TeamManager_CanChangeClass(int entity, int team)
 public void OnClientDisconnect(int client)
 {
 	player_alive_class[client] = TFClass_Unknown;
+
+	player_death_pos[client][0] = 0.0;
+	player_death_pos[client][1] = 0.0;
+	player_death_pos[client][2] = 0.0;
+}
+
+public void pop_entity_spawned(IPopulator populator, IPopulationSpawner spawner, SpawnLocation location, int entity)
+{
+	SetEntProp(entity, Prop_Send, "m_bGlowEnabled", 1);
 }
 
 static Action proxysend_mvm(int entity, const char[] prop, bool &value, int element, int client)
 {
-#if 0
-	if(player_current_vgui(client) == player_vgui_class) {
-		value = false;
-		return Plugin_Changed;
-	}
-#endif
-
 	value = true;
 	return Plugin_Changed;
 }
@@ -199,6 +224,12 @@ static Action proxysend_roundstate(int entity, const char[] prop, RoundState &va
 	return Plugin_Continue;
 }
 
+static Action proxysend_countdown(int entity, const char[] prop, float &value, int element, int client)
+{
+	value = -1.0;
+	return Plugin_Changed;
+}
+
 public void OnConfigsExecuted()
 {
 	tf_gamemode_mvm.BoolValue = false;
@@ -209,6 +240,7 @@ public void OnConfigsExecuted()
 static void teamplay_round_start(Event event, const char[] name, bool dontBroadcast)
 {
 	game_ended = false;
+	m_nLastEventFiredTime = -1;
 
 	for(int i = 1; i <= MaxClients; ++i) {
 		if(!IsClientInGame(i) ||
@@ -261,18 +293,79 @@ static Action timer_endgame(Handle timer, any data)
 	return Plugin_Continue;
 }
 
-static Action timer_sendwinpanel(Handle timer, any data)
-{
-	SetWinningTeam(TF_TEAM_PVE_INVADERS, WINREASON_OPPONENTS_DEAD, true, false, WINPANEL_ARENA);
-
-	CreateTimer(WINPANEL_HOLD_TIME, timer_endgame, 0, TIMER_FLAG_NO_MAPCHANGE);
-
-	return Plugin_Continue;
-}
-
 public void OnGameFrame()
 {
-	if(!GameRules_GetProp("m_bInWaitingForPlayers") && GameRules_GetRoundState() == GR_STATE_RND_RUNNING) {
+	RoundState round = GameRules_GetRoundState();
+
+	if(round == GR_STATE_BETWEEN_RNDS) {
+		float m_flRestartRoundTime = GameRules_GetPropFloat("m_flRestartRoundTime");
+		if(m_flRestartRoundTime != -1.0) {
+			int time = RoundToCeil(m_flRestartRoundTime - GetGameTime());
+			if(m_nLastEventFiredTime != time) {
+				m_nLastEventFiredTime = time;
+
+				int num_clients = 0;
+				int clients[TF2_MAXPLAYERS];
+
+				for(int i = 1; i <= MaxClients; ++i) {
+					if(!IsClientInGame(i) ||
+						IsClientReplay(i) ||
+						IsClientSourceTV(i)) {
+						continue;
+					}
+
+					int team = GetClientTeam(i);
+					if(team != TF_TEAM_PVE_DEFENDERS &&
+						team != TF_TEAM_PVE_DEFENDERS_DEAD) {
+						continue;
+					}
+
+					clients[num_clients++] = i;
+				}
+
+				int max_wave = GetMannVsMachineMaxWaveCount();
+				int mid_wave = (max_wave / 2);
+				int curr_wave = GetMannVsMachineWaveCount();
+
+				switch(time) {
+					case 10: {
+						if(curr_wave == max_wave) {
+							EmitGameSound(clients, num_clients, "Announcer.MVM_Final_Wave_Start");
+						} else if(curr_wave <= 1) {
+							EmitGameSound(clients, num_clients, "Announcer.MVM_First_Wave_Start");
+						} else {
+							EmitGameSound(clients, num_clients, "Announcer.MVM_Wave_Start");
+						}
+
+						if(curr_wave == max_wave) {
+							EmitSound(clients, num_clients, "music/mva/start_wave.mp3");
+						} else if(curr_wave >= mid_wave) {
+							EmitSound(clients, num_clients, "music/mva/start_wave.mp3");
+						} else {
+							EmitSound(clients, num_clients, "music/mva/start_wave.mp3");
+						}
+					}
+					case 5: {
+						EmitGameSound(clients, num_clients, "Announcer.RoundBegins5Seconds");
+					}
+					case 4: {
+						EmitGameSound(clients, num_clients, "Announcer.RoundBegins4Seconds");
+					}
+					case 3: {
+						EmitGameSound(clients, num_clients, "Announcer.RoundBegins3Seconds");
+					}
+					case 2: {
+						EmitGameSound(clients, num_clients, "Announcer.RoundBegins2Seconds");
+					}
+					case 1: {
+						EmitGameSound(clients, num_clients, "Announcer.RoundBegins1Seconds");
+					}
+				}
+			}
+		}
+	}
+
+	if(!GameRules_GetProp("m_bInWaitingForPlayers") && round == GR_STATE_RND_RUNNING) {
 		int num_connected = 0;
 		int num_alive = 0;
 		for(int i = 1; i <= MaxClients; ++i) {
@@ -299,23 +392,50 @@ public void OnGameFrame()
 		if(num_connected > 0 && num_alive == 0) {
 			game_ended = true;
 
-			//mp_tournament_blueteamname.SetString("?????");
-			//mp_tournament_redteamname.SetString("MANNCO");
-
-			float networktime = 0.3;
-
 			BfWrite bitbuf = view_as<BfWrite>(StartMessageAll("MVMServerKickTimeUpdate"));
-			bitbuf.WriteByte(RoundToFloor(networktime + WINPANEL_HOLD_TIME));
+			bitbuf.WriteByte(RoundToFloor(WINPANEL_HOLD_TIME));
 			EndMessage();
 
-			CreateTimer(networktime, timer_sendwinpanel, 0, TIMER_FLAG_NO_MAPCHANGE);
+			SetWinningTeam(TF_TEAM_PVE_INVADERS, WINREASON_OPPONENTS_DEAD, true, false, WINPANEL_ARENA);
+
+			CreateTimer(WINPANEL_HOLD_TIME, timer_endgame, 0, TIMER_FLAG_NO_MAPCHANGE);
 		}
 	}
+}
+
+static void prop_spawn(int entity)
+{
+	char model[PLATFORM_MAX_PATH];
+	GetEntPropString(entity, Prop_Data, "m_ModelName", model, PLATFORM_MAX_PATH);
+
+	if(StrEqual(model, "models/props_mvm/robot_hologram.mdl") ||
+		StrEqual(model, "models/bots/boss_bot/carrier_parts.mdl") ||
+		StrEqual(model, "models/bots/boss_bot/static_boss_tank.mdl")) {
+		RemoveEntity(entity);
+	}
+}
+
+public void OnEntityCreated(int entity, const char[] classname)
+{
+	if(StrEqual(classname, "prop_dynamic") ||
+		StrEqual(classname, "prop_dynamic_override") ||
+		StrEqual(classname, "dynamic_prop")) {
+		SDKHook(entity, SDKHook_Spawn, prop_spawn);
+	}
+}
+
+static void between_rounds(const char[] output, int caller, int activator, float delay)
+{
+	m_nLastEventFiredTime = -1;
+
+	mp_tournament_blueteamname.SetString("Aliens");
+	mp_tournament_redteamname.SetString("Mercs");
 }
 
 public void OnMapStart()
 {
 	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
+	tf_gamerules = EntIndexToEntRef(gamerules);
 
 	int logic = FindEntityByClassname(-1, "tf_logic_mann_vs_machine");
 	if(logic != -1) {
@@ -333,16 +453,32 @@ public void OnMapStart()
 
 	GameRules_SetProp("m_bPlayingMannVsMachine", 1);
 
+	HookSingleEntityOutput(gamerules, "OnStateEnterBetweenRounds", between_rounds);
+
 	proxysend_hook(gamerules, "m_bPlayingMannVsMachine", proxysend_mvm, true);
 	proxysend_hook(gamerules, "m_iRoundState", proxysend_roundstate, false);
+	proxysend_hook(gamerules, "m_flRestartRoundTime", proxysend_countdown, false);
 
 	GameRules_SetProp("m_nGameType", TF_GAMETYPE_UNDEFINED);
 	SetHUDType(TF_HUDTYPE_UNDEFINED);
+
+	PrecacheScriptSound("Announcer.RoundBegins1Seconds");
+	PrecacheScriptSound("Announcer.RoundBegins2Seconds");
+	PrecacheScriptSound("Announcer.RoundBegins3Seconds");
+	PrecacheScriptSound("Announcer.RoundBegins4Seconds");
+	PrecacheScriptSound("Announcer.RoundBegins5Seconds");
+
+	PrecacheScriptSound("Announcer.MVM_Wave_Start");
+	PrecacheScriptSound("Announcer.MVM_First_Wave_Start");
+	PrecacheScriptSound("Announcer.MVM_Final_Wave_Start");
+
+	PrecacheSound("music/mva/start_wave.mp3");
 }
 
 public void OnMapEnd()
 {
 	info_populator = INVALID_ENT_REFERENCE;
+	tf_gamerules = INVALID_ENT_REFERENCE;
 
 	game_ended = false;
 }
@@ -424,6 +560,8 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
+	GetClientAbsOrigin(client, player_death_pos[client]);
+
 	RequestFrame(player_death_frame, userid);
 }
 
@@ -479,6 +617,8 @@ static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 		player_alive_class[client] = class;
 	} else if(team == TF_TEAM_PVE_DEFENDERS_DEAD) {
 		setup_dead_player(client);
+
+		TeleportEntity(client, player_death_pos[client]);
 	}
 }
 

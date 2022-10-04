@@ -1237,195 +1237,192 @@ static TFClassType get_class(const char[] name)
 static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo group_baseline, bool is_econ = false)
 {
 	KeyValues kv = new KeyValues("playermodel2_config");
-	kv.ImportFromFile(path);
+	if(kv.ImportFromFile(path)) {
+		if(kv.GotoFirstSubKey()) {
+			char flags_str[FLAGS_MAX * FLAGS_NUM];
+			char classes_str[CLASS_NAME_MAX * TF_CLASS_COUNT_ALL];
+			char int_str[INT_STR_MAX];
+			char classname[CLASS_NAME_MAX];
+			char bodygroups_str[BODYGROUP_NUM * BODYGROUP_MAX];
 
-	if(kv.GotoFirstSubKey()) {
-		group.configs = new ArrayList();
+			char chat_trigger[64];
 
-		char flags_str[FLAGS_MAX * FLAGS_NUM];
-		char classes_str[CLASS_NAME_MAX * TF_CLASS_COUNT_ALL];
-		char int_str[INT_STR_MAX];
-		char classname[CLASS_NAME_MAX];
-		char bodygroups_str[BODYGROUP_NUM * BODYGROUP_MAX];
+			do {
+				ConfigInfo info;
+				ConfigVariationInfo variation;
+				ConfigModelInfo model_info;
 
-		char chat_trigger[64];
+				kv.GetSectionName(info.name, MODEL_NAME_MAX);
 
-		do {
-			ConfigInfo info;
-			ConfigVariationInfo variation;
-			ConfigModelInfo model_info;
+				clone_config_baseline(info, group_baseline);
 
-			kv.GetSectionName(info.name, MODEL_NAME_MAX);
+				if(!parse_config_kv_basic(kv, info, group_baseline.flags, false)) {
+					continue;
+				}
 
-			clone_config_baseline(info, group_baseline);
+				if(is_econ) {
+					if(kv.JumpToKey("econ_item")) {
+						info.econ.item_kv = new KeyValues("");
+						info.econ.item_kv.Import(kv);
+						info.econ.item_kv.SetString("name", info.name);
+						info.econ.item_kv.SetString("classname", "playermodel");
+						kv.GoBack();
+					}
+				}
 
-			if(!parse_config_kv_basic(kv, info, group_baseline.flags, false)) {
-				continue;
-			}
+				kv.GetString("classes_whitelist", classes_str, sizeof(classes_str), "all");
 
-			if(is_econ) {
-				if(kv.JumpToKey("econ_item")) {
-					info.econ.item_kv = new KeyValues("");
-					info.econ.item_kv.Import(kv);
-					info.econ.item_kv.SetString("name", info.name);
-					info.econ.item_kv.SetString("classname", "playermodel");
+				info.classes_allowed = 0;
+
+				TFClassType only_class = TFClass_Unknown;
+
+				if(!parse_classes_str(info.classes_allowed, classes_str, info.name, only_class)) {
+					continue;
+				}
+
+				info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
+
+				kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
+				model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
+
+				kv.GetString("skin", int_str, INT_STR_MAX, "-1");
+				model_info.skin = StringToInt(int_str);
+
+				kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+				model_info.model_class = get_class(classname);
+
+				if(model_info.model_class == TFClass_Unknown && only_class != TFClass_Unknown) {
+					model_info.model_class = only_class;
+				}
+
+				info.models.SetArray("", model_info, sizeof(ConfigModelInfo));
+
+				if(kv.JumpToKey("per_class_model")) {
+					if(kv.GotoFirstSubKey()) {
+						do {
+							kv.GetSectionName(classname, CLASS_NAME_MAX);
+							TFClassType class = get_class(classname);
+							if(class == TFClass_Unknown) {
+								continue;
+							}
+
+							kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, "");
+
+							kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
+							model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
+
+							kv.GetString("skin", int_str, INT_STR_MAX, "-1");
+							model_info.skin = StringToInt(int_str);
+
+							kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+							model_info.model_class = get_class(classname);
+
+							char str[5];
+							pack_int_in_str(view_as<int>(class), str);
+							info.models.SetArray(str, model_info, sizeof(ConfigModelInfo));
+						} while(kv.GotoNextKey());
+						kv.GoBack();
+					}
 					kv.GoBack();
 				}
-			}
 
-			kv.GetString("classes_whitelist", classes_str, sizeof(classes_str), "all");
+				info.variations = null;
 
-			info.classes_allowed = 0;
+				if(kv.JumpToKey("variations")) {
+					if(kv.GotoFirstSubKey()) {
+						info.variations = new ArrayList(sizeof(ConfigVariationInfo));
 
-			TFClassType only_class = TFClass_Unknown;
+						do {
+							kv.GetSectionName(variation.name, MODEL_NAME_MAX);
 
-			if(!parse_classes_str(info.classes_allowed, classes_str, info.name, only_class)) {
-				continue;
-			}
+							kv.GetString("flags", flags_str, sizeof(flags_str), "");
+							variation.flags = parse_flags_str(flags_str, info.flags);
 
-			info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
+							variation.models = new StringMap();
 
-			kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
-			model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
+							info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
 
-			kv.GetString("skin", int_str, INT_STR_MAX, "-1");
-			model_info.skin = StringToInt(int_str);
+							kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
+							kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
 
-			kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
-			model_info.model_class = get_class(classname);
+							model_info.download_flags = download_none;
 
-			if(model_info.model_class == TFClass_Unknown && only_class != TFClass_Unknown) {
-				model_info.model_class = only_class;
-			}
+							if(kv.GetNum("download") == 1) {
+								model_info.download_flags |= download_model;
+							}
 
-			info.models.SetArray("", model_info, sizeof(ConfigModelInfo));
+							if(kv.GetNum("download_arm") == 1) {
+								model_info.download_flags |= download_arm_model;
+							}
 
-			if(kv.JumpToKey("per_class_model")) {
-				if(kv.GotoFirstSubKey()) {
-					do {
-						kv.GetSectionName(classname, CLASS_NAME_MAX);
-						TFClassType class = get_class(classname);
-						if(class == TFClass_Unknown) {
-							continue;
-						}
+							kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+							model_info.model_class = get_class(classname);
 
-						kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, "");
+							kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
+							model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
 
-						kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
-						model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
+							kv.GetString("skin", int_str, INT_STR_MAX, "-1");
+							model_info.skin = StringToInt(int_str);
 
-						kv.GetString("skin", int_str, INT_STR_MAX, "-1");
-						model_info.skin = StringToInt(int_str);
+							variation.models.SetArray("", model_info, sizeof(ConfigModelInfo));
 
-						kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
-						model_info.model_class = get_class(classname);
+							if(kv.JumpToKey("per_class_model")) {
+								if(kv.GotoFirstSubKey()) {
+									do {
+										kv.GetSectionName(classname, CLASS_NAME_MAX);
+										TFClassType class = get_class(classname);
+										if(class == TFClass_Unknown) {
+											continue;
+										}
 
-						char str[5];
-						pack_int_in_str(view_as<int>(class), str);
-						info.models.SetArray(str, model_info, sizeof(ConfigModelInfo));
-					} while(kv.GotoNextKey());
-					kv.GoBack();
-				}
-				kv.GoBack();
-			}
+										kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, "");
 
-			info.variations = null;
+										kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
+										model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
 
-			if(kv.JumpToKey("variations")) {
-				if(kv.GotoFirstSubKey()) {
-					info.variations = new ArrayList(sizeof(ConfigVariationInfo));
+										kv.GetString("skin", int_str, INT_STR_MAX, "-1");
+										model_info.skin = StringToInt(int_str);
 
-					do {
-						kv.GetSectionName(variation.name, MODEL_NAME_MAX);
+										kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
+										model_info.model_class = get_class(classname);
 
-						kv.GetString("flags", flags_str, sizeof(flags_str), "");
-						variation.flags = parse_flags_str(flags_str, info.flags);
-
-						variation.models = new StringMap();
-
-						info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
-
-						kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
-						kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
-
-						model_info.download_flags = download_none;
-
-						if(kv.GetNum("download") == 1) {
-							model_info.download_flags |= download_model;
-						}
-
-						if(kv.GetNum("download_arm") == 1) {
-							model_info.download_flags |= download_arm_model;
-						}
-
-						kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
-						model_info.model_class = get_class(classname);
-
-						kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
-						model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
-
-						kv.GetString("skin", int_str, INT_STR_MAX, "-1");
-						model_info.skin = StringToInt(int_str);
-
-						variation.models.SetArray("", model_info, sizeof(ConfigModelInfo));
-
-						if(kv.JumpToKey("per_class_model")) {
-							if(kv.GotoFirstSubKey()) {
-								do {
-									kv.GetSectionName(classname, CLASS_NAME_MAX);
-									TFClassType class = get_class(classname);
-									if(class == TFClass_Unknown) {
-										continue;
-									}
-
-									kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, "");
-
-									kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
-									model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
-
-									kv.GetString("skin", int_str, INT_STR_MAX, "-1");
-									model_info.skin = StringToInt(int_str);
-
-									kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
-									model_info.model_class = get_class(classname);
-
-									char str[5];
-									pack_int_in_str(view_as<int>(class), str);
-									variation.models.SetArray(str, model_info, sizeof(ConfigModelInfo));
-								} while(kv.GotoNextKey());
+										char str[5];
+										pack_int_in_str(view_as<int>(class), str);
+										variation.models.SetArray(str, model_info, sizeof(ConfigModelInfo));
+									} while(kv.GotoNextKey());
+									kv.GoBack();
+								}
 								kv.GoBack();
 							}
-							kv.GoBack();
-						}
 
-						info.variations.PushArray(variation, sizeof(ConfigVariationInfo));
-					} while(kv.GotoNextKey());
+							info.variations.PushArray(variation, sizeof(ConfigVariationInfo));
+						} while(kv.GotoNextKey());
+						kv.GoBack();
+					}
 					kv.GoBack();
 				}
-				kv.GoBack();
-			}
 
-			int idx = configs.PushArray(info, sizeof(ConfigInfo));
+				int idx = configs.PushArray(info, sizeof(ConfigInfo));
 
-			if(kv.JumpToKey("chat_triggers")) {
-				if(kv.GotoFirstSubKey(false)) {
-					do {
-						kv.GetString(NULL_STRING, chat_trigger, sizeof(chat_trigger));
-						chat_triggers.SetValue(chat_trigger, idx);
-					} while(kv.GotoNextKey(false));
+				if(kv.JumpToKey("chat_triggers")) {
+					if(kv.GotoFirstSubKey(false)) {
+						do {
+							kv.GetString(NULL_STRING, chat_trigger, sizeof(chat_trigger));
+							chat_triggers.SetValue(chat_trigger, idx);
+						} while(kv.GotoNextKey(false));
+						kv.GoBack();
+					}
 					kv.GoBack();
 				}
-				kv.GoBack();
-			}
 
-			config_idx_map.SetValue(info.name, idx);
+				config_idx_map.SetValue(info.name, idx);
 
-			group.configs.Push(idx);
-		} while(kv.GotoNextKey());
+				group.configs.Push(idx);
+			} while(kv.GotoNextKey());
 
-		kv.GoBack();
+			kv.GoBack();
+		}
 	}
-
 	delete kv;
 }
 
@@ -1441,6 +1438,8 @@ static void parse_groups(const char[] path)
 			char file_path[PLATFORM_MAX_PATH];
 
 			do {
+				info.configs = new ArrayList();
+
 				kv.GetSectionName(info.name, MODEL_NAME_MAX);
 				kv.GetString("override", info.override, OVERRIDE_MAX);
 				kv.GetString("steamid", info.steamid, STEAMID_MAX);
@@ -1502,6 +1501,7 @@ static void parse_internal_group(int &idx, const char[] name, bool econ)
 	DirectoryListing folder = OpenDirectory(folder_path);
 	if(folder != null) {
 		ConfigGroupInfo info;
+		info.configs = new ArrayList();
 		info.hidden = true;
 
 		FileType filetype;
