@@ -42,6 +42,7 @@ forward void econ_loaded();
 native StringMap econ_item_settings(int idx);
 native void econ_get_item_name(int idx, char[] str, int len);
 
+forward void econ_register_item_classes();
 native void econ_register_item_class(const char[] classname, bool equipable);
 
 native int econ_find_category(int parent, const char[] name);

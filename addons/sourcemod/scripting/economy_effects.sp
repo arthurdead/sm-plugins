@@ -234,10 +234,15 @@ public void econ_loaded()
 	econ_get_or_register_category("Misc", ECON_INVALID_CATEGORY, misc_cat_registered, 0);
 }
 
+public void econ_register_item_classes()
+{
+	econ_register_item_class("weapon_tracer", true);
+}
+
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		econ_register_item_class("weapon_tracer", true);
+		
 	}
 }
 

@@ -226,10 +226,15 @@ public void econ_loaded()
 	econ_get_or_register_category("Trails", ECON_INVALID_CATEGORY, trail_cat_registered, 0);
 }
 
+public void econ_register_item_classes()
+{
+	econ_register_item_class("phase_trail", true);
+}
+
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		econ_register_item_class("phase_trail", true);
+		
 	}
 }
 

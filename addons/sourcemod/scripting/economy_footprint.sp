@@ -118,10 +118,15 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 	}
 }
 
+public void econ_register_item_classes()
+{
+	econ_register_item_class("footprint", true);
+}
+
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		econ_register_item_class("footprint", true);
+		
 	}
 }
 

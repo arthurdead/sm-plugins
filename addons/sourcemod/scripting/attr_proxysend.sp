@@ -6,7 +6,14 @@
 
 static bool late_loaded;
 
-static ArrayList itemdefs;
+enum struct WeaponProxysendInfo
+{
+	int ref;
+	int itemdef;
+	TFClassType class;
+}
+
+static ArrayList weapons_infos;
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
@@ -16,7 +23,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 public void OnPluginStart()
 {
-	itemdefs = new ArrayList(2);
+	weapons_infos = new ArrayList(sizeof(WeaponProxysendInfo));
 
 	if(late_loaded) {
 		int entity = -1;
@@ -24,18 +31,49 @@ public void OnPluginStart()
 			if(HasEntProp(entity, Prop_Send, "m_iItemDefinitionIndex")) {
 				frame_item_spawn(EntIndexToEntRef(entity));
 			}
+			if(entity >= 1 && entity <= MaxClients) {
+				OnClientPutInServer(entity);
+			}
 		}
 	}
 }
 
 static Action proxysend_itemdef(int entity, const char[] prop, int &value, int element, int client)
 {
-	int idx = itemdefs.FindValue(EntIndexToEntRef(entity));
+	int idx = weapons_infos.FindValue(EntIndexToEntRef(entity), WeaponProxysendInfo::ref);
 	if(idx != -1) {
-		value = itemdefs.Get(idx, 1);
-		return Plugin_Changed;
+		int new_value = weapons_infos.Get(idx, WeaponProxysendInfo::itemdef);
+		if(new_value != -1) {
+			value = new_value;
+			return Plugin_Changed;
+		}
 	}
 	return Plugin_Continue;
+}
+
+static Action proxysend_class(int entity, const char[] prop, TFClassType &value, int element, int client)
+{
+	if(client != entity) {
+		return Plugin_Continue;
+	}
+	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
+	if(weapon == -1) {
+		return Plugin_Continue;
+	}
+	int idx = weapons_infos.FindValue(EntIndexToEntRef(weapon), WeaponProxysendInfo::ref);
+	if(idx != -1) {
+		TFClassType new_value = weapons_infos.Get(idx, WeaponProxysendInfo::class);
+		if(new_value != TFClass_Unknown) {
+			value = new_value;
+			return Plugin_Changed;
+		}
+	}
+	return Plugin_Continue;
+}
+
+public void OnClientPutInServer(int client)
+{
+	proxysend_hook(client, "m_iClass", proxysend_class, true);
 }
 
 static void frame_item_spawn(int entity)
@@ -45,10 +83,19 @@ static void frame_item_spawn(int entity)
 		return;
 	}
 
-	int itemdef = TF2CustAttr_GetInt(entity, "proxysend_itemdef", -1);
-	if(itemdef != -1) {
-		int idx = itemdefs.Push(EntIndexToEntRef(entity));
-		itemdefs.Set(idx, itemdef, 1);
+	WeaponProxysendInfo info;
+	info.ref = EntIndexToEntRef(entity);
+	info.itemdef = TF2CustAttr_GetInt(entity, "proxysend_itemdef", -1);
+	info.class = view_as<TFClassType>(TF2CustAttr_GetInt(entity, "proxysend_class", view_as<int>(TFClass_Unknown)));
+
+	if(info.itemdef == -1 &&
+		info.class == TFClass_Unknown) {
+		return;
+	}
+
+	weapons_infos.PushArray(info, sizeof(WeaponProxysendInfo));
+
+	if(info.itemdef != -1) {
 		proxysend_hook(entity, "m_iItemDefinitionIndex", proxysend_itemdef, false);
 	}
 }
@@ -75,8 +122,8 @@ public void OnEntityDestroyed(int entity)
 		entity = EntRefToEntIndex(entity);
 	}
 
-	int idx = itemdefs.FindValue(EntIndexToEntRef(entity));
+	int idx = weapons_infos.FindValue(EntIndexToEntRef(entity), WeaponProxysendInfo::ref);
 	if(idx != -1) {
-		itemdefs.Erase(idx);
+		weapons_infos.Erase(idx);
 	}
 }

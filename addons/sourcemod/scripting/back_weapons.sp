@@ -207,6 +207,11 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 		}
 	}
 }
+
+public void econ_register_item_classes()
+{
+	econ_register_item_class("back_weapons", true);
+}
 #endif
 
 public void OnLibraryAdded(const char[] name)
@@ -214,8 +219,6 @@ public void OnLibraryAdded(const char[] name)
 #if defined __economy_inc
 	if(StrEqual(name, "economy")) {
 		economy_loaded = true;
-
-		econ_register_item_class("back_weapons", true);
 	}
 #endif
 }

@@ -57,7 +57,8 @@ public Action OnPlayerRunCmd(int client, int &buttons, int &impulse, float vel[3
 		int m_iTauntIndex = GetEntProp(client, Prop_Send, "m_iTauntIndex");
 		if(m_iTauntIndex == TAUNT_LONG) {
 			int m_iTauntItemDefIndex = GetEntProp(client, Prop_Send, "m_iTauntItemDefIndex");
-			if(m_iTauntItemDefIndex == 1196) {
+			if(m_iTauntItemDefIndex == 1196 ||
+				m_iTauntItemDefIndex == 31291) {
 				return Plugin_Continue;
 			}
 			if(TF2_IsPlayerInCondition(client, TFCond_HalloweenKart)) {

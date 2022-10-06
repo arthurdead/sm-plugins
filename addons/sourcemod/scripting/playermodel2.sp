@@ -2241,6 +2241,11 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 	}
 }
 
+public void econ_register_item_classes()
+{
+	econ_register_item_class("playermodel", true);
+}
+
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "teammanager_gameplay")) {
@@ -2248,7 +2253,6 @@ public void OnLibraryAdded(const char[] name)
 	} else if(StrEqual(name, "tauntmanager")) {
 		tauntmanager_loaded = true;
 	} else if(StrEqual(name, "economy")) {
-		econ_register_item_class("playermodel", true);
 		economy_loaded = true;
 	} else if(StrEqual(name, "proxysend")) {
 		proxysend_loaded = true;
@@ -4134,6 +4138,12 @@ static TFClassType get_class_for_weapon(int weapon, TFClassType real_player_clas
 
 	if(!viewmodel) {
 		m_iItemDefinitionIndex = TF2CustAttr_GetInt(weapon, "playermodel2_thirdperson_itemdef", -1);
+	} else {
+		m_iItemDefinitionIndex = TF2CustAttr_GetInt(weapon, "playermodel2_firstperson_itemdef", -1);
+	}
+
+	if(m_iItemDefinitionIndex == -1) {
+		m_iItemDefinitionIndex = TF2CustAttr_GetInt(weapon, "playermodel2_itemdef", -1);
 	}
 
 	if(m_iItemDefinitionIndex == -1) {
@@ -4303,13 +4313,6 @@ static void handle_viewmodel(int client, int weapon)
 		return;
 	}
 
-	char ignore[2];
-	bool custom_vm = (
-		TF2CustAttr_GetString(weapon, "clientmodel override", ignore, sizeof(ignore)) > 0 ||
-		TF2CustAttr_GetString(weapon, "viewmodel override", ignore, sizeof(ignore)) > 0 ||
-		TF2CustAttr_GetString(weapon, "worldmodel override", ignore, sizeof(ignore)) > 0
-	);
-
 	TFClassType real_player_class;
 	TFClassType rep_player_class;
 	get_player_classes(client, real_player_class, rep_player_class);
@@ -4324,46 +4327,58 @@ static void handle_viewmodel(int client, int weapon)
 			char model[PLATFORM_MAX_PATH];
 			get_arm_model_for_class(client, weapon_class, model, PLATFORM_MAX_PATH);
 
+			SetEntityModel(weapon, model);
 			SetEntPropString(viewmodel, Prop_Data, "m_ModelName", model);
 			int idx = get_model_index(model);
 			SetEntProp(viewmodel, Prop_Send, "m_nModelIndex", idx);
 			SetEntProp(weapon, Prop_Send, "m_iViewModelIndex", idx);
-			SetEntityModel(weapon, model);
 
 		#if defined DEBUG_VIEWMODEL
 			PrintToServer(PM2_CON_PREFIX ... "  weapon_class = %i", weapon_class);
 			PrintToServer(PM2_CON_PREFIX ... "  weapon_arm_model = %s, %i", model, idx);
 		#endif
 
-			if(!custom_vm) {
-				TFClassType arm_class = real_player_class;
+			TFClassType arm_class = real_player_class;
 
-				int arm_from = -1;
+			int arm_from = -1;
 
-				if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
-					for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
-						if(player_configs[client][rep_player_class][i].model[0] != '\0') {
-							if(StrEqual(player_configs[client][rep_player_class][i].arm_model, "model_class")) {
-								if(player_configs[client][rep_player_class][i].model_class != TFClass_Unknown) {
-									arm_class = player_configs[client][rep_player_class][i].model_class;
-								}
-							} else if(player_configs[client][rep_player_class][i].arm_model[0] != '\0') {
-								arm_from = i;
+			if(!TF2_IsPlayerInCondition(client, TFCond_Disguised)) {
+				for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
+					if(player_configs[client][rep_player_class][i].model[0] != '\0') {
+						if(StrEqual(player_configs[client][rep_player_class][i].arm_model, "model_class")) {
+							if(player_configs[client][rep_player_class][i].model_class != TFClass_Unknown) {
+								arm_class = player_configs[client][rep_player_class][i].model_class;
 							}
-							break;
+						} else if(player_configs[client][rep_player_class][i].arm_model[0] != '\0') {
+							arm_from = i;
 						}
+						break;
 					}
 				}
+			}
 
-			#if defined DEBUG_VIEWMODEL
-				PrintToServer(PM2_CON_PREFIX ... "  arm_class = %i", arm_class);
-			#endif
+		#if defined DEBUG_VIEWMODEL
+			PrintToServer(PM2_CON_PREFIX ... "  arm_class = %i", arm_class);
+		#endif
 
-				bool different_class = (arm_class != weapon_class);
+			bool different_class = (arm_class != weapon_class);
 
-				bool has_vm = (different_class || arm_from != -1);
+			char ignore[2];
 
-				if(has_vm) {
+			bool has_arm = (
+				different_class ||
+				arm_from != -1 ||
+				TF2CustAttr_GetString(weapon, "arm model override", ignore, sizeof(ignore)) > 0
+			);
+
+			bool has_vm = (
+				has_arm ||
+				TF2CustAttr_GetString(weapon, "clientmodel override", ignore, sizeof(ignore)) > 0 ||
+				TF2CustAttr_GetString(weapon, "viewmodel override", ignore, sizeof(ignore)) > 0
+			);
+
+			if(has_vm) {
+				if(has_arm) {
 					delete_player_viewmodel_entity(client, 0);
 					int entity = get_or_create_player_viewmodel_entity(client, 0);
 
@@ -4376,17 +4391,19 @@ static void handle_viewmodel(int client, int weapon)
 					effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
 					SetEntProp(entity, Prop_Send, "m_fEffects", effects);
 
-					if(arm_from != -1) {
-						strcopy(model, PLATFORM_MAX_PATH, player_configs[client][rep_player_class][arm_from].arm_model);
-						replace_model_variables(client, player_configs[client][rep_player_class][arm_from].model_class, model, PLATFORM_MAX_PATH);
-						if(StrEqual(model, "models/weapons/c_models/c_engineer_arms.mdl")) {
-							int melee_weapon = GetPlayerWeaponSlot(client, TFWeaponSlot_Melee);
-							if(melee_weapon != -1 && GetEntProp(melee_weapon, Prop_Send, "m_iItemDefinitionIndex") == 142) {
-								strcopy(model, PLATFORM_MAX_PATH, "models/weapons/c_models/c_engineer_gunslinger.mdl");
+					if(TF2CustAttr_GetString(weapon, "arm model override", model, PLATFORM_MAX_PATH) == 0) {
+						if(arm_from != -1) {
+							strcopy(model, PLATFORM_MAX_PATH, player_configs[client][rep_player_class][arm_from].arm_model);
+							replace_model_variables(client, player_configs[client][rep_player_class][arm_from].model_class, model, PLATFORM_MAX_PATH);
+							if(StrEqual(model, "models/weapons/c_models/c_engineer_arms.mdl")) {
+								int melee_weapon = GetPlayerWeaponSlot(client, TFWeaponSlot_Melee);
+								if(melee_weapon != -1 && GetEntProp(melee_weapon, Prop_Send, "m_iItemDefinitionIndex") == 142) {
+									strcopy(model, PLATFORM_MAX_PATH, "models/weapons/c_models/c_engineer_gunslinger.mdl");
+								}
 							}
+						} else {
+							get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
 						}
-					} else {
-						get_arm_model_for_class(client, arm_class, model, PLATFORM_MAX_PATH);
 					}
 					idx = get_model_index(model);
 				#if defined DEBUG_VIEWMODEL
@@ -4396,46 +4413,68 @@ static void handle_viewmodel(int client, int weapon)
 					SetEntityModel(entity, model);
 					SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
 					SetEntProp(entity, Prop_Send, "m_nBody", 0);
+				}
 
-					delete_player_viewmodel_entity(client, 1);
+				delete_player_viewmodel_entity(client, 1);
 
+				model[0] = '\0';
+				if(TF2CustAttr_GetString(weapon, "clientmodel override", model, PLATFORM_MAX_PATH) == 0) {
+					TF2CustAttr_GetString(weapon, "viewmodel override", model, PLATFORM_MAX_PATH);
+				}
+
+				if(model[0] != '\0') {
+					idx = get_model_index(model);
+				} else {
 					idx = GetEntProp(weapon, Prop_Send, "m_iWorldModelIndex");
 					if(idx != -1) {
-						entity = get_or_create_player_viewmodel_entity(client, 1);
-
-						SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
-
 						get_model_index_path(idx, model, PLATFORM_MAX_PATH);
-
-					#if defined DEBUG_VIEWMODEL
-						PrintToServer(PM2_CON_PREFIX ... "  weapon_model = %s, %i", model, idx);
-					#endif
-
-						SetEntityModel(entity, model);
-						SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
-
-						SetVariantString("!activator");
-						AcceptEntityInput(entity, "SetParent", viewmodel);
-
-						effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-						effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
-						SetEntProp(entity, Prop_Send, "m_fEffects", effects);
 					}
 				}
 
-				if(has_vm) {
-					int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-					effects |= EF_NODRAW;
-					SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
-				} else {
-					delete_player_viewmodel_entities(client, weapon);
+			#if defined DEBUG_VIEWMODEL
+				PrintToServer(PM2_CON_PREFIX ... "  weapon_model = %s, %i", model, idx);
+			#endif
 
-					int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
-					effects &= ~EF_NODRAW;
-					SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+				if(idx == -1) {
+					strcopy(model, PLATFORM_MAX_PATH, "models/error.mdl");
+					idx = get_model_index(model);
+				}
+
+				int entity = get_or_create_player_viewmodel_entity(client, 1);
+
+				if(has_arm) {
+					SetEntPropEnt(entity, Prop_Send, "m_hWeaponAssociatedWith", weapon);
+				}
+
+				SetEntityModel(entity, model);
+				SetEntProp(entity, Prop_Send, "m_nModelIndex", idx);
+
+				SetVariantString("!activator");
+				AcceptEntityInput(entity, "SetParent", viewmodel);
+
+				int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+				effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+				SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+			}
+
+			if(has_vm) {
+				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+				if(has_arm) {
+					effects |= EF_NODRAW;
+				}
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+
+				if(!has_arm) {
+					SetEntProp(weapon, Prop_Send, "m_bBeingRepurposedForTaunt", 1);
 				}
 			} else {
 				delete_player_viewmodel_entities(client, weapon);
+
+				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
+				effects &= ~EF_NODRAW;
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
+
+				SetEntProp(weapon, Prop_Send, "m_bBeingRepurposedForTaunt", 0);
 			}
 		} else {
 			delete_player_viewmodel_entities(client, weapon);

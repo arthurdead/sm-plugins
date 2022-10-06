@@ -137,6 +137,7 @@ static int current_menu_type;
 static Menu current_menu;
 
 static GlobalForward fwd_loaded;
+static GlobalForward fwd_reg_classes;
 static Database econ_db;
 static bool items_loaded;
 
@@ -555,12 +556,9 @@ static void add_item_to_player_inv(int client, int idx, bool msg = true)
 
 static void modify_player_currency(int client, int amount)
 {
-#if defined DEBUG
 	if(IsFakeClient(client)) {
-		LogError("tried to modify BOT currency");
 		return;
 	}
-#endif
 
 	int team = GetClientTeam(client);
 	int r = (team == 2 ? 255 : 0);
@@ -599,15 +597,19 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
-	if(!IsFakeClient(victim)) {
-		handle_player_inventory(victim, econ_item_remove);
-	} else {
-	#if !defined DEBUG
+	if(IsFakeClient(victim)) {
 		return;
-	#endif
 	}
 
+	handle_player_inventory(victim, econ_item_remove);
+
 	int attacker = GetClientOfUserId(event.GetInt("attacker"));
+	if(attacker != 0) {
+		if(IsFakeClient(attacker)) {
+			return;
+		}
+	}
+
 	if(victim == attacker) {
 		return;
 	}
@@ -617,15 +619,17 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
-	if(attacker != 0 && !IsFakeClient(attacker)) {
+	if(attacker != 0) {
 		static const int attacker_currency = 2;
 		modify_player_currency(attacker, attacker_currency);
 	}
 
 	int assister = GetClientOfUserId(event.GetInt("assister"));
-	if(assister != 0 && !IsFakeClient(assister)) {
-		static const int assister_currency = 1;
-		modify_player_currency(assister, assister_currency);
+	if(assister != 0) {
+		if(!IsFakeClient(assister)) {
+			static const int assister_currency = 1;
+			modify_player_currency(assister, assister_currency);
+		}
 	}
 }
 
@@ -636,11 +640,9 @@ static void object_destroyed(Event event, const char[] name, bool dontBroadcast)
 		return;
 	}
 
-#if !defined DEBUG
 	if(IsFakeClient(victim)) {
 		return;
 	}
-#endif
 }
 
 static void query_rank(Database db, DBResultSet results, const char[] error, DataPack data)
@@ -684,10 +686,13 @@ static void query_rank(Database db, DBResultSet results, const char[] error, Dat
 static int get_client_of_accid(int accid)
 {
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i) && !IsFakeClient(i)) {
-			if(GetSteamAccountID(i) == accid) {
-				return i;
-			}
+		if(!IsClientInGame(i) || 
+			IsFakeClient(i)) {
+			continue;
+		}
+
+		if(GetSteamAccountID(i) == accid) {
+			return i;
 		}
 	}
 	return 0;
@@ -745,10 +750,7 @@ static Action sm_shoprank(int client, int args)
 public void OnPluginStart()
 {
 	fwd_loaded = new GlobalForward("econ_loaded", ET_Ignore);
-
-	if(SQL_CheckConfig("economy")) {
-		Database.Connect(database_connect, "economy");
-	}
+	fwd_reg_classes = new GlobalForward("econ_register_item_classes", ET_Ignore);
 
 	hud = CreateHudSynchronizer();
 
@@ -781,6 +783,8 @@ public void OnPluginStart()
 		}
 	}
 }
+
+
 
 static Action sm_remi(int client, int args)
 {
@@ -920,7 +924,12 @@ static Action sm_mcurr(int client, int args)
 
 public void OnAllPluginsLoaded()
 {
-	
+	Call_StartForward(fwd_reg_classes);
+	Call_Finish();
+
+	if(SQL_CheckConfig("economy")) {
+		Database.Connect(database_connect, "economy");
+	}
 }
 
 public void OnNotifyPluginUnloaded(Handle plugin)
@@ -935,9 +944,12 @@ public void OnNotifyPluginUnloaded(Handle plugin)
 			int idx = hndlr.items.Get(i);
 
 			for(int j = 1; j <= MaxClients; ++j) {
-				if(IsClientInGame(j) && !IsFakeClient(j)) {
-					remove_items_from_player_inv(j, idx, false);
+				if(!IsClientInGame(j) ||
+					IsFakeClient(j)) {
+					continue;
 				}
+
+				remove_items_from_player_inv(j, idx, false);
 			}
 		}
 
@@ -1103,10 +1115,13 @@ static void handle_player_inventory(int client, econ_item_action action)
 public void OnPluginEnd()
 {
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientInGame(i) && !IsFakeClient(i)) {
-			handle_player_inventory(i, econ_item_remove);
-			handle_player_inventory(i, econ_item_unequip);
+		if(!IsClientInGame(i) ||
+			IsFakeClient(i)) {
+			continue;
 		}
+
+		handle_player_inventory(i, econ_item_remove);
+		handle_player_inventory(i, econ_item_unequip);
 	}
 }
 
@@ -1255,8 +1270,8 @@ static int native_econ_register_item_class(Handle plugin, int params)
 
 			for(int i = 1; i <= MaxClients; ++i) {
 				if(!IsClientConnected(i) ||
-					IsFakeClient(i) ||
-					!IsClientAuthorized(i)) {
+					!IsClientAuthorized(i) ||
+					IsFakeClient(i)) {
 					continue;
 				}
 
@@ -2426,15 +2441,19 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 	read_items_kv();
 
 	for(int i = 1; i <= MaxClients; ++i) {
-		if(IsClientConnected(i) && !IsFakeClient(i) && IsClientAuthorized(i)) {
-			query_player_data(i);
+		if(!IsClientConnected(i) ||
+			!IsClientAuthorized(i) ||
+			IsFakeClient(i)) {
+			continue;
 		}
-	}
 
-	items_loaded = true;
+		query_player_data(i);
+	}
 
 	Call_StartForward(fwd_loaded);
 	Call_Finish();
+
+	items_loaded = true;
 }
 
 static void handle_result_set(DBResultSet set, Function func, any data=0)
@@ -3549,20 +3568,26 @@ static Action timer_give_currency(Handle timer, int client)
 
 public void OnClientAuthorized(int client, const char[] auth)
 {
-	if(!IsFakeClient(client)) {
+	if(IsFakeClient(client)) {
+		return;
+	}
+
+	if(items_loaded) {
 		query_player_data(client);
 	}
 }
 
 public void OnClientPutInServer(int client)
 {
-	if(!IsFakeClient(client)) {
-		player_purchase_queue[client] = new ArrayList();
-
-		player_currency_timer[client] = CreateTimer(float(idle_currency_time * 60), timer_give_currency, GetClientUserId(client), TIMER_REPEAT);
-
-		SDKHook(client, SDKHook_PostThinkPost, player_think);
+	if(IsFakeClient(client)) {
+		return;
 	}
+
+	player_purchase_queue[client] = new ArrayList();
+
+	player_currency_timer[client] = CreateTimer(float(idle_currency_time * 60), timer_give_currency, GetClientUserId(client), TIMER_REPEAT);
+
+	SDKHook(client, SDKHook_PostThinkPost, player_think);
 }
 
 public void OnClientDisconnect(int client)

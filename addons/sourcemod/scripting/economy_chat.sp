@@ -145,6 +145,8 @@ static void chat_clr_cat_registered(int idx, int type)
 
 	Handle snap = CreateTrieSnapshot(CTrie);
 
+	KeyValues item_kv = new KeyValues("");
+
 	int len = GetTrieSize(CTrie);
 	for(int i = 0; i < len; ++i) {
 		GetTrieSnapshotKey(snap, i, name, sizeof(name));
@@ -152,31 +154,28 @@ static void chat_clr_cat_registered(int idx, int type)
 		int value;
 		GetTrieValue(CTrie, name, value);
 
-		KeyValues item_kv = new KeyValues("");
+		item_kv.SetString("name", name);
 
 		switch(type) {
 			case 0: {
-				item_kv.SetString("name", name);
 				item_kv.SetString("classname", "chat_color_tag");
 				item_kv.SetNum("price", 50);
 				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
 			}
 			case 1: {
-				item_kv.SetString("name", name);
 				item_kv.SetString("classname", "chat_color");
 				item_kv.SetNum("price", 100);
 				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
 			}
 			case 2: {
-				item_kv.SetString("name", name);
 				item_kv.SetString("classname", "chat_color_name");
 				item_kv.SetNum("price", 150);
 				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
 			}
 		}
-
-		delete item_kv;
 	}
+
+	delete item_kv;
 
 	CloseHandle(snap);
 }
@@ -206,13 +205,18 @@ public void econ_loaded()
 	econ_get_or_register_category("Chat", ECON_INVALID_CATEGORY, chat_cat_registered, 0);
 }
 
+public void econ_register_item_classes()
+{
+	econ_register_item_class("chat_tag", true);
+	econ_register_item_class("chat_color_tag", true);
+	econ_register_item_class("chat_color_name", true);
+	econ_register_item_class("chat_color", true);
+}
+
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		econ_register_item_class("chat_tag", true);
-		econ_register_item_class("chat_color_tag", true);
-		econ_register_item_class("chat_color_name", true);
-		econ_register_item_class("chat_color", true);
+		
 	}
 }
 
