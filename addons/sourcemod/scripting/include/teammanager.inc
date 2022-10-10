@@ -80,7 +80,7 @@ Plugin_Stop == nothing
 forward Action TeamManager_CanGetJarated(int attacker, int victim);
 
 native int TeamManager_GetEntityTeam(int entity);
-native void TeamManager_SetEntityTeam(int entity, int team, bool raw);
+native void TeamManager_SetEntityTeam(int entity, int team, bool raw=false);
 
 native int TeamManager_CreateTeam(const char[] name, int color[4]);
 native void TeamManager_RemoveTeam(const char[] name);

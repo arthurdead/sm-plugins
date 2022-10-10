@@ -17,6 +17,14 @@ static ArrayList player_trails[TF2_MAXPLAYERS+1];
 
 static bool player_has_trail[TF2_MAXPLAYERS+1];
 
+static bool late_loaded;
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	late_loaded = late;
+	return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
 	GameData gamedata = new GameData("economy_trail");
@@ -234,7 +242,9 @@ public void econ_register_item_classes()
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		
+		if(late_loaded) {
+			econ_register_item_classes();
+		}
 	}
 }
 

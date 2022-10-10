@@ -72,6 +72,18 @@
 			{
 				"linux" "@_ZN12CTFGameRules25GetTeamAssignmentOverrideEP9CTFPlayerib"
 			}
+			"CTFGameRules::GetTeamAssignmentOverride"
+			{
+				"linux" "@_ZN12CTFGameRules25GetTeamAssignmentOverrideEP9CTFPlayerib"
+			}
+			"CTFTeam::AddObject"
+			{
+				"linux" "@_ZN7CTFTeam9AddObjectEP11CBaseObject"
+			}
+			"CTFTeam::RemoveObject"
+			{
+				"linux" "@_ZN7CTFTeam12RemoveObjectEP11CBaseObject"
+			}
 		}
 		"Offsets"
 		{
@@ -138,6 +150,10 @@
 			"CTFBaseRocket::Explode"
 			{
 				"linux" "237"
+			}
+			"CBaseEntity::ChangeTeam"
+			{
+				"linux" "95"
 			}
 		}
 		"Functions"

@@ -6,6 +6,7 @@
 #include <sdkhooks>
 #include <bit>
 #include <rulestools>
+#include <tf2utils>
 
 #undef REQUIRE_EXTENSIONS
 #tryinclude <collisionhook>
@@ -21,8 +22,11 @@
 
 Handle hAddPlayer = null;
 Handle hRemovePlayer = null;
+Handle hTeamAddObject = null;
+Handle hTeamRemoveObject = null;
 Handle hTeamMgr = null;
 Handle hCreateTeam = null;
+Handle hChangeTeam = null;
 
 #if defined _collisionhook_included
 bool bCollisionHook = false;
@@ -154,6 +158,16 @@ public void OnPluginStart()
 	PrepSDKCall_AddParameter(SDKType_CBasePlayer, SDKPass_Pointer);
 	hRemovePlayer = EndPrepSDKCall();
 
+	StartPrepSDKCall(SDKCall_Entity);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CTFTeam::AddObject");
+	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
+	hTeamAddObject = EndPrepSDKCall();
+
+	StartPrepSDKCall(SDKCall_Entity);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CTFTeam::RemoveObject");
+	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
+	hTeamRemoveObject = EndPrepSDKCall();
+
 	StartPrepSDKCall(SDKCall_Raw);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "CTFTeamManager::Create");
 	PrepSDKCall_AddParameter(SDKType_String, SDKPass_Pointer);
@@ -165,6 +179,11 @@ public void OnPluginStart()
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Signature, "TFTeamMgr");
 	PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
 	hTeamMgr = EndPrepSDKCall();
+
+	StartPrepSDKCall(SDKCall_Entity);
+	PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CBaseEntity::ChangeTeam");
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+	hChangeTeam = EndPrepSDKCall();
 
 	delete gamedata;
 

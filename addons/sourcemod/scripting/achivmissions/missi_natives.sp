@@ -169,25 +169,23 @@ int NativeMissi_GiveToPlayerEx(Handle plugin, int args)
 			"select last_insert_id();"
 		);
 		SQL_UnlockDatabase(dbMissi);
-		if(results.HasResults) {
-			do {
-				do {
-					if(!results.FetchRow()) {
-						continue;
-					}
 
-					instid = results.FetchInt(0);
-				} while(results.MoreRows);
-			} while(results.FetchMoreResults());
+		if(!results.FetchRow()) {
+			LogError("fetch failed");
+		} else {
+			instid = results.FetchInt(0);
 		}
+
 		delete results;
 
-		int pidx = GetOrCreatePlrMissiCache(client, instid);
+		if(instid != -1) {
+			int pidx = GetOrCreatePlrMissiCache(client, instid);
 
-		PlayerMissiCache[client].SetMissionID(instid, id, pidx);
+			PlayerMissiCache[client].SetMissionID(instid, id, pidx);
 
-		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
-			PlayerMissiCache[client].SetParamValue(instid, i, values[i], pidx);
+			for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+				PlayerMissiCache[client].SetParamValue(instid, i, values[i], pidx);
+			}
 		}
 	} else {
 		static int fakeid = 0;
@@ -252,25 +250,23 @@ int NativeMissi_GiveToPlayer(Handle plugin, int args)
 			"select last_insert_id();"
 		);
 		SQL_UnlockDatabase(dbMissi);
-		if(results.HasResults) {
-			do {
-				do {
-					if(!results.FetchRow()) {
-						continue;
-					}
 
-					instid = results.FetchInt(0);
-				} while(results.MoreRows);
-			} while(results.FetchMoreResults());
+		if(!results.FetchRow()) {
+			LogError("fetch failed");
+		} else {
+			instid = results.FetchInt(0);
 		}
+
 		delete results;
 
-		int pidx = GetOrCreatePlrMissiCache(client, instid);
+		if(instid != -1) {
+			int pidx = GetOrCreatePlrMissiCache(client, instid);
 
-		PlayerMissiCache[client].SetMissionID(instid, id, pidx);
+			PlayerMissiCache[client].SetMissionID(instid, id, pidx);
 
-		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
-			PlayerMissiCache[client].SetParamValue(instid, i, values[i], pidx);
+			for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+				PlayerMissiCache[client].SetParamValue(instid, i, values[i], pidx);
+			}
 		}
 	} else {
 		static int fakeid = 0;

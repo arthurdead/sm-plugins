@@ -20,6 +20,14 @@ static int player_tracer_particle[TF2_MAXPLAYERS+1] = {INVALID_STRING_INDEX, ...
 
 static int ParticleEffectNames = INVALID_STRING_TABLE;
 
+static bool late_loaded;
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	late_loaded = late;
+	return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
 	GameData gamedata = new GameData("economy_effects");
@@ -242,7 +250,9 @@ public void econ_register_item_classes()
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		
+		if(late_loaded) {
+			econ_register_item_classes();
+		}
 	}
 }
 

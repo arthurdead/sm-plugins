@@ -69,59 +69,58 @@ void QueryPlayerAchivData(Database db, int client, Transaction tr = null)
 void CacheAchivData(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
 {
 	DBResultSet set = results[2];
-	if(set.HasResults) {
-		mapAchivIds = new StringMap();
-		achiv_cache = new MAchivCache();
-		achiv_names = new ArrayList(ByteCountToCells(MAX_ACHIEVEMENT_NAME));
-		achiv_descs = new ArrayList(ByteCountToCells(MAX_ACHIEVEMENT_DESCRIPTION));
 
-		char name[MAX_ACHIEVEMENT_NAME];
-		char desc[MAX_ACHIEVEMENT_DESCRIPTION];
+	mapAchivIds = new StringMap();
+	achiv_cache = new MAchivCache();
+	achiv_names = new ArrayList(ByteCountToCells(MAX_ACHIEVEMENT_NAME));
+	achiv_descs = new ArrayList(ByteCountToCells(MAX_ACHIEVEMENT_DESCRIPTION));
+
+	char name[MAX_ACHIEVEMENT_NAME];
+	char desc[MAX_ACHIEVEMENT_DESCRIPTION];
+
+#if defined DEBUG
+	PrintToServer("achievements:");
+#endif
+
+	int rows = set.RowCount;
+	for(int i = 0; i < rows; ++i) {
+		if(!set.FetchRow()) {
+			LogError("fetch failed");
+			break;
+		}
+
+		++num_achivs;
+
+		int id = set.FetchInt(0);
+
+		set.FetchString(1, name, sizeof(name));
+
+		mapAchivIds.SetValue(name, id);
+
+		int idx = achiv_cache.Push(id);
+
+		achiv_cache.SetName(id, name, idx);
+
+		int max = -1;
+		if(!set.IsFieldNull(2)) {
+			max = set.FetchInt(2);
+		}
+		achiv_cache.SetMax(id, max, idx);
+
+		set.FetchString(3, desc, sizeof(desc));
+
+		achiv_cache.SetDesc(id, desc, idx);
+
+		bool hidden = view_as<bool>(set.FetchInt(4));
+
+		achiv_cache.SetHidden(id, hidden, idx);
 
 	#if defined DEBUG
-		PrintToServer("achievements:");
+		PrintToServer("  %s:", name);
+		PrintToServer("    desc = %s", desc);
+		PrintToServer("    max = %i", max);
+		PrintToServer("    hidden = %s", hidden ? "true" : "false");
 	#endif
-
-		do {
-			do {
-				if(!set.FetchRow()) {
-					continue;
-				}
-
-				++num_achivs;
-
-				int id = set.FetchInt(0);
-
-				set.FetchString(1, name, sizeof(name));
-
-				mapAchivIds.SetValue(name, id);
-
-				int idx = achiv_cache.Push(id);
-
-				achiv_cache.SetName(id, name, idx);
-
-				int max = -1;
-				if(!set.IsFieldNull(2)) {
-					max = set.FetchInt(2);
-				}
-				achiv_cache.SetMax(id, max, idx);
-
-				set.FetchString(3, desc, sizeof(desc));
-
-				achiv_cache.SetDesc(id, desc, idx);
-
-				bool hidden = view_as<bool>(set.FetchInt(4));
-
-				achiv_cache.SetHidden(id, hidden, idx);
-
-			#if defined DEBUG
-				PrintToServer("  %s:", name);
-				PrintToServer("    desc = %s", desc);
-				PrintToServer("    max = %i", max);
-				PrintToServer("    hidden = %s", hidden ? "true" : "false");
-			#endif
-			} while(set.MoreRows);
-		} while(set.FetchMoreResults());
 	}
 
 	Transaction tr = new Transaction();
@@ -163,52 +162,50 @@ void CachePlayerAchivData(Database db, DBResultSet results, const char[] error, 
 		return;
 	}
 
-	if(results.HasResults) {
-		PlayerAchivCache[client] = new MPlayerAchivCache();
+	PlayerAchivCache[client] = new MPlayerAchivCache();
+
+#if defined DEBUG
+	PrintToServer("%N achievements:", client);
+#endif
+
+	int rows = results.RowCount;
+	for(int i = 0; i < rows; ++i) {
+		if(!results.FetchRow()) {
+			LogError("fetch failed");
+			break;
+		}
+
+		int id = results.FetchInt(0);
+
+		int time = -1;
+		if(!results.IsFieldNull(4)) {
+			time = results.FetchInt(4);
+		}
+
+		int progress = 0;
+		if(!results.IsFieldNull(2)) {
+			progress = results.FetchInt(2);
+		}
+
+		any plugin_data = -1;
+		if(!results.IsFieldNull(3)) {
+			plugin_data = results.FetchInt(3);
+		}
+
+		int idx = PlayerAchivCache[client].Push(id);
+
+		PlayerAchivCache[client].SetAchievedTime(id, time, idx);
+		PlayerAchivCache[client].SetProgress(id, progress, idx);
+		PlayerAchivCache[client].SetPluginData(id, plugin_data, idx);
 
 	#if defined DEBUG
-		PrintToServer("%N achievements:", client);
+		PrintToServer("  %i:", id);
+		PrintToServer("    achieved = %i", time);
+		PrintToServer("    progress = %i", progress);
+		PrintToServer("    plugin_data = %i", plugin_data);
 	#endif
 
-		do {
-			do {
-				if(!results.FetchRow()) {
-					continue;
-				}
-
-				int id = results.FetchInt(0);
-
-				int time = -1;
-				if(!results.IsFieldNull(4)) {
-					time = results.FetchInt(4);
-				}
-
-				int progress = 0;
-				if(!results.IsFieldNull(2)) {
-					progress = results.FetchInt(2);
-				}
-
-				any plugin_data = -1;
-				if(!results.IsFieldNull(3)) {
-					plugin_data = results.FetchInt(3);
-				}
-
-				int idx = PlayerAchivCache[client].Push(id);
-
-				PlayerAchivCache[client].SetAchievedTime(id, time, idx);
-				PlayerAchivCache[client].SetProgress(id, progress, idx);
-				PlayerAchivCache[client].SetPluginData(id, plugin_data, idx);
-
-			#if defined DEBUG
-				PrintToServer("  %i:", id);
-				PrintToServer("    achieved = %i", time);
-				PrintToServer("    progress = %i", progress);
-				PrintToServer("    plugin_data = %i", plugin_data);
-			#endif
-
-				bAchivCacheLoaded[client] = true;
-			} while(results.MoreRows);
-		} while(results.FetchMoreResults());
+		bAchivCacheLoaded[client] = true;
 	}
 
 	if(hOnAchievementDataLoaded.FunctionCount > 0) {

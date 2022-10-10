@@ -664,10 +664,11 @@ static void query_rank(Database db, DBResultSet results, const char[] error, Dat
 		return;
 	}
 
-	for(int i = 0; i < results.RowCount; ++i) {
+	int rows = results.RowCount;
+	for(int i = 0; i < rows; ++i) {
 		if(!results.FetchRow()) {
 			LogError("fetch failed");
-			return;
+			break;
 		}
 
 		int accid = results.FetchInt(0);
@@ -924,8 +925,10 @@ static Action sm_mcurr(int client, int args)
 
 public void OnAllPluginsLoaded()
 {
-	Call_StartForward(fwd_reg_classes);
-	Call_Finish();
+	if(fwd_reg_classes.FunctionCount > 0) {
+		Call_StartForward(fwd_reg_classes);
+		Call_Finish();
+	}
 
 	if(SQL_CheckConfig("economy")) {
 		Database.Connect(database_connect, "economy");
@@ -962,6 +965,13 @@ public void OnNotifyPluginUnloaded(Handle plugin)
 
 		item_handlers_map.Remove(hndlr.classname);
 		item_handlers.Erase(hndlr_idx);
+
+		len = item_handlers.Length;
+		for(int j = 0; j < len; ++j) {
+			item_handlers.GetArray(j, hndlr, sizeof(ItemHandler));
+
+			item_handlers_map.SetValue(hndlr.classname, j);
+		}
 	}
 }
 
@@ -2450,23 +2460,21 @@ static void cache_data(Database db, any data, int numQueries, DBResultSet[] resu
 		query_player_data(i);
 	}
 
-	Call_StartForward(fwd_loaded);
-	Call_Finish();
+	if(fwd_loaded.FunctionCount > 0) {
+		Call_StartForward(fwd_loaded);
+		Call_Finish();
+	}
 
 	items_loaded = true;
 }
 
 static void handle_result_set(DBResultSet set, Function func, any data=0)
 {
-	if(!set.HasResults) {
-		LogError("void result");
-		return;
-	}
-
-	for(int i = 0; i < set.RowCount; ++i) {
+	int rows = set.RowCount;
+	for(int i = 0; i < rows; ++i) {
 		if(!set.FetchRow()) {
 			LogError("fetch failed");
-			return;
+			break;
 		}
 
 		Call_StartFunction(null, func);
@@ -3192,11 +3200,6 @@ static bool item_state_valid_ex(ItemInfo info)
 
 	int hndlr_idx = -1;
 	if(!item_handlers_map.GetValue(info.classname, hndlr_idx)) {
-		return false;
-	}
-
-	PrivateForward handle_fwd = item_handlers.Get(hndlr_idx, ItemHandler::handle_fwd);
-	if(handle_fwd.FunctionCount == 0) {
 		return false;
 	}
 

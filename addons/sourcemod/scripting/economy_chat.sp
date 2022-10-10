@@ -28,6 +28,14 @@ static void CCC_ResetColor(int client, CCC_ColorType type) {}
 static char player_tag[TF2_MAXPLAYERS+1][MAX_NAME_LENGTH];
 static int player_chat_colors[TF2_MAXPLAYERS+1][3];
 
+static bool late_loaded;
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	late_loaded = late;
+	return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
 	
@@ -137,7 +145,12 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 	}
 }
 
-static void chat_clr_cat_registered(int idx, int type)
+static void chat_clr_item_registered(int idx, int cat_idx)
+{
+	econ_add_item_to_category(idx, cat_idx);
+}
+
+static void chat_clr_cat_registered(int cat, int type)
 {
 	CCheckTrie();
 
@@ -154,23 +167,27 @@ static void chat_clr_cat_registered(int idx, int type)
 		int value;
 		GetTrieValue(CTrie, name, value);
 
+		if(econ_find_item(cat, name) != ECON_INVALID_ITEM) {
+			continue;
+		}
+
 		item_kv.SetString("name", name);
 
 		switch(type) {
 			case 0: {
 				item_kv.SetString("classname", "chat_color_tag");
 				item_kv.SetNum("price", 50);
-				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+				econ_register_item(item_kv, chat_clr_item_registered, cat);
 			}
 			case 1: {
 				item_kv.SetString("classname", "chat_color");
 				item_kv.SetNum("price", 100);
-				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+				econ_register_item(item_kv, chat_clr_item_registered, cat);
 			}
 			case 2: {
 				item_kv.SetString("classname", "chat_color_name");
 				item_kv.SetNum("price", 150);
-				econ_get_or_register_item(idx, item_kv, INVALID_FUNCTION, 0);
+				econ_register_item(item_kv, chat_clr_item_registered, cat);
 			}
 		}
 	}
@@ -180,24 +197,17 @@ static void chat_clr_cat_registered(int idx, int type)
 	CloseHandle(snap);
 }
 
-static void chat_clr_tag_cat_registered(int idx, any data)
-{ chat_clr_cat_registered(idx, 0); }
-static void chat_clr_txt_cat_registered(int idx, any data)
-{ chat_clr_cat_registered(idx, 1); }
-static void chat_clr_name_cat_registered(int idx, any data)
-{ chat_clr_cat_registered(idx, 2); }
-
-static void chat_clrs_cat_registered(int idx, any data)
+static void chat_clrs_cat_registered(int cat, any data)
 {
-	econ_get_or_register_category("Tag", idx, chat_clr_tag_cat_registered, 0);
-	econ_get_or_register_category("Chat", idx, chat_clr_txt_cat_registered, 0);
-	econ_get_or_register_category("Name", idx, chat_clr_name_cat_registered, 0);
+	econ_get_or_register_category("Tag", cat, chat_clr_cat_registered, 0);
+	econ_get_or_register_category("Chat", cat, chat_clr_cat_registered, 1);
+	econ_get_or_register_category("Name", cat, chat_clr_cat_registered, 2);
 }
 
-static void chat_cat_registered(int idx, any data)
+static void chat_cat_registered(int cat, any data)
 {
-	econ_get_or_register_category("Tag", idx, INVALID_FUNCTION, 0);
-	econ_get_or_register_category("Colors", idx, chat_clrs_cat_registered, 0);
+	econ_get_or_register_category("Tag", cat, INVALID_FUNCTION, 0);
+	econ_get_or_register_category("Colors", cat, chat_clrs_cat_registered, 0);
 }
 
 public void econ_loaded()
@@ -216,7 +226,9 @@ public void econ_register_item_classes()
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		
+		if(late_loaded) {
+			econ_register_item_classes();
+		}
 	}
 }
 

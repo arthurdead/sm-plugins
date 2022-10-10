@@ -349,6 +349,8 @@ static bool economy_loaded;
 static bool proxysend_loaded;
 static bool clsobj_hack_loaded;
 
+static bool late_loaded;
+
 static ConVar randomizer_fix_taunt;
 
 static ConVar sv_usehwmmodels;
@@ -553,6 +555,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("pm2_set_player_animation", native_pm2_set_player_animation);
 	CreateNative("pm2_unequip_config", native_pm2_pm2_unequip_config);
 	CreateNative("pm2_equip_config", native_pm2_pm2_equip_config);
+	late_loaded = late;
 	return APLRes_Success;
 }
 
@@ -2254,6 +2257,9 @@ public void OnLibraryAdded(const char[] name)
 		tauntmanager_loaded = true;
 	} else if(StrEqual(name, "economy")) {
 		economy_loaded = true;
+		if(late_loaded) {
+			econ_register_item_classes();
+		}
 	} else if(StrEqual(name, "proxysend")) {
 		proxysend_loaded = true;
 	} else if(StrEqual(name, "clsobj_hack")) {
@@ -2329,6 +2335,8 @@ public void OnMapStart()
 	PrecacheModel("models/player/hwm/spy.mdl");
 	PrecacheModel("models/player/hwm/sniper.mdl");
 	PrecacheModel("models/player/hwm/pyro.mdl");
+
+	PrecacheModel("models/weapons/c_models/c_engineer_gunslinger.mdl");
 
 	modelprecache = FindStringTable("modelprecache");
 

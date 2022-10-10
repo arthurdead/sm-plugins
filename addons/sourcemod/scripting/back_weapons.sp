@@ -45,6 +45,14 @@ static ConVar sv_backweapons;
 static bool economy_loaded;
 #endif
 
+static bool late_loaded;
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	late_loaded = late;
+	return APLRes_Success;
+}
+
 static void sv_backweapons_changed(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	bool value = StringToInt(newValue) != 0;
@@ -219,6 +227,9 @@ public void OnLibraryAdded(const char[] name)
 #if defined __economy_inc
 	if(StrEqual(name, "economy")) {
 		economy_loaded = true;
+		if(late_loaded) {
+			econ_register_item_classes();
+		}
 	}
 #endif
 }

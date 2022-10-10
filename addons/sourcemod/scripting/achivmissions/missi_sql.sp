@@ -153,56 +153,55 @@ void ParseMissiParam(char str[MAX_MISSI_PARAM_INPUT_STR], MissionParamType &type
 void CacheMissiData(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
 {
 	DBResultSet set = results[2];
-	if(set.HasResults) {
-		mapMissiIds = new StringMap();
-		missi_cache = new MMissiCache();
-		missi_map = new MMissiMap();
-		missi_names = new ArrayList(ByteCountToCells(MAX_MISSION_NAME));
-		missi_descs = new ArrayList(ByteCountToCells(MAX_MISSION_DESCRIPTION));
 
-		char name[MAX_MISSION_NAME];
-		char desc[MAX_MISSION_DESCRIPTION];
-		char param[MAX_MISSION_PARAMS][MAX_MISSI_PARAM_INPUT_STR];
+	mapMissiIds = new StringMap();
+	missi_cache = new MMissiCache();
+	missi_map = new MMissiMap();
+	missi_names = new ArrayList(ByteCountToCells(MAX_MISSION_NAME));
+	missi_descs = new ArrayList(ByteCountToCells(MAX_MISSION_DESCRIPTION));
 
-		do {
-			do {
-				if(!set.FetchRow()) {
-					continue;
-				}
+	char name[MAX_MISSION_NAME];
+	char desc[MAX_MISSION_DESCRIPTION];
+	char param[MAX_MISSION_PARAMS][MAX_MISSI_PARAM_INPUT_STR];
 
-				++num_missis;
+	int rows = set.RowCount;
+	for(int j = 0; j < rows; ++j) {
+		if(!set.FetchRow()) {
+			LogError("fetch failed");
+			break;
+		}
 
-				int id = set.FetchInt(0);
+		++num_missis;
 
-				set.FetchString(1, name, MAX_MISSION_NAME);
+		int id = set.FetchInt(0);
 
-				mapMissiIds.SetValue(name, id);
+		set.FetchString(1, name, MAX_MISSION_NAME);
 
-				int idx = missi_cache.Push(id);
+		mapMissiIds.SetValue(name, id);
 
-				missi_cache.SetName(id, name, idx);
+		int idx = missi_cache.Push(id);
 
-				if(!set.IsFieldNull(2)) {
-					set.FetchString(2, desc, MAX_MISSION_DESCRIPTION);
-					missi_cache.SetDesc(id, desc, idx);
-				} else {
-					strcopy(desc, MAX_MISSION_DESCRIPTION, "<<missing description>>");
-					missi_cache.NullDesc(id, idx);
-				}
+		missi_cache.SetName(id, name, idx);
 
-				for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
-					set.FetchString(3+i, param[i], MAX_MISSI_PARAM_INPUT_STR);
+		if(!set.IsFieldNull(2)) {
+			set.FetchString(2, desc, MAX_MISSION_DESCRIPTION);
+			missi_cache.SetDesc(id, desc, idx);
+		} else {
+			strcopy(desc, MAX_MISSION_DESCRIPTION, "<<missing description>>");
+			missi_cache.NullDesc(id, idx);
+		}
 
-					MissionParamType type = MPARAM_INVALID;
-					int min = 0;
-					int max = 0;
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			set.FetchString(3+i, param[i], MAX_MISSI_PARAM_INPUT_STR);
 
-					ParseMissiParam(param[i], type, min, max);
+			MissionParamType type = MPARAM_INVALID;
+			int min = 0;
+			int max = 0;
 
-					missi_cache.SetParamInfo(id, i, type, min, max, idx);
-				}
-			} while(set.MoreRows);
-		} while(set.FetchMoreResults());
+			ParseMissiParam(param[i], type, min, max);
+
+			missi_cache.SetParamInfo(id, i, type, min, max, idx);
+		}
 	}
 
 	Transaction tr = new Transaction();
@@ -244,55 +243,53 @@ void CachePlayerMissiData(Database db, DBResultSet results, const char[] error, 
 		return;
 	}
 
-	if(results.HasResults) {
-		PlayerMissiCache[client] = new MPlayerMissiCache();
+	PlayerMissiCache[client] = new MPlayerMissiCache();
 
-		do {
-			do {
-				if(!results.FetchRow()) {
-					continue;
-				}
+	int rows = results.RowCount;
+	for(int j = 0; j < rows; ++j) {
+		if(!results.FetchRow()) {
+			LogError("fetch failed");
+			break;
+		}
 
-				int id = results.FetchInt(0);
+		int id = results.FetchInt(0);
 
-				int mission_id = results.FetchInt(1);
+		int mission_id = results.FetchInt(1);
 
-				int time = -1;
-				if(!results.IsFieldNull(5)) {
-					time = results.FetchInt(5);
-				}
+		int time = -1;
+		if(!results.IsFieldNull(5)) {
+			time = results.FetchInt(5);
+		}
 
-				int progress = 0;
-				if(!results.IsFieldNull(3)) {
-					progress = results.FetchInt(3);
-				}
+		int progress = 0;
+		if(!results.IsFieldNull(3)) {
+			progress = results.FetchInt(3);
+		}
 
-				any plugin_data = -1;
-				if(!results.IsFieldNull(4)) {
-					plugin_data = results.FetchInt(4);
-				}
+		any plugin_data = -1;
+		if(!results.IsFieldNull(4)) {
+			plugin_data = results.FetchInt(4);
+		}
 
-				int idx = PlayerMissiCache[client].Push(id);
+		int idx = PlayerMissiCache[client].Push(id);
 
-				PlayerMissiCache[client].SetMissionID(id, mission_id, idx);
-				PlayerMissiCache[client].SetCompletedTime(id, time, idx);
-				PlayerMissiCache[client].SetProgress(id, progress, idx);
-				PlayerMissiCache[client].SetPluginData(id, plugin_data, idx);
+		PlayerMissiCache[client].SetMissionID(id, mission_id, idx);
+		PlayerMissiCache[client].SetCompletedTime(id, time, idx);
+		PlayerMissiCache[client].SetProgress(id, progress, idx);
+		PlayerMissiCache[client].SetPluginData(id, plugin_data, idx);
 
-				for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
-					int value = -1;
-					if(!results.IsFieldNull(6+i)) {
-						value = results.FetchInt(6+i);
-					}
+		for(int i = 0; i < MAX_MISSION_PARAMS; ++i) {
+			int value = -1;
+			if(!results.IsFieldNull(6+i)) {
+				value = results.FetchInt(6+i);
+			}
 
-					PlayerMissiCache[client].SetParamValue(id, i, value, idx);
-				}
+			PlayerMissiCache[client].SetParamValue(id, i, value, idx);
+		}
 
-				missi_map.Add(client, mission_id, id);
+		missi_map.Add(client, mission_id, id);
 
-				bMissiCacheLoaded[client] = true;
-			} while(results.MoreRows);
-		} while(results.FetchMoreResults());
+		bMissiCacheLoaded[client] = true;
 	}
 
 	if(hOnMissionDataLoaded.FunctionCount > 0) {

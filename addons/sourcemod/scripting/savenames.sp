@@ -91,15 +91,11 @@ static void database_connect(Database db, const char[] error, any data)
 
 static void handle_result_set(DBResultSet set, Function func, any data=0)
 {
-	if(!set.HasResults) {
-		LogError("void result");
-		return;
-	}
-
-	for(int i = 0; i < set.RowCount; ++i) {
+	int rows = set.RowCount;
+	for(int i = 0; i < rows; ++i) {
 		if(!set.FetchRow()) {
 			LogError("fetch failed");
-			return;
+			break;
 		}
 
 		Call_StartFunction(null, func);

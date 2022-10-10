@@ -3,7 +3,27 @@
 #endif
 #define __expr_pop_inc
 
+#if !defined REQUIRE_PLUGIN
+	#define __EXPR_POP_PL_OPTIONAL
+#endif
+
+#if !defined REQUIRE_EXTENSIONS
+	#define __EXPR_POP_EXT_OPTIONAL
+#endif
+
+#if defined __EXPR_POP_OPTIONAL
+	#undef REQUIRE_EXTENSIONS
+	#undef REQUIRE_PLUGIN
+#endif
+
 #include <popspawner>
+
+#if defined __EXPR_POP_OPTIONAL
+	#if !defined __EXPR_POP_EXT_OPTIONAL
+		#define REQUIRE_EXTENSIONS
+	#endif
+	#define REQUIRE_PLUGIN
+#endif
 
 enum entity_healthbar_t
 {
@@ -52,6 +72,7 @@ public SharedPlugin __pl_expr_pop =
 #if !defined REQUIRE_PLUGIN
 public void __pl_expr_pop_SetNTVOptional()
 {
-	
+	MarkNativeAsOptional("expr_pop_parse");
+	MarkNativeAsOptional("expr_pop_spawn");
 }
 #endif

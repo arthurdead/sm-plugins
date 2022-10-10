@@ -45,6 +45,14 @@ stock bool IsEnemy(int entity, int other)
 	return (GetEntityTeam(entity) != GetEntityTeam(other));
 }
 
+stock bool IsOBJ(int entity)
+{
+	char classname[5];
+	GetEntityClassname(entity, classname, sizeof(classname));
+
+	return StrContains(classname, "obj_") == 0;
+}
+
 stock void SetEntityTeam(int entity, int team, bool raw)
 {
 	int old_team = GetEntityTeam(entity);
@@ -73,16 +81,50 @@ stock void SetEntityTeam(int entity, int team, bool raw)
 					processed |= (1 << 1);
 				}
 			}
-		} else if(!raw) {
+		} else {
 			int life = GetEntProp(entity, Prop_Send, "m_lifeState");
 			SetEntProp(entity, Prop_Send, "m_lifeState", 2);
 			ignore_team_override = true;
 			ChangeClientTeam(entity, team);
 			ignore_team_override = false;
 			SetEntProp(entity, Prop_Send, "m_lifeState", life);
+
+			
+		}
+	} else if(IsOBJ(entity)) {
+		if(raw) {
+			SetEntProp(entity, Prop_Send, "m_iTeamNum", team);
+
+			int processed = 0;
+
+			bool m_bPlacing = view_as<bool>(GetEntProp(entity, Prop_Send, "m_bPlacing"));
+
+			int manager = -1;
+			while((manager = FindEntityByClassname(manager, "tf_team")) != -1) {
+				if(processed & ((1 << 0)|(1 << 1))) {
+					break;
+				}
+
+				int manager_team = GetEntProp(manager, Prop_Send, "m_iTeamNum");
+				if(manager_team == old_team) {
+					SDKCall(hTeamRemoveObject, manager, entity);
+					processed |= (1 << 0);
+				} else if(manager_team == team) {
+					if(!m_bPlacing) {
+						SDKCall(hTeamAddObject, manager, entity);
+					}
+					processed |= (1 << 1);
+				}
+			}
+		} else {
+			SDKCall(hChangeTeam, entity, team);
 		}
 	} else {
-		SetEntProp(entity, Prop_Send, "m_iTeamNum", team);
+		if(raw) {
+			SetEntProp(entity, Prop_Send, "m_iTeamNum", team);
+		} else {
+			SDKCall(hChangeTeam, entity, team);
+		}
 	}
 }
 

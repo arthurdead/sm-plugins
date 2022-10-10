@@ -9,6 +9,14 @@ static StringMap footprint_value_map;
 
 static float player_footprint[TF2_MAXPLAYERS+1];
 
+static bool late_loaded;
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+	late_loaded = late;
+	return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
 	footprint_value_map = new StringMap();
@@ -126,7 +134,9 @@ public void econ_register_item_classes()
 public void OnLibraryAdded(const char[] name)
 {
 	if(StrEqual(name, "economy")) {
-		
+		if(late_loaded) {
+			econ_register_item_classes();
+		}
 	}
 }
 
