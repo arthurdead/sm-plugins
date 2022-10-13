@@ -89,7 +89,24 @@ stock void SetEntityTeam(int entity, int team, bool raw)
 			ignore_team_override = false;
 			SetEntProp(entity, Prop_Send, "m_lifeState", life);
 
-			
+			int len = TF2Util_GetPlayerWearableCount(entity);
+			for(int i = 0; i < len; i++) {
+				int wearable = TF2Util_GetPlayerWearable(entity, i);
+				SetEntityTeam(wearable, team, false);
+			}
+
+			if(m_hMyWeaponsLen == -1) {
+				m_hMyWeaponsLen = GetEntPropArraySize(entity, Prop_Send, "m_hMyWeapons");
+			}
+
+			for(int i = 0; i < m_hMyWeaponsLen; ++i) {
+				int weapon = GetEntPropEnt(entity, Prop_Send, "m_hMyWeapons", i);
+				if(weapon == -1) {
+					continue;
+				}
+
+				SetEntityTeam(weapon, team, false);
+			}
 		}
 	} else if(IsOBJ(entity)) {
 		if(raw) {

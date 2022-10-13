@@ -312,6 +312,8 @@ static bool dont_handle_SetCustomModel_call;
 static char player_custom_model[TF2_MAXPLAYERS+1][PLATFORM_MAX_PATH];
 static char player_entity_model[TF2_MAXPLAYERS+1][PLATFORM_MAX_PATH];
 
+static bool player_in_thirdperson[TF2_MAXPLAYERS+1];
+
 static ArrayList weapons_class_cache;
 static ConVar tf_always_loser;
 
@@ -543,7 +545,7 @@ static int native_pm2_is_thirdperson(Handle plugin, int params)
 {
 	int client = GetNativeCell(1);
 
-	return is_player_in_thirdperson(client);
+	return player_in_thirdperson[client];
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -990,6 +992,10 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 
 	info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
 
+	model_info.model_from_group = false;
+	model_info.arm_from_group = false;
+	model_info.download_flags = download_none;
+
 	kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
 	if(model_info.model[0] != '\0' && is_group) {
 		model_info.model_from_group = true;
@@ -999,8 +1005,6 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 	if(model_info.arm_model[0] != '\0' && is_group) {
 		model_info.arm_from_group = true;
 	}
-
-	model_info.download_flags = download_none;
 
 	if(kv.GetNum("download") == 1) {
 		model_info.download_flags |= download_model;
@@ -5115,6 +5119,8 @@ public void OnClientDisconnect(int client)
 
 	player_taunt_vars[client].clear();
 
+	player_in_thirdperson[client] = false;
+
 	player_tpose[client] = false;
 	player_loser[client][0] = false;
 	player_loser[client][1] = false;
@@ -5256,6 +5262,8 @@ static void toggle_player_weapons(int client, bool value)
 
 static void player_think(int client)
 {
+	player_in_thirdperson[client] = is_player_in_thirdperson(client);
+
 	TFClassType rep_player_class = get_player_class_rep(client);
 
 	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
@@ -5439,7 +5447,7 @@ Action player_model_entity_transmit(int entity, int client)
 {
 	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
 	if(client == owner) {
-		if(!is_player_in_thirdperson(client)) {
+		if(!player_in_thirdperson[client]) {
 			return Plugin_Handled;
 		}
 	} else {

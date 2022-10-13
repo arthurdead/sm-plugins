@@ -140,10 +140,10 @@ static void collect_ambush_areas()
 	next_ambush_calc = GetGameTime() + ambush_collect_time.FloatValue;
 }
 
-stock bool can_spawn_here(const float mins[3], float maxs[3], const float pos[3])
+stock bool can_spawn_here(int mask, const float mins[3], float maxs[3], const float pos[3])
 {
-	TR_TraceHull(pos, pos, mins, maxs, MASK_NPCSOLID);
-	return TR_GetFraction() >= 0.8;
+	TR_TraceHull(pos, pos, mins, maxs, mask);
+	return TR_GetFraction() == 1.0;
 }
 
 static bool get_random_ambush(int entity, const float mins[3], float maxs[3], float pos[3])
@@ -156,6 +156,17 @@ static bool get_random_ambush(int entity, const float mins[3], float maxs[3], fl
 	int num_areas_attempts = ambush_max_area_attempts.IntValue;
 	int num_pos_attempts = ambush_max_pos_attempts.IntValue;
 
+	int mask = MASK_NPCSOLID;
+
+	if(entity != -1) {
+		INextBot bot = INextBot(entity);
+		if(bot != INextBot_Null) {
+			IBody body = bot.BodyInterface;
+
+			mask = body.SolidMask;
+		}
+	}
+
 	for(int i = 0; i < num_areas_attempts; ++i) {
 		int idx = GetURandomInt() % len;
 		CNavArea area = last_ambush_areas.Get(idx);
@@ -163,23 +174,9 @@ static bool get_random_ambush(int entity, const float mins[3], float maxs[3], fl
 		for(int j = 0; j < num_pos_attempts; ++j) {
 			area.GetRandomPoint(pos);
 
-			float height = STEP_HEIGHT;
+			pos[2] += -mins[2] + STEP_HEIGHT;
 
-			if(entity != -1) {
-				INextBot bot = INextBot(entity);
-				ILocomotion locomotion = bot.LocomotionInterface;
-				if(locomotion.Type == Locomotion_FlyingCustom) {
-					height = view_as<NextBotFlyingLocomotion>(locomotion).DesiredAltitude;
-				} else {
-					height = locomotion.StepHeight;
-				}
-			}
-
-			height += -mins[2];
-
-			pos[2] += height;
-
-			if(can_spawn_here(mins, maxs, pos)) {
+			if(can_spawn_here(mask, mins, maxs, pos)) {
 				return true;
 			}
 		}

@@ -35,6 +35,7 @@ bool bCollisionHook = false;
 static int CTFTeam_m_TeamColor_offset = -1;
 bool truce_is_active;
 bool ignore_team_override;
+int m_hMyWeaponsLen = -1;
 
 #include "teammanager/stocks.inc"
 

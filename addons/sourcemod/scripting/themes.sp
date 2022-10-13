@@ -400,7 +400,7 @@ void GetWindVector(int client, float windvector[3])
 #define MIN(%1,%2) (%1 < %2 ? %1 : %2)
 #define MAX(%1,%2) (%1 > %2 ? %1 : %2)
 
-bool ComputeEmissionArea(int client, float player_origin[3], float origin[3], float size[2])
+bool ComputeEmissionArea(int client, const float player_origin[3], float origin[3], float size[2])
 {
 	float emissionSize = r_RainRadius[client];
 
@@ -556,16 +556,10 @@ void SpawnWeatherParticles(int i, float player_origin[3], int name)
 			TE_SendToAll();
 		#endif
 
-			TR_TraceRay(playerheight, particlepos, MASK_SOLID_BRUSHONLY & ~CONTENTS_WINDOW, RayType_EndPoint);
-			if(TR_GetFraction() < 1.0) {
-				int surf = TR_GetSurfaceFlags();
-				if(!(surf & SURF_SKY) &&
-					!(surf & SURF_SKY2D)) {
-					continue;
-				}
-
-				TR_GetEndPosition(particlepos);
-			} else {
+			TR_TraceRay(playerheight, particlepos, CONTENTS_SOLID|CONTENTS_MOVEABLE, RayType_EndPoint);
+			TR_GetEndPosition(particlepos);
+			int surf = TR_GetSurfaceFlags();
+			if(!(surf & (SURF_SKY|SURF_SKY2D))) {
 				continue;
 			}
 
@@ -584,6 +578,9 @@ void SpawnWeatherParticles(int i, float player_origin[3], int name)
 				particlepos[2] = player_origin[2] + mapParticleHeight;
 			}
 
+			if(j == 0) {
+				RemoveWeatherParticles(i);
+			}
 			SendWeatherParticle(i, particlepos, name, j == 0);
 		}
 	}
@@ -1691,7 +1688,7 @@ void HandleMapParticleManifest(const char[] mapname, bool current)
 		if(current) {
 			mapHasNoManifest = false;
 
-		#if 0
+		#if 1
 			mapHasCustomManifest = true;
 
 			File file = OpenFile(file_path, "r", true);
@@ -2245,6 +2242,33 @@ int GetPlayerTempParticleEnt(int client)
 	return entity;
 }
 
+void RemoveWeatherParticles(int i)
+{
+	if(EmptyParticleIndex != INVALID_STRING_INDEX) {
+		int ent = GetPlayerTempParticleEnt(i);
+		if(ent != -1) {
+			TE_Start("TFParticleEffect");
+			TE_WriteNum("m_iParticleSystemIndex", EmptyParticleIndex);
+			TE_WriteNum("entindex", ent);
+			TE_WriteNum("m_bResetParticles", 1);
+			TE_SendToClient(i);
+		}
+	}
+
+	if(ParticleEffectStop == INVALID_STRING_INDEX) {
+		ParticleEffectStop = FindStringIndex(EffectDispatch, "ParticleEffectStop");
+	}
+	if(ParticleEffectStop != INVALID_STRING_INDEX) {
+		int ent = GetPlayerTempParticleEnt(i);
+		if(ent != -1) {
+			TE_Start("EffectDispatch");
+			TE_WriteNum("m_iEffectName", ParticleEffectStop);
+			TE_WriteNum("entindex", ent);
+			TE_SendToClient(i);
+		}
+	}
+}
+
 void RemoveWeatherParticlesFromAll()
 {
 	if(EmptyParticleIndex != INVALID_STRING_INDEX) {
@@ -2344,8 +2368,6 @@ public void OnPluginEnd()
 			OnClientDisconnect(i);
 		}
 	}
-
-	OnMapEnd();
 }
 
 public void OnClientDisconnect(int client)
@@ -2439,6 +2461,7 @@ void OnClientPostThinkPost(int client)
 		float currentorigin[3];
 		GetClientAbsOrigin(client, currentorigin);
 		if(GetVectorDistance(vecLastWeatherPos[client], currentorigin) >= 256.0) {
+			RemoveWeatherParticles(client);
 			SpawnWeatherParticles(client, currentorigin, mapParticleIndex);
 			GetClientAbsOrigin(client, vecLastWeatherPos[client]);
 		}
