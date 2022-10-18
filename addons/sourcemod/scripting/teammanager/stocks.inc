@@ -47,10 +47,7 @@ stock bool IsEnemy(int entity, int other)
 
 stock bool IsOBJ(int entity)
 {
-	char classname[5];
-	GetEntityClassname(entity, classname, sizeof(classname));
-
-	return StrContains(classname, "obj_") == 0;
+	return EntityIsBaseObject(entity);
 }
 
 stock void SetEntityTeam(int entity, int team, bool raw)

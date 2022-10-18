@@ -2062,6 +2062,10 @@ static void on_item_registered(int item_idx, DataPack data)
 
 static void on_econ_cat_registered(int cat_idx, any ignore)
 {
+	if(econ_group_idx == -1) {
+		return;
+	}
+
 	ConfigGroupInfo econ_group;
 	groups.GetArray(econ_group_idx, econ_group, sizeof(ConfigGroupInfo));
 

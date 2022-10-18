@@ -218,9 +218,15 @@ static int num_workshop_metadatas;
 static ArrayList workshop_commands;
 static ArrayList workshop_request_data;
 
-static void workshop_information_finished()
+static Action timer_workshop_information_finished(Handle timer, any data)
 {
 	handle_maps();
+	return Plugin_Continue;
+}
+
+static void workshop_information_finished()
+{
+	CreateTimer(0.1, timer_workshop_information_finished, 0, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 #if defined WORKSHOP_GET_MAPNAME
@@ -1149,6 +1155,8 @@ public void OnPluginStart()
 	mapcyclefile = FindConVar("mapcyclefile");
 	mp_timelimit = FindConVar("mp_timelimit");
 
+	HookEvent("server_changelevel_failed", server_changelevel_failed);
+
 	mcm_api_key = CreateConVar("mcm_api_key", "");
 
 	load_builders();
@@ -1162,6 +1170,31 @@ public void OnPluginStart()
 		if(IsClientInGame(i)) {
 			OnClientPutInServer(i);
 		}
+	}
+}
+
+static Action timer_retrymap(Handle timer, DataPack pack)
+{
+	pack.Reset();
+
+	char levelname[PLATFORM_MAX_PATH];
+	pack.ReadString(levelname, PLATFORM_MAX_PATH);
+
+	SetNextMap(levelname);
+	ForceChangeLevel(levelname, "MCM");
+
+	return Plugin_Continue;
+}
+
+static void server_changelevel_failed(Event event, const char[] name, bool dontBroadcast)
+{
+	char levelname[PLATFORM_MAX_PATH];
+	event.GetString("levelname", levelname, PLATFORM_MAX_PATH);
+
+	if(StrContains(levelname, "workshop/") == 9) {
+		DataPack pack;
+		CreateDataTimer(0.1, timer_retrymap, pack, TIMER_FLAG_NO_MAPCHANGE);
+		pack.WriteString(levelname);
 	}
 }
 

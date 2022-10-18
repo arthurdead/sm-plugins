@@ -7,6 +7,7 @@
 #include <bit>
 #include <rulestools>
 #include <tf2utils>
+#include <clsobj_hack>
 
 #undef REQUIRE_EXTENSIONS
 #tryinclude <collisionhook>
@@ -53,6 +54,9 @@ GlobalForward fwFindTeams = null;
 GlobalForward fwGetTeamAssignmentOverride = null;
 
 Handle dhGetTeamAssignmentOverride = null;
+Handle dhWouldChangeUnbalanceTeams = null;
+Handle dhAreTeamsUnbalanced = null;
+Handle dhGetGlobalTeam = null;
 
 #include "teammanager/AllowedToHealTarget.sp"
 #include "teammanager/CouldHealTarget.sp"
@@ -93,6 +97,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int length)
 	CreateNative("TeamManager_FindTeam", Native_TeamManager_FindTeam);
 	CreateNative("TeamManager_AreTeamsEnemies", Native_TeamManager_AreTeamsEnemies);
 	CreateNative("TeamManager_AreTeamsFriends", Native_TeamManager_AreTeamsFriends);
+	CreateNative("TeamManager_AreEntitiesEnemies", Native_TeamManager_AreEntitiesEnemies);
+	CreateNative("TeamManager_AreEntitiesFriends", Native_TeamManager_AreEntitiesFriends);
+	CreateNative("TeamManager_GetEnemyTeam", Native_TeamManager_GetEnemyTeam);
 
 	CreateNative("TeamManager_IsTruceActive", Native_TeamManager_IsTruceActive);
 
@@ -146,8 +153,19 @@ public void OnPluginStart()
 	CanPerformBackstabAgainstTargetCreate(gamedata);
 	DeflectProjectilesCreate(gamedata);
 
+	dhGetGlobalTeam = DHookCreateFromConf(gamedata, "GetGlobalTeam");
+	DHookEnableDetour(dhGetGlobalTeam, false, GetGlobalTeam);
+
 	dhGetTeamAssignmentOverride = DHookCreateFromConf(gamedata, "CTFGameRules::GetTeamAssignmentOverride");
 	DHookEnableDetour(dhGetTeamAssignmentOverride, false, GetTeamAssignmentOverride);
+
+	dhWouldChangeUnbalanceTeams = DHookCreateFromConf(gamedata, "CTeamplayRoundBasedRules::WouldChangeUnbalanceTeams");
+	DHookEnableDetour(dhWouldChangeUnbalanceTeams, false, WouldChangeUnbalanceTeams);
+	DHookEnableDetour(dhWouldChangeUnbalanceTeams, true, WouldChangeUnbalanceTeamsPost);
+
+	dhAreTeamsUnbalanced = DHookCreateFromConf(gamedata, "CTeamplayRoundBasedRules::AreTeamsUnbalanced");
+	DHookEnableDetour(dhAreTeamsUnbalanced, false, AreTeamsUnbalanced);
+	DHookEnableDetour(dhAreTeamsUnbalanced, true, AreTeamsUnbalancedPost);
 
 	StartPrepSDKCall(SDKCall_Entity);
 	PrepSDKCall_SetFromConf(gamedata, SDKConf_Virtual, "CTeam::AddPlayer");
@@ -223,6 +241,14 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+	int entity = -1;
+	while((entity = FindEntityByClassname(entity, "tf_team")) != -1) {
+		int team = GetEntProp(entity, Prop_Send, "m_iTeamNum");
+		if(team >= TF_TEAM_COUNT) {
+			RemoveEntity(entity);
+		}
+	}
+
 	for(int i = 1; i < MaxClients; i++) {
 		if(IsClientInGame(i)) {
 			OnClientDisconnect(i);
@@ -234,6 +260,44 @@ int Native_TeamManager_GetEntityTeam(Handle plugin, int params)
 {
 	int entity = GetNativeCell(1);
 	return GetEntityTeam(entity);
+}
+
+static bool in_autobalance;
+
+MRESReturn GetGlobalTeam(Handle hReturn, Handle hParams)
+{
+	if(in_autobalance) {
+		int team = DHookGetParam(hParams, 1);
+		if(team > TF_TEAM_BLUE) {
+			DHookSetReturn(hReturn, 0);
+			return MRES_Supercede;
+		}
+	}
+	return MRES_Ignored;
+}
+
+MRESReturn WouldChangeUnbalanceTeams(int pThis, Handle hReturn, Handle hParams)
+{
+	in_autobalance = true;
+	return MRES_Ignored;
+}
+
+MRESReturn WouldChangeUnbalanceTeamsPost(int pThis, Handle hReturn, Handle hParams)
+{
+	in_autobalance = false;
+	return MRES_Ignored;
+}
+
+MRESReturn AreTeamsUnbalanced(int pThis, Handle hReturn, Handle hParams)
+{
+	in_autobalance = true;
+	return MRES_Ignored;
+}
+
+MRESReturn AreTeamsUnbalancedPost(int pThis, Handle hReturn, Handle hParams)
+{
+	in_autobalance = false;
+	return MRES_Ignored;
 }
 
 MRESReturn GetTeamAssignmentOverride(int pThis, Handle hReturn, Handle hParams)
@@ -412,6 +476,61 @@ int Native_TeamManager_AreTeamsFriends(Handle plugin, int params)
 	}
 
 	return (team1 == team2);
+}
+
+int Native_TeamManager_AreEntitiesEnemies(Handle plugin, int params)
+{
+	int entity1 = GetNativeCell(1);
+	int entity2 = GetNativeCell(2);
+
+	int team1 = GetEntProp(entity1, Prop_Send, "m_iTeamNum");
+	int team2 = GetEntProp(entity2, Prop_Send, "m_iTeamNum");
+
+	return TeamManager_AreTeamsEnemies(team1, team2);
+}
+
+int Native_TeamManager_GetEnemyTeam(Handle plugin, int params)
+{
+	int team = GetNativeCell(1);
+
+	switch(team) {
+		case TF_TEAM_RED: {
+			return TF_TEAM_BLUE;
+		}
+		case TF_TEAM_BLUE: {
+			return TF_TEAM_RED;
+		}
+		case TF_TEAM_HALLOWEEN: {
+			switch(GetURandomInt() % 2) {
+				case 0: return TF_TEAM_RED;
+				case 1: return TF_TEAM_BLUE;
+			}
+		}
+		case TEAM_UNASSIGNED: {
+			switch(GetURandomInt() % 2) {
+				case 0: return TF_TEAM_RED;
+				case 1: return TF_TEAM_BLUE;
+			}
+		}
+		case TF_TEAM_PVE_INVADERS_GIANTS: {
+			if(IsMannVsMachineMode()) {
+				return TF_TEAM_PVE_DEFENDERS;
+			}
+		}
+	}
+
+	return TEAM_UNASSIGNED;
+}
+
+int Native_TeamManager_AreEntitiesFriends(Handle plugin, int params)
+{
+	int entity1 = GetNativeCell(1);
+	int entity2 = GetNativeCell(2);
+
+	int team1 = GetEntProp(entity1, Prop_Send, "m_iTeamNum");
+	int team2 = GetEntProp(entity2, Prop_Send, "m_iTeamNum");
+
+	return TeamManager_AreTeamsFriends(team1, team2);
 }
 
 int Native_TeamManager_IsTruceActive(Handle plugin, int params)

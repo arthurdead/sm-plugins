@@ -24,6 +24,9 @@ static int classes_melee_weapons[10] = {65535, ...};
 
 static Handle dummy_item_view;
 
+static ConVar sm_cwx_enable_menus;
+static ConVar sm_cwx_enable_cookies;
+
 static TFPlayerClassData TF_CLASS_SKELETON;
 
 static float player_death_pos[TF2_MAXPLAYERS+1][3];
@@ -35,6 +38,7 @@ static ConVar mp_tournament;
 
 static int info_populator = INVALID_ENT_REFERENCE;
 static int tf_gamerules = INVALID_ENT_REFERENCE;
+static int tf_logic_mann_vs_machine = INVALID_ENT_REFERENCE;
 
 static int m_nLastEventFiredTime = -1;
 
@@ -86,7 +90,8 @@ public void OnPluginStart()
 
 static Action sm_mva(int client, int args)
 {
-	return Plugin_Continue;
+	CWX_SetPlayerLoadoutItem(client, TF2_GetPlayerClass(client), "magic_sniper", LOADOUT_FLAG_ATTEMPT_REGEN);
+	return Plugin_Handled;
 }
 
 static bool filter_class_base_melee(int itemdef, TFClassType class)
@@ -105,11 +110,23 @@ static bool filter_class_base_melee(int itemdef, TFClassType class)
 
 public void OnAllPluginsLoaded()
 {
+	sm_cwx_enable_menus = FindConVar("sm_cwx_enable_menus");
+	sm_cwx_enable_cookies = FindConVar("sm_cwx_enable_cookies");
+
 	for(int i = 1; i <= 9; ++i) {
 		delete TF2Econ_GetItemList(filter_class_base_melee, i);
 	}
 
 	TF_CLASS_SKELETON = TFPlayerClassData.Find("Skeleton");
+
+	if(late_loaded) {
+		CWX_ItemsLoaded();
+	}
+}
+
+public void CWX_ItemsLoaded()
+{
+	
 }
 
 static void mvm_wave_complete(Event event, const char[] name, bool dontBroadcast)
@@ -234,7 +251,16 @@ public void OnConfigsExecuted()
 {
 	tf_gamemode_mvm.BoolValue = false;
 
+	sm_cwx_enable_menus.BoolValue = false;
+	sm_cwx_enable_cookies.BoolValue = false;
+
 	FindConVar("tf_populator_debug").BoolValue = false;
+}
+
+public void OnPluginEnd()
+{
+	sm_cwx_enable_menus.BoolValue = true;
+	sm_cwx_enable_cookies.BoolValue = true;
 }
 
 static void teamplay_round_start(Event event, const char[] name, bool dontBroadcast)
@@ -259,7 +285,10 @@ static void teamplay_round_start(Event event, const char[] name, bool dontBroadc
 		TF2_RespawnPlayer(i);
 	}
 
-	init_pop();
+	int logic = EntRefToEntIndex(tf_logic_mann_vs_machine);
+	if(logic == -1) {
+		init_pop();
+	}
 }
 
 public Action gamemode_uses_upgrades(bool &uses)
@@ -434,34 +463,6 @@ static void between_rounds(const char[] output, int caller, int activator, float
 
 public void OnMapStart()
 {
-	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
-	tf_gamerules = EntIndexToEntRef(gamerules);
-
-	int logic = FindEntityByClassname(-1, "tf_logic_mann_vs_machine");
-	if(logic != -1) {
-		RemoveEntity(logic);
-	}
-
-	int populator = FindEntityByClassname(-1, "info_populator");
-	if(populator == -1) {
-		populator = CreateEntityByName("info_populator");
-	}
-
-	info_populator = EntIndexToEntRef(populator);
-
-	set_pop_filename("mva.pop");
-
-	GameRules_SetProp("m_bPlayingMannVsMachine", 1);
-
-	HookSingleEntityOutput(gamerules, "OnStateEnterBetweenRounds", between_rounds);
-
-	proxysend_hook(gamerules, "m_bPlayingMannVsMachine", proxysend_mvm, true);
-	proxysend_hook(gamerules, "m_iRoundState", proxysend_roundstate, false);
-	proxysend_hook(gamerules, "m_flRestartRoundTime", proxysend_countdown, false);
-
-	GameRules_SetProp("m_nGameType", TF_GAMETYPE_UNDEFINED);
-	SetHUDType(TF_HUDTYPE_UNDEFINED);
-
 	PrecacheScriptSound("Announcer.RoundBegins1Seconds");
 	PrecacheScriptSound("Announcer.RoundBegins2Seconds");
 	PrecacheScriptSound("Announcer.RoundBegins3Seconds");
@@ -473,12 +474,41 @@ public void OnMapStart()
 	PrecacheScriptSound("Announcer.MVM_Final_Wave_Start");
 
 	PrecacheSound("music/mva/start_wave.mp3");
+
+	int gamerules = FindEntityByClassname(-1, "tf_gamerules");
+	tf_gamerules = EntIndexToEntRef(gamerules);
+
+	int logic = FindEntityByClassname(-1, "tf_logic_mann_vs_machine");
+	if(logic != -1) {
+		tf_logic_mann_vs_machine = EntIndexToEntRef(logic);
+	}
+
+	HookSingleEntityOutput(gamerules, "OnStateEnterBetweenRounds", between_rounds);
+
+	proxysend_hook(gamerules, "m_bPlayingMannVsMachine", proxysend_mvm, true);
+	proxysend_hook(gamerules, "m_iRoundState", proxysend_roundstate, false);
+	proxysend_hook(gamerules, "m_flRestartRoundTime", proxysend_countdown, false);
+
+	GameRules_SetProp("m_nGameType", TF_GAMETYPE_UNDEFINED);
+	SetHUDType(TF_HUDTYPE_UNDEFINED);
+
+	int populator = FindEntityByClassname(-1, "info_populator");
+	if(populator == -1) {
+		populator = CreateEntityByName("info_populator");
+	}
+
+	info_populator = EntIndexToEntRef(populator);
+
+	set_pop_filename("mva.pop");
+
+	GameRules_SetProp("m_bPlayingMannVsMachine", 1);
 }
 
 public void OnMapEnd()
 {
 	info_populator = INVALID_ENT_REFERENCE;
 	tf_gamerules = INVALID_ENT_REFERENCE;
+	tf_logic_mann_vs_machine = INVALID_ENT_REFERENCE;
 
 	game_ended = false;
 }

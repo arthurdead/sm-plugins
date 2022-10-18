@@ -89,8 +89,13 @@ forward void TeamManager_CreateTeams();
 forward void TeamManager_FindTeams();
 native int TeamManager_FindTeam(const char[] name);
 
-native bool TeamManager_AreTeamsEnemies(int team1, int ream2);
-native bool TeamManager_AreTeamsFriends(int team1, int ream2);
+native bool TeamManager_GetEnemyTeam(int team);
+
+native bool TeamManager_AreTeamsEnemies(int team1, int team2);
+native bool TeamManager_AreTeamsFriends(int team1, int team2);
+
+native bool TeamManager_AreEntitiesEnemies(int entity1, int entity2);
+native bool TeamManager_AreEntitiesFriends(int entity1, int entity2);
 
 native bool TeamManager_IsTruceActive();
 

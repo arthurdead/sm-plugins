@@ -84,6 +84,18 @@
 			{
 				"linux" "@_ZN7CTFTeam12RemoveObjectEP11CBaseObject"
 			}
+			"GetGlobalTeam"
+			{
+				"linux" "@_Z13GetGlobalTeami"
+			}
+			"CTeamplayRoundBasedRules::AreTeamsUnbalanced"
+			{
+				"linux" "@_ZN24CTeamplayRoundBasedRules18AreTeamsUnbalancedERiS0_"
+			}
+			"CTeamplayRoundBasedRules::WouldChangeUnbalanceTeams"
+			{
+				"linux" "@_ZN24CTeamplayRoundBasedRules25WouldChangeUnbalanceTeamsEii"
+			}
 		}
 		"Offsets"
 		{
@@ -603,6 +615,57 @@
 					"bAutoBalance"
 					{
 						"type" "bool"
+					}
+				}
+			}
+			"GetGlobalTeam"
+			{
+				"signature" "GetGlobalTeam"
+				"callconv" "cdecl"
+				"return" "int"
+				"arguments"
+				{
+					"iIndex"
+					{
+						"type" "int"
+					}
+				}
+			}
+			"CTeamplayRoundBasedRules::WouldChangeUnbalanceTeams"
+			{
+				"signature" "CTeamplayRoundBasedRules::WouldChangeUnbalanceTeams"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "address"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"iNewTeam"
+					{
+						"type" "int"
+					}
+					"iCurrentTeam"
+					{
+						"type" "int"
+					}
+				}
+			}
+			"CTeamplayRoundBasedRules::AreTeamsUnbalanced"
+			{
+				"signature" "CTeamplayRoundBasedRules::AreTeamsUnbalanced"
+				"callconv" "thiscall"
+				"return" "bool"
+				"this" "address"
+				"hooktype" "gamerules"
+				"arguments"
+				{
+					"iHeaviestTeam"
+					{
+						"type" "int"
+					}
+					"iLightestTeam"
+					{
+						"type" "int"
 					}
 				}
 			}
