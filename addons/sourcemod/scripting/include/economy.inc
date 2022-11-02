@@ -92,6 +92,7 @@ public SharedPlugin __pl_economy =
 #if !defined REQUIRE_PLUGIN
 public void __pl_economy_SetNTVOptional()
 {
+	MarkNativeAsOptional("econ_menu_add_item");
 	MarkNativeAsOptional("econ_item_settings");
 	MarkNativeAsOptional("econ_get_item_name");
 	MarkNativeAsOptional("econ_register_item_class");
@@ -104,6 +105,8 @@ public void __pl_economy_SetNTVOptional()
 	MarkNativeAsOptional("econ_set_item_setting");
 	MarkNativeAsOptional("econ_set_item_settings");
 	MarkNativeAsOptional("econ_update_item");
-	MarkNativeAsOptional("econ_menu_add_item");
+	MarkNativeAsOptional("econ_add_item_to_category");
+	MarkNativeAsOptional("econ_get_or_register_item");
+	MarkNativeAsOptional("econ_get_or_register_category");
 }
 #endif
