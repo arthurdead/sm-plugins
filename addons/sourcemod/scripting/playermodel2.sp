@@ -52,13 +52,13 @@ support for hiding hats in specific equip regions
 
 #define CLASS_NAME_MAX 15
 #if !defined clsobjhack_included
-#define TF_CLASS_COUNT_ALL 10
+#define TF_CLASS_COUNT_ALL (view_as<int>(TFClass_Engineer)+2)
 #endif
 
 #define MAX_SOUND_VAR_NAME 32
 #define MAX_SOUND_VAR_VALUE 32
 
-#define BIT_FOR_CLASS(%1) (1 << (view_as<int>(%1)-1))
+#define BIT_FOR_CLASS(%1) (1 << view_as<int>(%1))
 #define MASK_ALL_CLASSES 0xFFF
 
 #define OBS_MODE_IN_EYE 4
@@ -121,7 +121,16 @@ enum download_flags_t
 {
 	download_none =      0,
 	download_model =     (1 << 0),
-	download_arm_model = (1 << 1)
+	download_arm_model = (1 << 1),
+	download_animation = (1 << 2)
+};
+
+enum from_group_flags_t
+{
+	from_group_none =      0,
+	from_group_model =     (1 << 0),
+	from_group_arm_model = (1 << 1),
+	from_group_animation = (1 << 2)
 };
 
 enum struct BasicPrecacheInfo
@@ -134,13 +143,13 @@ enum struct ConfigModelInfo
 {
 	char model[PLATFORM_MAX_PATH];
 	TFClassType model_class;
+	TFClassType animation_class;
 	int skin;
 	int bodygroups;
 	char arm_model[PLATFORM_MAX_PATH];
+	char animation[PLATFORM_MAX_PATH];
 
-	bool model_from_group;
-	bool arm_from_group;
-
+	from_group_flags_t from_group_flags;
 	download_flags_t download_flags;
 }
 
@@ -207,8 +216,10 @@ enum struct PlayerConfigInfo
 	char arm_model[PLATFORM_MAX_PATH];
 	char model[PLATFORM_MAX_PATH];
 	TFClassType model_class;
+	TFClassType animation_class;
 	int skin;
 	int bodygroups;
+	char animation[PLATFORM_MAX_PATH];
 
 	void clear()
 	{
@@ -220,8 +231,10 @@ enum struct PlayerConfigInfo
 		this.scene_token[0] = '\0';
 		this.flags = config_flags_none;
 		this.arm_model[0] = '\0';
+		this.animation[0] = '\0';
 		this.model[0] = '\0';
 		this.model_class = TFClass_Unknown;
+		this.animation_class = TFClass_Unknown;
 		this.skin = -1;
 		this.bodygroups = -1;
 	}
@@ -363,7 +376,6 @@ static void get_mvm_model_for_class(TFClassType class, char[] model, int length)
 {
 	switch(class)
 	{
-		case TFClass_Unknown: { strcopy(model, length, "models/error.mdl"); }
 		case TFClass_Engineer: {
 			strcopy(model, length, "models/bots/engineer/bot_engineer.mdl");
 		}
@@ -390,6 +402,9 @@ static void get_mvm_model_for_class(TFClassType class, char[] model, int length)
 		}
 		case TFClass_Pyro: {
 			strcopy(model, length, "models/bots/pyro/bot_pyro.mdl");
+		}
+		default: {
+			strcopy(model, length, "models/error.mdl");
 		}
 	}
 }
@@ -992,18 +1007,22 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 
 	info.models.GetArray("", model_info, sizeof(ConfigModelInfo));
 
-	model_info.model_from_group = false;
-	model_info.arm_from_group = false;
+	model_info.from_group_flags = from_group_none;
 	model_info.download_flags = download_none;
 
 	kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
 	if(model_info.model[0] != '\0' && is_group) {
-		model_info.model_from_group = true;
+		model_info.from_group_flags |= from_group_model;
 	}
 
 	kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
 	if(model_info.arm_model[0] != '\0' && is_group) {
-		model_info.arm_from_group = true;
+		model_info.from_group_flags |= from_group_arm_model;
+	}
+
+	kv.GetString("animation", model_info.animation, PLATFORM_MAX_PATH, model_info.animation);
+	if(model_info.animation[0] != '\0' && is_group) {
+		model_info.from_group_flags |= from_group_animation;
 	}
 
 	if(kv.GetNum("download") == 1) {
@@ -1012,6 +1031,10 @@ static bool parse_config_kv_basic(KeyValues kv, ConfigInfo info, config_flags fl
 
 	if(kv.GetNum("download_arm") == 1) {
 		model_info.download_flags |= download_arm_model;
+	}
+
+	if(kv.GetNum("download_animation") == 1) {
+		model_info.download_flags |= download_animation;
 	}
 
 	info.models.SetArray("", model_info, sizeof(ConfigModelInfo));
@@ -1302,6 +1325,13 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 					model_info.model_class = only_class;
 				}
 
+				kv.GetString("animation_class", classname, CLASS_NAME_MAX, "unknown");
+				model_info.animation_class = get_class(classname);
+
+				if(model_info.animation_class == TFClass_Unknown && only_class != TFClass_Unknown) {
+					model_info.animation_class = only_class;
+				}
+
 				info.models.SetArray("", model_info, sizeof(ConfigModelInfo));
 
 				if(kv.JumpToKey("per_class_model")) {
@@ -1323,6 +1353,9 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 							kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
 							model_info.model_class = get_class(classname);
+
+							kv.GetString("animation_class", classname, CLASS_NAME_MAX, "unknown");
+							model_info.animation_class = get_class(classname);
 
 							char str[5];
 							pack_int_in_str(view_as<int>(class), str);
@@ -1351,6 +1384,7 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 							kv.GetString("model", model_info.model, PLATFORM_MAX_PATH, model_info.model);
 							kv.GetString("arm_model", model_info.arm_model, PLATFORM_MAX_PATH, model_info.arm_model);
+							kv.GetString("animation", model_info.animation, PLATFORM_MAX_PATH, model_info.animation);
 
 							model_info.download_flags = download_none;
 
@@ -1362,8 +1396,15 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 								model_info.download_flags |= download_arm_model;
 							}
 
+							if(kv.GetNum("download_animation") == 1) {
+								model_info.download_flags |= download_animation;
+							}
+
 							kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
 							model_info.model_class = get_class(classname);
+
+							kv.GetString("animation_class", classname, CLASS_NAME_MAX, "unknown");
+							model_info.animation_class = get_class(classname);
 
 							kv.GetString("bodygroups", bodygroups_str, sizeof(bodygroups_str), "-1");
 							model_info.bodygroups = parse_bodygroups_str(bodygroups_str);
@@ -1392,6 +1433,9 @@ static void parse_config_kv(const char[] path, ConfigGroupInfo group, ConfigInfo
 
 										kv.GetString("model_class", classname, CLASS_NAME_MAX, "unknown");
 										model_info.model_class = get_class(classname);
+
+										kv.GetString("animation_class", classname, CLASS_NAME_MAX, "unknown");
+										model_info.animation_class = get_class(classname);
 
 										char str[5];
 										pack_int_in_str(view_as<int>(class), str);
@@ -1589,7 +1633,7 @@ public void OnPluginStart()
 	for(int i = 0; i < TF2_MAXPLAYERS+1; ++i) {
 		player_thirdparty_model[i].clear();
 		player_custom_taunt_model[i].clear();
-		for(TFClassType j = TFClass_Scout; j <= TFClass_Engineer; ++j) {
+		for(int j = 0; j < TF_CLASS_COUNT_ALL; ++j) {
 			for(int k = 0; k < PLAYER_CONFIG_MAX; ++k) {
 				player_configs[i][j][k].clear();
 			}
@@ -1780,12 +1824,6 @@ public void OnPluginStart()
 		}
 
 		OnClientPutInServer(i);
-
-		if(!is_player_state_valid(i)) {
-			continue;
-		}
-
-		on_player_spawned(i);
 	}
 }
 
@@ -2018,6 +2056,15 @@ public void OnAllPluginsLoaded()
 	proxysend_loaded = LibraryExists("proxysend");
 	clsobj_hack_loaded = LibraryExists("clsobj_hack");
 
+	for(int i = 1; i <= MaxClients; ++i) {
+		if(!IsClientInGame(i) ||
+			!is_player_state_valid(i)) {
+			continue;
+		}
+
+		handle_playermodel(i);
+	}
+
 	randomizer_fix_taunt = FindConVar("randomizer_fix_taunt");
 	if(randomizer_fix_taunt != null) {
 		randomizer_fix_taunt.BoolValue = false;
@@ -2049,12 +2096,12 @@ static void on_item_registered(int item_idx, DataPack data)
 
 	int classes_allowed = configs.Get(config_idx, ConfigInfo::classes_allowed);
 
-	for(TFClassType k = TFClass_Scout; k <= TFClass_Engineer; ++k) {
+	for(int k = 0; k < TF_CLASS_COUNT_ALL; ++k) {
 		if(!(classes_allowed & BIT_FOR_CLASS(k))) {
 			continue;
 		}
 
-		get_class_name(k, class_name, CLASS_NAME_MAX, class_name_nonlocalized);
+		get_class_name(view_as<TFClassType>(k), class_name, CLASS_NAME_MAX, class_name_nonlocalized);
 
 		econ_get_or_register_category(class_name, parent_cat, on_econ_class_cat_registered, item_idx);
 	}
@@ -2155,9 +2202,9 @@ public void econ_modify_menu(const char[] classname, int item_idx)
 		StrCat(classes_str, classes_str_len, "all");
 	} else {
 		char tmp_classname[CLASS_NAME_MAX];
-		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+		for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
 			if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
-				get_class_name(i, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
+				get_class_name(view_as<TFClassType>(i), tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
 
 				StrCat(classes_str, classes_str_len, tmp_classname);
 				StrCat(classes_str, classes_str_len, "|");
@@ -2191,13 +2238,15 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				get_player_classes(client, real_player_class, rep_player_class);
 			}
 
-			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-				if(i == real_player_class) {
+			for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+				TFClassType class = view_as<TFClassType>(i);
+
+				if(class == real_player_class) {
 					continue;
 				}
 
 				if(config_info.classes_allowed & BIT_FOR_CLASS(i)) {
-					copy_config_vars(i, player_configs[client][i][player_config_econ], conf_idx, config_info);
+					copy_config_vars(class, player_configs[client][i][player_config_econ], conf_idx, config_info);
 				}
 			}
 
@@ -2229,8 +2278,10 @@ public void econ_handle_item(int client, const char[] classname, int item_idx, i
 				get_player_classes(client, real_player_class, rep_player_class);
 			}
 
-			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-				if(i == real_player_class) {
+			for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+				TFClassType class = view_as<TFClassType>(i);
+
+				if(class == real_player_class) {
 					continue;
 				}
 
@@ -2424,6 +2475,17 @@ public void OnMapStart()
 							load_depfile(mdlinfo.arm_model);
 						}
 					}
+
+					if(mdlinfo.animation[0] != '\0' && StrContains(mdlinfo.animation, "$") == -1) {
+					#if defined DEBUG_CONFIG
+						PrintToServer(PM2_CON_PREFIX ... "group %s precached animation %s from model", group.name, mdlinfo.animation);
+					#endif
+
+						PrecacheModel(mdlinfo.animation);
+						if(mdlinfo.download_flags & download_animation) {
+							load_depfile(mdlinfo.animation);
+						}
+					}
 				}
 			}
 			delete snap;
@@ -2519,7 +2581,7 @@ public void OnMapStart()
 			snap.GetKey(j, str, sizeof(str));
 
 			if(info.models.GetArray(str, mdlinfo, sizeof(ConfigModelInfo))) {
-				if(!mdlinfo.model_from_group && StrContains(mdlinfo.model, "$") == -1) {
+				if(!(mdlinfo.from_group_flags & from_group_model) && StrContains(mdlinfo.model, "$") == -1) {
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "config %s precached model %s from model", info.name, mdlinfo.model);
 				#endif
@@ -2530,7 +2592,7 @@ public void OnMapStart()
 					}
 				}
 
-				if(!mdlinfo.arm_from_group && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
+				if(!(mdlinfo.from_group_flags & from_group_arm_model) && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
 				#if defined DEBUG_CONFIG
 					PrintToServer(PM2_CON_PREFIX ... "config %s precached arm model %s from model", info.name, mdlinfo.arm_model);
 				#endif
@@ -2538,6 +2600,17 @@ public void OnMapStart()
 					PrecacheModel(mdlinfo.arm_model);
 					if(mdlinfo.download_flags & download_arm_model) {
 						load_depfile(mdlinfo.arm_model);
+					}
+				}
+
+				if(!(mdlinfo.from_group_flags & from_group_animation) && mdlinfo.animation[0] != '\0' && StrContains(mdlinfo.animation, "$") == -1) {
+				#if defined DEBUG_CONFIG
+					PrintToServer(PM2_CON_PREFIX ... "config %s precached animation %s from model", info.name, mdlinfo.animation);
+				#endif
+
+					PrecacheModel(mdlinfo.animation);
+					if(mdlinfo.download_flags & download_animation) {
+						load_depfile(mdlinfo.animation);
 					}
 				}
 			}
@@ -2555,7 +2628,7 @@ public void OnMapStart()
 					snap.GetKey(k, str, sizeof(str));
 
 					if(variation.models.GetArray(str, mdlinfo, sizeof(ConfigModelInfo))) {
-						if(!mdlinfo.model_from_group && StrContains(mdlinfo.model, "$") == -1) {
+						if(!(mdlinfo.from_group_flags & from_group_model) && StrContains(mdlinfo.model, "$") == -1) {
 						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "config %s variation %s precached model %s from model", info.name, variation.name, mdlinfo.model);
 						#endif
@@ -2566,7 +2639,7 @@ public void OnMapStart()
 							}
 						}
 
-						if(!mdlinfo.arm_from_group && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
+						if(!(mdlinfo.from_group_flags & from_group_arm_model) && mdlinfo.arm_model[0] != '\0' && StrContains(mdlinfo.arm_model, "$") == -1) {
 						#if defined DEBUG_CONFIG
 							PrintToServer(PM2_CON_PREFIX ... "config %s variation %s precached arm model %s from model", info.name, variation.name, mdlinfo.arm_model);
 						#endif
@@ -2574,6 +2647,17 @@ public void OnMapStart()
 							PrecacheModel(mdlinfo.arm_model);
 							if(mdlinfo.download_flags & download_arm_model) {
 								load_depfile(mdlinfo.arm_model);
+							}
+						}
+
+						if(!(mdlinfo.from_group_flags & from_group_animation) && mdlinfo.animation[0] != '\0' && StrContains(mdlinfo.animation, "$") == -1) {
+						#if defined DEBUG_CONFIG
+							PrintToServer(PM2_CON_PREFIX ... "config %s variation %s precached animation %s from model", info.name, variation.name, mdlinfo.animation);
+						#endif
+
+							PrecacheModel(mdlinfo.animation);
+							if(mdlinfo.download_flags & download_animation) {
+								load_depfile(mdlinfo.animation);
 							}
 						}
 					}
@@ -2742,8 +2826,10 @@ static void unequip_config(int client, int which)
 	if(idx != -1) {
 		int classes_allowed = configs.Get(idx, ConfigInfo::classes_allowed);
 
-		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-			if(i == real_player_class) {
+		for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+			TFClassType class = view_as<TFClassType>(i);
+
+			if(class == real_player_class) {
 				continue;
 			}
 
@@ -2788,6 +2874,10 @@ static void copy_config_vars(TFClassType class, PlayerConfigInfo plrinfo, int id
 		strcopy(plrinfo.arm_model, PLATFORM_MAX_PATH, mdlinfo.arm_model);
 	}
 
+	if(mdlinfo.animation[0] != '\0') {
+		strcopy(plrinfo.animation, PLATFORM_MAX_PATH, mdlinfo.animation);
+	}
+
 	if(mdlinfo.skin != -1) {
 		plrinfo.skin = mdlinfo.skin;
 	}
@@ -2797,6 +2887,7 @@ static void copy_config_vars(TFClassType class, PlayerConfigInfo plrinfo, int id
 	}
 
 	plrinfo.model_class = mdlinfo.model_class;
+	plrinfo.animation_class = mdlinfo.animation_class;
 
 	plrinfo.sound_variables = info.sound_variables;
 	plrinfo.scene_variables = info.scene_variables;
@@ -2837,18 +2928,21 @@ static bool equip_config_basic(int client, int which, int idx, ConfigInfo info)
 	TFClassType rep_player_class;
 	get_player_classes(client, real_player_class, rep_player_class);
 
-	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		if(i == real_player_class) {
+	for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+		TFClassType class = view_as<TFClassType>(i);
+
+		if(class == real_player_class) {
 			continue;
 		}
 
 		if(info.classes_allowed & BIT_FOR_CLASS(i)) {
-			copy_config_vars(i, player_configs[client][i][which], idx, info);
+			copy_config_vars(class, player_configs[client][i][which], idx, info);
 		}
 	}
 
 	if(info.classes_allowed & BIT_FOR_CLASS(real_player_class)) {
 		copy_config_vars(real_player_class, player_configs[client][rep_player_class][which], idx, info);
+
 		handle_gameplay_vars(client, player_configs[client][rep_player_class][which]);
 	}
 
@@ -2882,10 +2976,12 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 
 		TFClassType real_player_class = TF2_GetPlayerClass(client);
 
-		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+		for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+			TFClassType class = view_as<TFClassType>(i);
+
 			if(player_configs[client][i][player_config_custom].idx == idx) {
 				player_configs[client][i][player_config_custom].clear();
-				if(i == real_player_class) {
+				if(class == real_player_class) {
 					unequip_config_basic(client, player_config_custom);
 					if(is_player_state_valid(client)) {
 						handle_playermodel(client);
@@ -2940,6 +3036,10 @@ static void equip_config_variation(int client, int which, int idx, ConfigInfo in
 
 	if(mdlinfo.model_class != TFClass_Unknown) {
 		player_configs[client][rep_player_class][which].model_class = mdlinfo.model_class;
+	}
+
+	if(mdlinfo.animation_class != TFClass_Unknown) {
+		player_configs[client][rep_player_class][which].animation_class = mdlinfo.animation_class;
 	}
 
 	if(!player_taunts_in_firstperson(client)) {
@@ -3166,9 +3266,11 @@ static int handle_group_menu(Menu menu, MenuAction action, int param1, int param
 			StrCat(display, display_len, " [");
 
 			char tmp_classname[CLASS_NAME_MAX];
-			for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+			for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+				TFClassType class = view_as<TFClassType>(i);
+
 				if(info.classes_allowed & BIT_FOR_CLASS(i)) {
-					get_class_name(i, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
+					get_class_name(class, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
 
 					StrCat(display, display_len, tmp_classname);
 					StrCat(display, display_len, "|");
@@ -3328,9 +3430,11 @@ static int handle_groups_menu(Menu menu, MenuAction action, int param1, int para
 				StrCat(display, display_len, " [");
 
 				char tmp_classname[CLASS_NAME_MAX];
-				for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+				for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+					TFClassType class = view_as<TFClassType>(i);
+
 					if(info.classes_allowed & BIT_FOR_CLASS(i)) {
-						get_class_name(i, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
+						get_class_name(class, tmp_classname, CLASS_NAME_MAX, class_name_nonlocalized);
 
 						StrCat(display, display_len, tmp_classname);
 						StrCat(display, display_len, "|");
@@ -3422,23 +3526,27 @@ static Action sm_pm(int client, int args)
 	return Plugin_Handled;
 }
 
-static void on_player_spawned(int client)
+static void frame_player_spawn(int userid)
 {
-	SDKHook(client, SDKHook_PostThinkPost, player_think_taunt_prop);
+	int client = GetClientOfUserId(userid);
+	if(client == 0) {
+		return;
+	}
 
 	handle_playermodel(client);
 }
 
 static void player_spawn(Event event, const char[] name, bool dontBroadcast)
 {
-	int client = GetClientOfUserId(event.GetInt("userid"));
+	int userid = event.GetInt("userid");
+	int client = GetClientOfUserId(userid);
 
 	if(TF2_GetPlayerClass(client) == TFClass_Unknown ||
 		GetClientTeam(client) < 2) {
 		return;
 	}
 
-	on_player_spawned(client);
+	RequestFrame(frame_player_spawn, userid);
 }
 
 static void player_death(Event event, const char[] name, bool dontBroadcast)
@@ -3451,8 +3559,6 @@ static void player_death(Event event, const char[] name, bool dontBroadcast)
 	int flags = event.GetInt("death_flags");
 
 	if(!(flags & TF_DEATHFLAG_DEADRINGER)) {
-		SDKUnhook(client, SDKHook_PostThinkPost, player_think_taunt_prop);
-
 		if(proxysend_loaded) {
 			proxysend_unhook_cond(client, TFCond_SwimmingCurse, player_proxysend_swim_cond);
 
@@ -3654,8 +3760,10 @@ static ArrayList get_classes_for_taunt(int id)
 	char key[17 + CLASS_NAME_MAX];
 	char int_str[INT_STR_MAX];
 
-	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		get_class_name(i, class_name, CLASS_NAME_MAX, class_name_usability);
+	for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+		TFClassType class = view_as<TFClassType>(i);
+
+		get_class_name(class, class_name, CLASS_NAME_MAX, class_name_usability);
 
 		FormatEx(key, sizeof(key), "used_by_classes/%s", class_name);
 
@@ -3677,8 +3785,10 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 
 	bool has_intro = false;
 
-	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-		get_class_name(i, class_name, CLASS_NAME_MAX, class_name_usability);
+	for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+		TFClassType class = view_as<TFClassType>(i);
+
+		get_class_name(class, class_name, CLASS_NAME_MAX, class_name_usability);
 
 		FormatEx(key, sizeof(key), "taunt/custom_taunt_prop_scene_per_class/%s", class_name);
 
@@ -3692,8 +3802,10 @@ static void get_taunt_prop_models(int id, ArrayList &models, ArrayList &classes)
 		models = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 		classes = new ArrayList();
 
-		for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
-			get_class_name(i, class_name, CLASS_NAME_MAX, class_name_usability);
+		for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
+			TFClassType class = view_as<TFClassType>(i);
+
+			get_class_name(class, class_name, CLASS_NAME_MAX, class_name_usability);
 
 			FormatEx(key, sizeof(key), "taunt/custom_taunt_prop_per_class/%s", class_name);
 
@@ -4692,6 +4804,8 @@ public void OnClientPutInServer(int client)
 	SDKHook(client, SDKHook_WeaponSwitch, player_weapon_switch);
 	SDKHook(client, SDKHook_WeaponEquip, player_weapon_equip);
 
+	SDKHook(client, SDKHook_PostThinkPost, player_think_taunt_prop);
+
 	SDKHook(client, SDKHook_PostThinkPost, player_think);
 
 	if(!IsFakeClient(client)) {
@@ -5011,6 +5125,7 @@ static void delete_player_viewmodel_entity(int client, int which, int weapon = -
 				int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
 				int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
 
+				PrintToServer("%i", viewmodel);
 				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
 				effects &= ~EF_NODRAW;
 				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
@@ -5130,7 +5245,7 @@ public void OnClientDisconnect(int client)
 	player_loser[client][1] = false;
 	player_swim[client] = false;
 
-	for(TFClassType i = TFClass_Scout; i <= TFClass_Engineer; ++i) {
+	for(int i = 0; i < TF_CLASS_COUNT_ALL; ++i) {
 		for(int k = 0; k < PLAYER_CONFIG_MAX; ++k) {
 			player_configs[client][i][k].clear();
 		}
@@ -5140,10 +5255,8 @@ public void OnClientDisconnect(int client)
 	player_custom_animation[client].model[0] = '\0';
 	player_custom_animation[client].class = TFClass_Unknown;
 
-	if(IsValidEntity(client)) {
-		delete_player_model_entity(client);
-		delete_player_viewmodel_entities(client);
-	}
+	delete_player_model_entity(client);
+	delete_player_viewmodel_entities(client);
 
 	tf_taunt_first_person[client] = false;
 	cl_first_person_uses_world_model[client] = false;
@@ -5217,7 +5330,7 @@ static void player_changeclass(Event event, const char[] name, bool dontBroadcas
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 
-	handle_playermodel(client);
+	//handle_playermodel(client);
 }
 
 static void post_inventory_application(Event event, const char[] name, bool dontBroadcast)
@@ -5396,8 +5509,8 @@ static void remove_playermodel(int client)
 	}
 	recalculate_player_bodygroups(client);
 
-	//SetEntProp(client, Prop_Send, "m_bForcedSkin", 0);
-	//SetEntProp(client, Prop_Send, "m_nForcedSkin", 0);
+	SetEntProp(client, Prop_Send, "m_bForcedSkin", 0);
+	SetEntProp(client, Prop_Send, "m_nForcedSkin", 0);
 
 	delete_player_model_entity(client);
 	delete_player_viewmodel_entities(client);
@@ -5523,9 +5636,16 @@ static void handle_playermodel(int client)
 	get_player_classes(client, real_player_class, rep_player_class);
 
 	bool has_any_model = (player_thirdparty_model[client].model[0] != '\0');
+	bool has_any_anim = (player_custom_animation[client].model[0] != '\0');
+
+	int animation_from = -1;
 
 	for(int i = 0; i < PLAYER_CONFIG_MAX; ++i) {
 		if(player_configs[client][rep_player_class][i].model[0] != '\0') {
+			if(player_configs[client][rep_player_class][i].animation[0] != '\0') {
+				has_any_anim |= true;
+				animation_from = i;
+			}
 			has_any_model |= true;
 			break;
 		}
@@ -5549,6 +5669,10 @@ static void handle_playermodel(int client)
 	} else if(player_custom_animation[client].model[0] != '\0') {
 		strcopy(animation_model, PLATFORM_MAX_PATH, player_custom_animation[client].model);
 		anim_class = player_custom_animation[client].class;
+		custom_anim = true;
+	} else if(animation_from != -1) {
+		strcopy(animation_model, PLATFORM_MAX_PATH, player_configs[client][rep_player_class][animation_from].animation);
+		anim_class = player_configs[client][rep_player_class][animation_from].animation_class;
 		custom_anim = true;
 	} else if(player_weapon_animation_class[client] != TFClass_Unknown &&
 				player_weapon_animation_class[client] != real_player_class) {
@@ -5709,6 +5833,14 @@ static void handle_playermodel(int client)
 		if(player_model[0] == '\0') {
 			LogError(PM2_CON_PREFIX ... "tried to set empty model");
 			return;
+		}
+
+		if(from != -1) {
+			int skin = player_configs[client][rep_player_class][from].skin;
+			if(skin != -1) {
+				SetEntProp(client, Prop_Send, "m_bForcedSkin", 1);
+				SetEntProp(client, Prop_Send, "m_nForcedSkin", skin);
+			}
 		}
 
 		if(StrEqual(player_custom_model[client], player_model)) {
