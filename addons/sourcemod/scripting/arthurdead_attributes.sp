@@ -24,7 +24,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 
 public void OnPluginStart()
 {
-	CustomEntityFactory vortex_factory = EntityFactoryDictionary.register_based_name("attribute_teleport_vortex", "hightower_teleport_vortex");
+	CustomEntityFactory vortex_factory = EntityFactoryDictionary.register_based("attribute_teleport_vortex", "hightower_teleport_vortex");
 	CustomDatamap vortex_datamap = CustomDatamap.from_factory(vortex_factory);
 	vortex_datamap.add_prop("m_flLifetime", custom_prop_time);
 	vortex_datamap.add_prop("m_hWeapon", custom_prop_ehandle);
