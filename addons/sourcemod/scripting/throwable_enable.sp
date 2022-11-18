@@ -32,23 +32,28 @@ public void OnPluginStart()
 
 	CustomEntityFactory factory = EntityFactoryDictionary.register_function("tf_weapon_throwable", throwable_allocate, CTFThrowable_size);
 	CustomSendtable table = CustomSendtable.from_factory(factory);
-	table.set_network_name("CTFThrowable");
+	table.set_shared_name("TFThrowable");
+	table.set_client_class_id("CTFThrowable");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_primary", throwable_allocate, CTFThrowable_size);
 	table = CustomSendtable.from_factory(factory);
-	table.set_network_name("CTFThrowablePrimary");
+	table.set_shared_name("TFThrowablePrimary");
+	table.set_client_class_id("CTFThrowable");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_secondary", throwable_allocate, CTFThrowable_size);
 	table = CustomSendtable.from_factory(factory);
-	table.set_network_name("CTFThrowableSecondary");
+	table.set_shared_name("TFThrowableSecondary");
+	table.set_client_class_id("CTFThrowable");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_melee", throwable_allocate, CTFThrowable_size);
 	table = CustomSendtable.from_factory(factory);
-	table.set_network_name("CTFThrowableMelee");
+	table.set_shared_name("TFThrowableMelee");
+	table.set_client_class_id("CTFThrowable");
 
 	factory = EntityFactoryDictionary.register_function("tf_weapon_throwable_utility", throwable_allocate, CTFThrowable_size);
 	table = CustomSendtable.from_factory(factory);
-	table.set_network_name("CTFThrowableUtility");
+	table.set_shared_name("TFThrowableUtility");
+	table.set_client_class_id("CTFThrowable");
 
 	precache_weapon_file("tf_weapon_throwable.txt", true);
 	precache_weapon_file("tf_weapon_throwable_primary.txt", true);
