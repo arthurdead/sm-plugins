@@ -5,7 +5,7 @@
 public void OnPluginStart()
 {
 	CustomEntityFactory factory = EntityFactoryDictionary.register_based("prop_posable", "prop_dynamic_override");
-	CustomSendtable table = CustomSendtable.from_factory(factory);
+	CustomSendtable table = CustomSendtable.from_factory(factory, "CBaseAnimating");
 	table.set_shared_name("PropPosable");
 	table.set_client_class_id("CRagdollPropAttached");
 	table.add_prop_qangles("m_ragAngles", 13, _, RAGDOLL_MAX_ELEMENTS);
