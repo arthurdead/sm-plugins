@@ -308,6 +308,7 @@ static PlayerConfigInfo player_configs[TF2_MAXPLAYERS+1][TF_CLASS_COUNT_ALL][PLA
 static GlobalForward fwd_changed;
 
 static int player_model_entity[TF2_MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
+static int player_link_entity[TF2_MAXPLAYERS+1] = {INVALID_ENT_REFERENCE, ...};
 static int player_viewmodel_entities[TF2_MAXPLAYERS+1][2];
 
 static bool player_tpose[TF2_MAXPLAYERS+1];
@@ -422,10 +423,148 @@ static bool is_mvm_team(int team)
 	return (team == TF_TEAM_PVE_INVADERS || team == TF_TEAM_PVE_INVADERS_GIANTS);
 }
 
-static void get_model_for_class(TFClassType class, char[] model, int length, int for_client)
+static void get_hwm_model_for_class(TFClassType class, char[] model, int length)
 {
-	bool mvm = is_mvm_team(GetClientTeam(for_client));
-	bool hwm = false;//(sv_usehwmmodels.BoolValue || (mp_usehwmmodels[for_client] == 1));
+	switch(class)
+	{
+		case TFClass_Unknown: { strcopy(model, length, "models/error.mdl"); }
+		case TFClass_Engineer: {
+			strcopy(model, length, "models/player/hwm/engineer.mdl");
+		}
+		case TFClass_Scout: {
+			strcopy(model, length, "models/player/hwm/scout.mdl");
+		}
+		case TFClass_Medic: {
+			strcopy(model, length, "models/player/hwm/medic.mdl");
+		}
+		case TFClass_Soldier: {
+			strcopy(model, length, "models/player/hwm/soldier.mdl");
+		}
+		case TFClass_Heavy: {
+			strcopy(model, length, "models/player/hwm/heavy.mdl");
+		}
+		case TFClass_DemoMan: {
+			strcopy(model, length, "models/player/hwm/demo.mdl");
+		}
+		case TFClass_Spy: {
+			strcopy(model, length, "models/player/hwm/spy.mdl");
+		}
+		case TFClass_Sniper: {
+			strcopy(model, length, "models/player/hwm/sniper.mdl");
+		}
+		case TFClass_Pyro: {
+			strcopy(model, length, "models/player/hwm/pyro.mdl");
+		}
+	#if defined clsobjhack_included
+		default: {
+			if(clsobj_hack_loaded) {
+				TFPlayerClassData data = TFPlayerClassData.Get(class);
+				data.GetString("m_szHWMModelName", model, length);
+			} else {
+				strcopy(model, length, "models/error.mdl");
+			}
+		}
+	#endif
+	}
+}
+
+static bool hwm_enabled(int client)
+{
+	return (sv_usehwmmodels.BoolValue || (mp_usehwmmodels[client] == 1));
+}
+
+static void get_animation_for_class(TFClassType class, char[] model, int length, int client)
+{
+	bool mvm = is_mvm_team(GetClientTeam(client));
+
+	switch(class)
+	{
+		case TFClass_Unknown: { strcopy(model, length, "models/error.mdl"); }
+		case TFClass_Engineer: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/engineer/bot_engineer.mdl");
+			} else {
+				strcopy(model, length, "models/player/engineer.mdl");
+			}
+		}
+		case TFClass_Scout: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/scout/bot_scout.mdl");
+			} else {
+				strcopy(model, length, "models/player/scout.mdl");
+			}
+		}
+		case TFClass_Medic: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/medic/bot_medic.mdl");
+			} else {
+				strcopy(model, length, "models/player/medic.mdl");
+			}
+		}
+		case TFClass_Soldier: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/soldier/bot_soldier.mdl");
+			} else {
+				strcopy(model, length, "models/player/soldier.mdl");
+			}
+		}
+		case TFClass_Heavy: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/heavy/bot_heavy.mdl");
+			} else {
+				strcopy(model, length, "models/player/heavy.mdl");
+			}
+		}
+		case TFClass_DemoMan: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/demo/bot_demo.mdl");
+			} else {
+				strcopy(model, length, "models/player/demo.mdl");
+			}
+		}
+		case TFClass_Spy: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/spy/bot_spy.mdl");
+			} else {
+				strcopy(model, length, "models/player/spy.mdl");
+			}
+		}
+		case TFClass_Sniper: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/sniper/bot_sniper.mdl");
+			} else {
+				strcopy(model, length, "models/player/sniper.mdl");
+			}
+		}
+		case TFClass_Pyro: {
+			if(mvm) {
+				strcopy(model, length, "models/bots/pyro/bot_pyro.mdl");
+			} else {
+				strcopy(model, length, "models/player/pyro.mdl");
+			}
+		}
+	#if defined clsobjhack_included
+		default: {
+			if(clsobj_hack_loaded) {
+				TFPlayerClassData data = TFPlayerClassData.Get(class);
+				if(mvm) {
+					TFClassType rep = view_as<TFClassType>(data.GetInt("m_nRepresentative"));
+					get_mvm_model_for_class(rep, model, length);
+				} else {
+					data.GetString("m_szModelName", model, length);
+				}
+			} else {
+				strcopy(model, length, "models/error.mdl");
+			}
+		}
+	#endif
+	}
+}
+
+static void get_model_for_class(TFClassType class, char[] model, int length, int client)
+{
+	bool mvm = is_mvm_team(GetClientTeam(client));
+	bool hwm = hwm_enabled(client);
 
 	switch(class)
 	{
@@ -523,6 +662,8 @@ static void get_model_for_class(TFClassType class, char[] model, int length, int
 				} else {
 					data.GetString("m_szModelName", model, length);
 				}
+			} else {
+				strcopy(model, length, "models/error.mdl");
 			}
 		}
 	#endif
@@ -572,8 +713,25 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("pm2_set_player_animation", native_pm2_set_player_animation);
 	CreateNative("pm2_unequip_config", native_pm2_pm2_unequip_config);
 	CreateNative("pm2_equip_config", native_pm2_pm2_equip_config);
+	CreateNative("pm2_remove_attach_link", native_pm2_remove_attach_link);
+	CreateNative("pm2_get_attach_link", native_pm2_get_attach_link);
 	late_loaded = late;
 	return APLRes_Success;
+}
+
+static int native_pm2_remove_attach_link(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	delete_player_link_entity(client);
+	return 0;
+}
+
+static int native_pm2_get_attach_link(Handle plugin, int params)
+{
+	int client = GetNativeCell(1);
+
+	return get_or_create_player_link_entity(client);
 }
 
 static int native_pm2_pm2_equip_config(Handle plugin, int params)
@@ -3615,7 +3773,7 @@ static void frame_ragdoll_created(int entity)
 	TFClassType rep_player_class = get_player_class_rep(owner);
 
 	char model_original[PLATFORM_MAX_PATH];
-	GetEntPropString(owner, Prop_Send, "m_iszCustomModel", model_original, PLATFORM_MAX_PATH);
+	get_player_model(owner, model_original, PLATFORM_MAX_PATH);
 
 	bool classanim = GetEntProp(owner, Prop_Send, "m_bUseClassAnimations") != 0;
 
@@ -4133,7 +4291,7 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 
 			remove_playermodel(client);
 
-			call_changed_fwd(client);
+			call_changed_fwd(client, NULL_STRING);
 		}
 	}
 }
@@ -4347,23 +4505,74 @@ static void get_arm_model_for_class(int client, TFClassType class, char[] model,
 	}
 }
 
+static int create_wearable(int client)
+{
+	TF2Items_SetClassname(dummy_item_view, "tf_wearable");
+	int entity = TF2Items_GiveNamedItem(client, dummy_item_view);
+
+	float pos[3];
+	GetClientAbsOrigin(client, pos);
+
+	DispatchKeyValueVector(entity, "origin", pos);
+	DispatchKeyValue(entity, "model", "models/error.mdl");
+
+	TF2Util_EquipPlayerWearable(client, entity);
+	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
+	SetEntProp(entity, Prop_Send, "m_iAccountID", GetSteamAccountID(client));
+	TF2Util_SetWearableAlwaysValid(entity, true);
+
+	SetEntProp(entity, Prop_Send, "m_bClientSideAnimation", 0);
+	SetEntProp(entity, Prop_Send, "m_bClientSideFrameReset", 0);
+	SetEntPropFloat(entity, Prop_Send, "m_flPlaybackRate", 1.0);
+
+	SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
+
+	SetVariantString("!activator");
+	AcceptEntityInput(entity, "SetParent", client);
+
+	SetEntityOwner(entity, client);
+
+	int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+	effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
+	SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+
+	return entity;
+}
+
+static int create_wearable_vm(int client)
+{
+	TF2Items_SetClassname(dummy_item_view, "tf_wearable_vm");
+	int entity = TF2Items_GiveNamedItem(client, dummy_item_view);
+
+	float pos[3];
+	GetClientAbsOrigin(client, pos);
+
+	DispatchKeyValueVector(entity, "origin", pos);
+	DispatchKeyValue(entity, "model", "models/error.mdl");
+
+	TF2Util_EquipPlayerWearable(client, entity);
+	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
+	SetEntProp(entity, Prop_Send, "m_iAccountID", GetSteamAccountID(client));
+	TF2Util_SetWearableAlwaysValid(entity, true);
+
+	SetEntityOwner(entity, client);
+
+	SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
+
+	SDKHook(entity, SDKHook_SetTransmit, player_viewmodel_entity_transmit);
+
+	return entity;
+}
+
 static int get_or_create_player_viewmodel_entity(int client, int which)
 {
 	int entity = get_player_viewmodel_entity(client, which);
 
 	if(entity == -1) {
-		TF2Items_SetClassname(dummy_item_view, "tf_wearable_vm");
-		entity = TF2Items_GiveNamedItem(client, dummy_item_view);
-		float pos[3];
-		GetClientAbsOrigin(client, pos);
-		DispatchKeyValueVector(entity, "origin", pos);
-		DispatchKeyValue(entity, "model", "models/error.mdl");
-		TF2Util_EquipPlayerWearable(client, entity);
-		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
-		TF2Util_SetWearableAlwaysValid(entity, true);
+		entity = create_wearable_vm(client);
+
 		SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable_vm");
-		SetEntityOwner(entity, client);
-		SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
+
 		player_viewmodel_entities[client][which] = EntIndexToEntRef(entity);
 	}
 
@@ -4818,7 +5027,6 @@ public void OnClientPutInServer(int client)
 	CBasePlayer_GetSceneSoundToken_hook.HookEntity(Hook_Pre, client, CBasePlayer_GetSceneSoundToken_detour);
 }
 
-//TODO!!! handle client-side sounds
 static bool is_sound_client_side(const char[] sample)
 {
 	if(StrContains(sample, "player/footsteps/") == 0) {
@@ -5125,7 +5333,6 @@ static void delete_player_viewmodel_entity(int client, int which, int weapon = -
 				int viewmodel_index = GetEntProp(weapon, Prop_Send, "m_nViewModelIndex");
 				int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel", viewmodel_index);
 
-				PrintToServer("%i", viewmodel);
 				int effects = GetEntProp(viewmodel, Prop_Send, "m_fEffects");
 				effects &= ~EF_NODRAW;
 				SetEntProp(viewmodel, Prop_Send, "m_fEffects", effects);
@@ -5151,36 +5358,13 @@ static int get_or_create_player_model_entity(int client)
 	effects |= (EF_NOSHADOW|EF_NORECEIVESHADOW);
 	SetEntProp(client, Prop_Send, "m_fEffects", effects);
 
-	TF2Items_SetClassname(dummy_item_view, "tf_wearable");
-	entity = TF2Items_GiveNamedItem(client, dummy_item_view);
-
-	float pos[3];
-	GetClientAbsOrigin(client, pos);
-
-	DispatchKeyValueVector(entity, "origin", pos);
-	DispatchKeyValue(entity, "model", "models/error.mdl");
-
-	TF2Util_EquipPlayerWearable(client, entity);
-	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
-
-	TF2Util_SetWearableAlwaysValid(entity, true);
+	entity = create_wearable(client);
 
 	SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_wearable");
 
-	SetEntProp(entity, Prop_Send, "m_bClientSideAnimation", 0);
-	SetEntProp(entity, Prop_Send, "m_bClientSideFrameReset", 0);
-
-	SetEntPropFloat(entity, Prop_Send, "m_flPlaybackRate", 1.0);
-
-	SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
-
-	SetVariantString("!activator");
-	AcceptEntityInput(entity, "SetParent", client);
-
-	SetEntityOwner(entity, client);
-
 	SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
 	SDKHook(client, SDKHook_PostThinkPost, player_think_model);
+	SDKHook(entity, SDKHook_SetTransmit, player_model_entity_transmit);
 
 	if(proxysend_loaded) {
 		proxysend_hook(client, "m_clrRender", player_proxysend_render_color, false);
@@ -5189,16 +5373,64 @@ static int get_or_create_player_model_entity(int client)
 
 	SetEntityRenderMode(client, RENDER_NONE);
 
-	SDKHook(entity, SDKHook_SetTransmit, player_model_entity_transmit);
-
 	effects = GetEntProp(entity, Prop_Send, "m_fEffects");
-	effects |= (EF_BONEMERGE|EF_BONEMERGE_FASTCULL|EF_PARENT_ANIMATES);
 	effects &= ~(EF_NOSHADOW|EF_NORECEIVESHADOW);
 	SetEntProp(entity, Prop_Send, "m_fEffects", effects);
 
 	player_model_entity[client] = EntIndexToEntRef(entity);
 
 	return entity;
+}
+
+static void get_player_model(int client, char[] model, int len)
+{
+	if(player_custom_model[client][0] != '\0') {
+		strcopy(model, len, player_custom_model[client]);
+	} else {
+		GetEntPropString(client, Prop_Send, "m_iszCustomModel", model, len);
+		if(model[0] == '\0') {
+			TFClassType class = TF2_GetPlayerClass(client);
+			get_model_for_class(class, model, len, client);
+		}
+	}
+}
+
+static int get_or_create_player_link_entity(int client)
+{
+	int entity = get_player_link_entity(client);
+	if(entity != -1) {
+		return entity;
+	}
+
+	entity = create_wearable(client);
+
+	char model[PLATFORM_MAX_PATH];
+	get_player_model(client, model, PLATFORM_MAX_PATH);
+	SetEntityModel(entity, model);
+
+	SetEntPropString(entity, Prop_Data, "m_iClassname", "playermodel_link");
+
+	SetEntityRenderMode(entity, RENDER_TRANSCOLOR);
+	SetEntityRenderColor(entity, 255, 255, 255, 0);
+
+	int effects = GetEntProp(entity, Prop_Send, "m_fEffects");
+	effects |= (EF_NOSHADOW|EF_NORECEIVESHADOW);
+	SetEntProp(entity, Prop_Send, "m_fEffects", effects);
+
+	player_link_entity[client] = EntIndexToEntRef(entity);
+
+	return entity;
+}
+
+static void delete_player_link_entity(int client)
+{
+	int entity = get_player_link_entity(client);
+	if(entity != -1) {
+		AcceptEntityInput(entity, "ClearParent");
+		TF2_RemoveWearable(client, entity);
+		RemoveEntity(entity);
+		player_link_entity[client] = INVALID_ENT_REFERENCE;
+	}
 }
 
 static void delete_player_model_entity(int client)
@@ -5256,6 +5488,7 @@ public void OnClientDisconnect(int client)
 	player_custom_animation[client].class = TFClass_Unknown;
 
 	delete_player_model_entity(client);
+	delete_player_link_entity(client);
 	delete_player_viewmodel_entities(client);
 
 	tf_taunt_first_person[client] = false;
@@ -5530,6 +5763,20 @@ static int get_player_model_entity(int client)
 	return entity;
 }
 
+static int get_player_link_entity(int client)
+{
+	int entity = -1;
+	if(player_link_entity[client] != INVALID_ENT_REFERENCE) {
+		entity = EntRefToEntIndex(player_link_entity[client]);
+		if(!IsValidEntity(entity)) {
+			player_link_entity[client] = INVALID_ENT_REFERENCE;
+			entity = -1;
+		}
+	}
+
+	return entity;
+}
+
 static bool player_taunts_in_firstperson(int client)
 {
 	if(tf_taunt_first_person[client]) {
@@ -5560,11 +5807,29 @@ static bool is_player_in_thirdperson(int client)
 			tf_always_loser.BoolValue);
 }
 
-Action player_model_entity_transmit(int entity, int client)
+static Action player_viewmodel_entity_transmit(int entity, int client)
 {
 	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
 	if(client == owner) {
-		if(!player_in_thirdperson[client]) {
+		if(player_in_thirdperson[owner]) {
+			return Plugin_Handled;
+		}
+	} else {
+		bool firstperson = (
+			(GetEntPropEnt(client, Prop_Send, "m_hObserverTarget") == owner && GetEntProp(client, Prop_Send, "m_iObserverMode") == OBS_MODE_IN_EYE)
+		);
+		if(!firstperson) {
+			return Plugin_Handled;
+		}
+	}
+	return Plugin_Continue;
+}
+
+static Action player_model_entity_transmit(int entity, int client)
+{
+	int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	if(client == owner) {
+		if(!player_in_thirdperson[owner]) {
 			return Plugin_Handled;
 		}
 	} else {
@@ -5601,12 +5866,23 @@ static void replace_model_variables(int client, TFClassType model_class, char[] 
 	ReplaceString(model, len, "$model_class$", classname);
 }
 
-static void call_changed_fwd(int client)
+static void call_changed_fwd(int client, const char[] input_model)
 {
 	if(fwd_changed.FunctionCount > 0) {
 		Call_StartForward(fwd_changed);
 		Call_PushCell(client);
 		Call_Finish();
+	}
+
+	int entity = get_player_link_entity(client);
+	if(entity != -1) {
+		if(!IsNullString(input_model) && input_model[0] != '\0') {
+			SetEntityModel(entity, input_model);
+		} else {
+			char current_model[PLATFORM_MAX_PATH];
+			get_player_model(client, current_model, PLATFORM_MAX_PATH);
+			SetEntityModel(entity, current_model);
+		}
 	}
 }
 
@@ -5663,7 +5939,7 @@ static void handle_playermodel(int client)
 		anim_class = player_custom_taunt_model[client].class;
 	} else if(player_taunt_vars[client].class != TFClass_Unknown) {
 		if(player_taunt_vars[client].class != real_player_class) {
-			get_model_for_class(player_taunt_vars[client].class, animation_model, PLATFORM_MAX_PATH, client);
+			get_animation_for_class(player_taunt_vars[client].class, animation_model, PLATFORM_MAX_PATH, client);
 			anim_class = player_taunt_vars[client].class;
 		}
 	} else if(player_custom_animation[client].model[0] != '\0') {
@@ -5676,7 +5952,7 @@ static void handle_playermodel(int client)
 		custom_anim = true;
 	} else if(player_weapon_animation_class[client] != TFClass_Unknown &&
 				player_weapon_animation_class[client] != real_player_class) {
-		get_model_for_class(player_weapon_animation_class[client], animation_model, PLATFORM_MAX_PATH, client);
+		get_animation_for_class(player_weapon_animation_class[client], animation_model, PLATFORM_MAX_PATH, client);
 		anim_class = player_weapon_animation_class[client];
 	}
 
@@ -5725,6 +6001,14 @@ static void handle_playermodel(int client)
 				break;
 			}
 		}
+
+		if(from == -1) {
+			if(hwm_enabled(client)) {
+				get_hwm_model_for_class(real_player_class, player_model, PLATFORM_MAX_PATH);
+				model_class = real_player_class;
+				bonemerge = false;
+			}
+		}
 	}
 
 #if defined DEBUG_MODEL
@@ -5743,10 +6027,10 @@ static void handle_playermodel(int client)
 
 		remove_playermodel(client);
 
-		call_changed_fwd(client);
+		call_changed_fwd(client, NULL_STRING);
 	} else if(bonemerge) {
 		if(animation_model[0] == '\0') {
-			get_model_for_class(real_player_class, animation_model, PLATFORM_MAX_PATH, client);
+			get_animation_for_class(real_player_class, animation_model, PLATFORM_MAX_PATH, client);
 			anim_class = real_player_class;
 		}
 		if(player_model[0] == '\0') {
@@ -5796,7 +6080,7 @@ static void handle_playermodel(int client)
 		if(!same_custom_model) {
 			set_player_custom_model(client, animation_model, true);
 
-			call_changed_fwd(client);
+			call_changed_fwd(client, animation_model);
 		}
 
 		if(!same_entity_model) {
@@ -5850,6 +6134,6 @@ static void handle_playermodel(int client)
 		delete_player_model_entity(client);
 		set_player_custom_model(client, player_model, true);
 
-		call_changed_fwd(client);
+		call_changed_fwd(client, player_model);
 	}
 }

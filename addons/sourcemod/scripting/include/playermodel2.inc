@@ -17,6 +17,9 @@ native void pm2_set_player_animation(int client, const char[] model, TFClassType
 native void pm2_unequip_config(int client);
 native void pm2_equip_config(int client, const char[] name);
 
+native void pm2_remove_attach_link(int client);
+native int pm2_get_attach_link(int client);
+
 public SharedPlugin __pl_playermodel2 =
 {
 	name = "playermodel2",
