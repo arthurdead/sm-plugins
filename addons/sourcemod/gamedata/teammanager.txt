@@ -113,59 +113,59 @@
 			}
 			"CBaseObject::StartBuilding"
 			{
-				"linux" "337"
+				"linux" "344"
 			}
 			"CTeam::AddPlayer"
 			{
-				"linux" "203"
+				"linux" "209"
 			}
 			"CTeam::RemovePlayer"
 			{
-				"linux" "204"
+				"linux" "210"
 			}
 			"CBaseEntity::ShouldCollide"
 			{
-				"linux" "17"
+				"linux" "18"
 			}
 			"CBaseProjectile::CanCollideWithTeammates"
 			{
-				"linux" "224"
+				"linux" "230"
 			}
 			"CBaseProjectile::GetCollideWithTeammatesDelay"
 			{
-				"linux" "225"
+				"linux" "231"
 			}
 			"CTFWeaponBaseMelee::DoSwingTrace"
 			{
-				"linux" "469"
+				"linux" "475"
 			}
 			"CBaseCombatWeapon::PrimaryAttack"
 			{
-				"linux" "286"
+				"linux" "292"
 			}
 			"CTFProjectile_Jar::OnHit"
 			{
-				"linux" "260"
+				"linux" "266"
 			}
 			"CTFWeaponBase::DeflectPlayer"
 			{
-				"linux" "423"
+				"linux" "426"
 			}
 			"CTFWeaponBase::DeflectEntity"
 			{
-				"linux" "424"
+				"linux" "427"
 			}
 			"CBaseObject::Killed"
 			{
-				"linux" "350"
+				"linux" "356"
 			}
 			"CTFBaseRocket::Explode"
 			{
-				"linux" "237"
+				"linux" "240"
 			}
 			"CBaseEntity::ChangeTeam"
 			{
-				"linux" "95"
+				"linux" "97"
 			}
 		}
 		"Functions"

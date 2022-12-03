@@ -6,15 +6,15 @@
 		{
 			"CGameRules::RoundCleanupShouldIgnore"
 			{
-				"linux" "187"
+				"linux" "191"
 			}
 			"CGameRules::ShouldCreateEntity"
 			{
-				"linux" "188"
+				"linux" "192"
 			}
 			"CTeamplayRoundBasedRules::CleanUpMap"
 			{
-				"linux" "228"
+				"linux" "232"
 			}
 		}
 		"Signatures"

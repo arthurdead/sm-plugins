@@ -11,18 +11,18 @@
 			}
 			"CBasePlayer::EquipWearable"
 			{
-				"windows" "435"
-				"linux" "436"
+				"windows" "438"
+				"linux" "439"
 			}
 			"CBaseEntity::ModifyOrAppendCriteria"
 			{
-				"windows" "121"
-				"linux" "122"
+				"windows" "123"
+				"linux" "124"
 			}
 			"CBasePlayer::GetSceneSoundToken"
 			{
-				"windows" "371"
-				"linux" "372"
+				"windows" "374"
+				"linux" "375"
 			}
 		}
 		"Signatures"
